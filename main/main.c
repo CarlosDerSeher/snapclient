@@ -617,9 +617,9 @@ http_get_task (void *pvParameters)
 
       // init hello message
       hello_message.mac = mac_address;
-      hello_message.hostname = "ESP32-Caster";
+      hello_message.hostname = SNAPCAST_CLIENT_NAME;
       hello_message.version = (char *)VERSION_STRING;
-      hello_message.client_name = "libsnapcast";
+      hello_message.client_name = SNAPCAST_CLIENT_NAME;
       hello_message.os = "esp32";
       hello_message.arch = "xtensa";
       hello_message.instance = 1;
@@ -2855,9 +2855,9 @@ http_get_task_backup (void *pvParameters)
 
       // init hello message
       hello_message.mac = mac_address;
-      hello_message.hostname = "ESP32-Caster";
+      hello_message.hostname = SNAPCAST_CLIENT_NAME;
       hello_message.version = (char *)VERSION_STRING;
-      hello_message.client_name = "libsnapcast";
+      hello_message.client_name = SNAPCAST_CLIENT_NAME;
       hello_message.os = "esp32";
       hello_message.arch = "xtensa";
       hello_message.instance = 1;
