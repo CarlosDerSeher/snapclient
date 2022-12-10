@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <sys/time.h>
+#include <math.h>
 
 #include "freertos/FreeRTOS.h"
 #if CONFIG_USE_DSP_PROCESSOR
@@ -33,7 +34,7 @@ static float *sbufout0 = NULL;
 static float *sbuftmp0 = NULL;
 
 static uint32_t currentSamplerate = 0;
-static uint32_t currentChunkDurationMs = 0;
+static uint16_t currentlen = 0;
 
 static ptype_t bq[8];
 
@@ -257,20 +258,21 @@ dsp_processor (char *audio, size_t chunk_size, dspFlows_t dspFlow)
 // Fixed 2x2 biquad flow Xover for biAmp systems
 // Interface for cross over frequency and level
 void
-dsp_setup_flow (double freq, uint32_t samplerate, uint32_t chunkDurationMs)
+dsp_setup_flow (double freq, uint32_t samplerate, float chunkDurationMs)
 {
   float f = freq / samplerate / 2.0;
-  uint16_t len = (samplerate * chunkDurationMs / 1000);
+  uint16_t len = (uint16_t)ceil(samplerate * chunkDurationMs / 1000);
+  //ESP_LOGI (TAG, "Len: %d bits, chunkDuration: %f ms", len, chunkDurationMs);
 
   if (((currentSamplerate == samplerate)
-       && (currentChunkDurationMs == chunkDurationMs))
+       && (currentlen == len))
       || (samplerate == 0) || (chunkDurationMs == 0))
     {
       return;
     }
 
   currentSamplerate = samplerate;
-  currentChunkDurationMs = chunkDurationMs;
+  currentlen = len;
 
   bq[0]
       = (ptype_t){ LPF, f, 0, 0.707, NULL, NULL, { 0, 0, 0, 0, 0 }, { 0, 0 } };

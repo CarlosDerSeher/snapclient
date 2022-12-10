@@ -500,7 +500,7 @@ void flac_task(void *pvParameters) {
 
         size_t decodedSize = pcmData->totalSize;  // pFlacData->bytes;
         scSet->chkDur_ms = (1000UL * decodedSize) /
-                           (uint32_t)(scSet->ch * (scSet->bits / 8)) /
+                           (float)(scSet->ch * (scSet->bits / 8)) /
                            scSet->sr;
         if (player_send_snapcast_setting(scSet) != pdPASS) {
           ESP_LOGE(TAG,
@@ -1396,7 +1396,7 @@ static void http_get_task(void *pvParameters) {
                                     pcmData->totalSize;  // pFlacData->bytes;
                                 scSet.chkDur_ms =
                                     (1000UL * decodedSize) /
-                                    (uint32_t)(scSet.ch * (scSet.bits / 8)) /
+                                    (float)(scSet.ch * (scSet.bits / 8)) /
                                     scSet.sr;
                                 if (player_send_snapcast_setting(&scSet) !=
                                     pdPASS) {
@@ -1452,7 +1452,7 @@ static void http_get_task(void *pvParameters) {
 
                               scSet.chkDur_ms =
                                   (1000UL * decodedSize) /
-                                  (uint32_t)(scSet.ch * (scSet.bits / 8)) /
+                                  (float)(scSet.ch * (scSet.bits / 8)) /
                                   scSet.sr;
                               if (player_send_snapcast_setting(&scSet) !=
                                   pdPASS) {

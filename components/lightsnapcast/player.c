@@ -948,9 +948,9 @@ int32_t insert_pcm_chunk(pcm_chunk_message_t *pcmChunk) {
 static void player_task(void *pvParameters) {
   pcm_chunk_message_t *chnk = NULL;
   int64_t serverNow = 0;
-  int64_t age;
+  float age;
   BaseType_t ret;
-  int64_t chkDur_us;
+  float chkDur_us;
   char *p_payload = NULL;
   size_t size = 0;
   uint32_t notifiedValue;
@@ -966,7 +966,7 @@ static void player_task(void *pvParameters) {
   bool gotSnapserverConfig = false;
   int64_t clientDacLatency_us;
   int64_t diff2Server;
-  int64_t outputBufferDacTime = 0;
+  float outputBufferDacTime = 0;
 
   memset(&scSet, 0, sizeof(snapcastSetting_t));
 
@@ -994,7 +994,7 @@ static void player_task(void *pvParameters) {
 
       buf_us = (int64_t)(__scSet.buf_ms) * 1000LL;
 
-      chkDur_us = (int64_t)(__scSet.chkDur_ms) * 1000LL;
+      chkDur_us = __scSet.chkDur_ms * 1000LL;
       chkInBytes =
           (__scSet.chkDur_ms * __scSet.sr * __scSet.ch * (__scSet.bits / 8)) /
           1000;
@@ -1033,7 +1033,7 @@ static void player_task(void *pvParameters) {
         }
 
         if (pcmChkQHdl == NULL) {
-          int entries = ceil((float)__scSet.buf_ms / (float)__scSet.chkDur_ms);
+          int entries = ceil((float)__scSet.buf_ms / __scSet.chkDur_ms);
 
           pcmChkQHdl = xQueueCreate(entries, sizeof(pcm_chunk_message_t *));
 
@@ -1042,7 +1042,7 @@ static void player_task(void *pvParameters) {
       }
 
       ESP_LOGI(TAG,
-               "snapserver config changed, buffer %dms, chunk %dms, "
+               "snapserver config changed, buffer %dms, chunk %fms, "
                "sample rate %d, ch %d, bits %d mute %d latency %d",
                __scSet.buf_ms, __scSet.chkDur_ms, __scSet.sr, __scSet.ch,
                __scSet.bits, __scSet.muted, __scSet.cDacLat_ms);
@@ -1097,7 +1097,7 @@ static void player_task(void *pvParameters) {
         int64_t chunkStart = (int64_t)chnk->timestamp.sec * 1000000LL +
                              (int64_t)chnk->timestamp.usec;
 
-        age = serverNow - chunkStart - buf_us + clientDacLatency_us;
+        age = (float)(serverNow - chunkStart - buf_us + clientDacLatency_us);
         if (initialSync == 1) {
           // on initialSync == 0 (hard sync) we don't have any data in i2s DMA
           // buffer so in that case we don't need to add this
@@ -1122,7 +1122,7 @@ static void player_task(void *pvParameters) {
           MEDIANFILTER_Init(&miniMedianFilter);
 
           timer_set_auto_reload(TIMER_GROUP_1, TIMER_1, TIMER_AUTORELOAD_DIS);
-          tg0_timer1_start(-age);  // timer with 1µs ticks
+          tg0_timer1_start((uint64_t)(-age+0.5f));  // timer with 1µs ticks
 
           i2s_custom_stop(I2S_NUM_0);
           i2s_custom_zero_dma_buffer(I2S_NUM_0);
@@ -1180,7 +1180,7 @@ static void player_task(void *pvParameters) {
           timer_val = (int64_t)notifiedValue;
 
           // get actual age after alarm
-          age = (int64_t)timer_val - (-age);
+          age = timer_val - (-age);
 
           // check if we need to write remaining data
           if (size != 0) {
@@ -1215,7 +1215,7 @@ static void player_task(void *pvParameters) {
 
           initialSync = 1;
 
-          ESP_LOGI(TAG, "initial sync age: %lldus, chunk duration: %lldus", age,
+          ESP_LOGI(TAG, "initial sync age: %fus, chunk duration: %fus", age,
                    chkDur_us);
 
           continue;
@@ -1227,7 +1227,7 @@ static void player_task(void *pvParameters) {
         }
 
         // get count of chunks we are late for
-        uint32_t c = ceil((float)age / (float)chkDur_us);  // round up
+        uint32_t c = ceil(age / chkDur_us);  // round up
         // now clear all those chunks which are probably late too
         while (c--) {
           ret = xQueueReceive(pcmChkQHdl, &chnk, pdMS_TO_TICKS(1));
@@ -1246,7 +1246,7 @@ static void player_task(void *pvParameters) {
         timer_set_auto_reload(TIMER_GROUP_1, TIMER_1, TIMER_AUTORELOAD_DIS);
 
         ESP_LOGW(TAG,
-                 "RESYNCING HARD 1: age %lldus, latency %lldus, free %d, "
+                 "RESYNCING HARD 1: age %fus, latency %lldus, free %d, "
                  "largest block %d, %d, rssi: %d",
                  age, diff2Server, heap_caps_get_free_size(MALLOC_CAP_32BIT),
                  heap_caps_get_largest_free_block(MALLOC_CAP_32BIT),
@@ -1268,7 +1268,7 @@ static void player_task(void *pvParameters) {
       const int64_t hardResyncThreshold = 10000;   //µs, hard sync
 
       if (initialSync == 1) {
-        avg = age;
+        avg = (int64_t)age;
 
         int64_t shortMedian, miniMedian;
 
@@ -1286,7 +1286,7 @@ static void player_task(void *pvParameters) {
           }
 
           // get count of chunks we are late for
-          uint32_t c = ceil((float)age / (float)chkDur_us);  // round up
+          uint32_t c = ceil(age / chkDur_us);  // round up
           // now clear all those chunks which are probably late too
           while (c--) {
             ret = xQueueReceive(pcmChkQHdl, &chnk, pdMS_TO_TICKS(1));

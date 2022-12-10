@@ -35,7 +35,7 @@ typedef enum codec_type_e { NONE = 0, PCM, FLAC, OGG, OPUS } codec_type_t;
 
 typedef struct snapcastSetting_s {
   uint32_t buf_ms;
-  uint32_t chkDur_ms;
+  float chkDur_ms;
   int32_t cDacLat_ms;
 
   codec_type_t codec;
