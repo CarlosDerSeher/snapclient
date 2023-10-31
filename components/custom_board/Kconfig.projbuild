@@ -22,25 +22,28 @@ menu "Custom Audio Board"
         config DAC_ADAU1961
             bool "Analog Devices ADAU1961 DAC"
 
+        config DAC_MAX98357
+            bool "Analog Devices MAX98357 DAC"
+
     endchoice
 
 	menu "DAC I2C control interface"
     	config DAC_I2C_SDA
         	int "SDA pin"
         	default 12 if DAC_ADAU1961
-        	default 21 if DAC_MA120 || DAC_PCM51XX || DAC_MA120 || DAC_MA120X0
+        	default 21 if DAC_MA120 || DAC_PCM51XX || DAC_MA120 || DAC_MA120X0 || DAC_MAX98357 || DAC_PCM5102A
         	help
         	    I2C SDA pin of the DAC control interface
     	config DAC_I2C_SCL
         	int "SCL pin"
         	default 14 if DAC_ADAU1961
-        	default 22 if DAC_MA120 || DAC_PCM51XX || DAC_MA120 || DAC_MA120X0
+        	default 22 if DAC_MA120 || DAC_PCM51XX || DAC_MA120 || DAC_MA120X0 || DAC_MAX98357 || DAC_PCM5102A
         	help
         	    I2C SCL pin of the DAC control interface
     	config DAC_I2C_ADDR
         	hex "I2C address"
         	default 0x70 if DAC_ADAU1961
-        	default 0x20 if DAC_MA120 || DAC_PCM51XX || DAC_MA120 || DAC_MA120X0
+        	default 0x20 if DAC_MA120 || DAC_PCM51XX || DAC_MA120 || DAC_MA120X0 || DAC_MAX98357 || DAC_PCM5102A
         	help
         	    I2C Address of the DAC control interface
     endmenu
@@ -54,18 +57,21 @@ menu "Custom Audio Board"
 
         config MASTER_I2S_BCK_PIN
             int "Master i2s bck"
+            default 23 if DAC_MAX98357
             default 23
             help
                 Master audio interface bit clock.
 
         config MASTER_I2S_LRCK_PIN
             int "Master i2s lrck"
+            default 24 if DAC_MAX98357
             default 13
             help
                 Master audio interface left/right sync clock.
 
         config MASTER_I2S_DATAOUT_PIN
             int "Master i2s data out"
+            default 25 if DAC_MAX98357
             default 14
             help
                 Master audio interface data out.
@@ -156,6 +162,22 @@ menu "Custom Audio Board"
             help
                 GPIO number to control mute/unmute.
                 This is labeled "X(S)MT" on chip/boards
+    endmenu
+
+    menu "MAX98357 interface Configuration"
+        depends on DAC_MAX98357
+
+        config MAX98357_MUTE_PIN
+            int "Master mute/mode for MAX98357"
+            default 18
+            help
+                GPIO number to control mute/mode. This require a special resistor to select the correct mode.
+                You need to put a serie resistor to select the mode (GPIO --> Resistor --> SD):
+                    LEFT only :  0ohm (direct connection)
+                    RIGHT only : 220Kohm
+                    (L+R)/2 :    1Mohm
+                Refer to Analog Devices' doc for more infos.
+                This is labeled "SD" on chip/boards.
     endmenu
 
 endmenu

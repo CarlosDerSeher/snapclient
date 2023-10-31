@@ -40,6 +40,11 @@ if(CONFIG_AUDIO_BOARD_CUSTOM)
 	list(APPEND COMPONENT_SRCS ./ma120/ma120.c)
   endif()
 
+  if(CONFIG_DAC_MAX98357)
+	message(STATUS "Selected DAC is " CONFIG_DAC_MAX98357)
+	list(APPEND COMPONENT_ADD_INCLUDEDIRS ./max98357/include)
+	list(APPEND COMPONENT_SRCS ./max98357/max98357.c)
+  endif()
 endif()
 
 register_component()

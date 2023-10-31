@@ -28,8 +28,8 @@
 
 #include "audio_mem.h"
 #include "esp_log.h"
-//#include "periph_adc_button.h"
-//#include "periph_sdcard.h"
+// #include "periph_adc_button.h"
+// #include "periph_sdcard.h"
 
 #if CONFIG_DAC_PCM51XX
 extern audio_hal_func_t AUDIO_CODEC_PCM51XX_DEFAULT_HANDLE;
@@ -46,6 +46,9 @@ extern audio_hal_func_t AUDIO_CODEC_MA120_DEFAULT_HANDLE;
 #elif CONFIG_DAC_ADAU1961
 extern audio_hal_func_t AUDIO_CODEC_ADAU1961_DEFAULT_HANDLE;
 #define AUDIO_CODEC_DEFAULT_HANDLE AUDIO_CODEC_ADAU1961_DEFAULT_HANDLE
+#elif CONFIG_DAC_MAX98357
+extern audio_hal_func_t AUDIO_CODEC_MAX98357_DEFAULT_HANDLE;
+#define AUDIO_CODEC_DEFAULT_HANDLE AUDIO_CODEC_MAX98357_DEFAULT_HANDLE
 #endif
 
 static const char *TAG = "AUDIO_BOARD";
