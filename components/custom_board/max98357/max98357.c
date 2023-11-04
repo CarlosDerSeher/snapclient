@@ -14,12 +14,6 @@
 
 static const char *TAG = "MAX98357";
 
-#define PCM5102A_ASSERT(a, format, b, ...) \
-  if ((a) != 0) {                          \
-    ESP_LOGE(TAG, format, ##__VA_ARGS__);  \
-    return b;                              \
-  }
-
 esp_err_t max98357_ctrl(audio_hal_codec_mode_t mode,
                         audio_hal_ctrl_t ctrl_state);
 esp_err_t max98357_config_iface(audio_hal_codec_mode_t mode,
