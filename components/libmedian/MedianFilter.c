@@ -14,9 +14,7 @@
  */
 
 #include <stdint.h>
-
 #include "MedianFilter.h"
-
 /**
  *
  */
@@ -25,7 +23,7 @@ int MEDIANFILTER_Init(sMedianFilter_t *medianFilter) {
       (medianFilter->numNodes % 2) && (medianFilter->numNodes > 1)) {
     // initialize buffer nodes
     for (unsigned int i = 0; i < medianFilter->numNodes; i++) {
-      medianFilter->medianBuffer[i].value = 0;
+      medianFilter->medianBuffer[i].value = INT64_MAX;
       medianFilter->medianBuffer[i].nextAge =
           &medianFilter->medianBuffer[(i + 1) % medianFilter->numNodes];
       medianFilter->medianBuffer[i].nextValue =
@@ -36,8 +34,7 @@ int MEDIANFILTER_Init(sMedianFilter_t *medianFilter) {
     // initialize heads
     medianFilter->ageHead = medianFilter->medianBuffer;
     medianFilter->valueHead = medianFilter->medianBuffer;
-    medianFilter->medianHead =
-        &medianFilter->medianBuffer[medianFilter->numNodes / 2];
+    medianFilter->medianHead = medianFilter->medianBuffer;
 
     medianFilter->bufferCnt = 0;
 
@@ -53,6 +50,10 @@ int MEDIANFILTER_Init(sMedianFilter_t *medianFilter) {
 int64_t MEDIANFILTER_Insert(sMedianFilter_t *medianFilter, int64_t sample) {
   unsigned int i;
   sMedianNode_t *newNode, *it;
+  if (medianFilter->bufferCnt < medianFilter->numNodes) {
+    medianFilter->bufferCnt++;
+  }
+
 
   // if oldest node is also the smallest node,
   // increment value head
@@ -60,8 +61,9 @@ int64_t MEDIANFILTER_Insert(sMedianFilter_t *medianFilter, int64_t sample) {
     medianFilter->valueHead = medianFilter->valueHead->nextValue;
   }
 
-  if ((medianFilter->ageHead == medianFilter->medianHead) ||
-      (medianFilter->ageHead->value > medianFilter->medianHead->value)) {
+  if (((medianFilter->ageHead == medianFilter->medianHead) ||
+      (medianFilter->ageHead->value > medianFilter->medianHead->value)) &&
+      (medianFilter->bufferCnt >= medianFilter->numNodes)) {
     // prepare for median correction
     medianFilter->medianHead = medianFilter->medianHead->prevValue;
   }
@@ -80,14 +82,14 @@ int64_t MEDIANFILTER_Insert(sMedianFilter_t *medianFilter, int64_t sample) {
 
   // find new node position
   it = medianFilter->valueHead;  // set iterator as value head
-  for (i = 0; i < medianFilter->numNodes - 1; i++) {
+  for (i = 0; i < medianFilter->bufferCnt - 1; i++) {
     if (sample < it->value) {
-      if (i == 0) {  // replace value head if new node is the smallest
-        medianFilter->valueHead = newNode;
-      }
       break;
     }
     it = it->nextValue;
+  }
+  if (i == 0) {  // replace value head if new node is the smallest
+    medianFilter->valueHead = newNode;
   }
 
   // insert new node in list
@@ -96,12 +98,17 @@ int64_t MEDIANFILTER_Insert(sMedianFilter_t *medianFilter, int64_t sample) {
   it->prevValue = newNode;
   newNode->nextValue = it;
 
-  if (medianFilter->bufferCnt < medianFilter->numNodes) {
-    medianFilter->bufferCnt++;
-  }
-
   // adjust median node
-  if (i >= (medianFilter->numNodes / 2)) {
+  if ((medianFilter->bufferCnt < medianFilter->numNodes)){
+      if (medianFilter->bufferCnt % 2 != 0 && medianFilter->bufferCnt != 1) {
+          medianFilter->medianHead = medianFilter->medianHead->prevValue;
+      }
+      if (((i > (medianFilter->bufferCnt / 2)) && (medianFilter->bufferCnt % 2 != 0)) ||
+        ((i >= (medianFilter->bufferCnt / 2)) && (medianFilter->bufferCnt % 2 == 0))) {
+        medianFilter->medianHead = medianFilter->medianHead->nextValue;
+      }
+  }
+  else if (i >= (medianFilter->bufferCnt / 2) ) {
     medianFilter->medianHead = medianFilter->medianHead->nextValue;
   }
 
@@ -115,30 +122,31 @@ int64_t MEDIANFILTER_get_median(sMedianFilter_t *medianFilter, uint32_t n) {
   int64_t avgMedian = 0;
   sMedianNode_t *it;
   int32_t i;
+  if (n >= medianFilter->bufferCnt) {
+      n = (((medianFilter->bufferCnt-1)<<1)>>1);
+  }
+ 
+  // n should not include the center value
+  if ((n % 2) != 0) {
+      n--;
+  }
 
-  if ((n % 2) == 0) {
-    it = medianFilter->medianHead
-             ->prevValue;  // set iterator as value head previous
-    // first add previous values
-    for (i = 0; i < n / 2; i++) {
-      avgMedian += it->value;
-      it = medianFilter->medianHead->prevValue;
-    }
+  it = medianFilter->medianHead->prevValue;  // set iterator as value head previous
+  // first add previous values
+  for (i = 0; i < n / 2; i++) {
+    avgMedian += it->value;
+    it = it->prevValue;
+  }
 
-    it =
-        medianFilter->medianHead->nextValue;  // set iterator as value head next
-    // second add next values
-    for (i = 0; i < n / 2; i++) {
-      avgMedian += it->value;
-      it = medianFilter->medianHead->nextValue;
-    }
+  it = medianFilter->medianHead->nextValue;  // set iterator as value head next
+  // second add next values
+  for (i = 0; i < n / 2; i++) {
+    avgMedian += it->value;
+    it = it->nextValue;
   }
 
   avgMedian += medianFilter->medianHead->value;
-
-  if (n > 0) {
-    avgMedian /= (n + 1);
-  }
+  avgMedian /= (n + 1);
 
   return avgMedian;
 }
@@ -146,8 +154,11 @@ int64_t MEDIANFILTER_get_median(sMedianFilter_t *medianFilter, uint32_t n) {
 /**
  *
  */
-uint32_t MEDIANFILTER_isFull(sMedianFilter_t *medianFilter) {
-  if (medianFilter->bufferCnt >= medianFilter->numNodes) {
+uint32_t MEDIANFILTER_isFull(sMedianFilter_t *medianFilter, uint32_t n) {
+  if (n < 1 || n > medianFilter->numNodes) {
+      n = medianFilter->numNodes;
+  }
+  if (medianFilter->bufferCnt >= n) {
     return 1;
   } else {
     return 0;

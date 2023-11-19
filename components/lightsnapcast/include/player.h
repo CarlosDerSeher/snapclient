@@ -14,6 +14,7 @@
 #define CHNK_CTRL_CNT 2
 
 #define LATENCY_MEDIAN_FILTER_LEN 199
+#define LATENCY_MEDIAN_FILTER_FULL 19
 
 // set to 0 if you do not wish to be the median an average around actual
 // median average will be (LATENCY_MEDIAN_FILTER_LEN /
