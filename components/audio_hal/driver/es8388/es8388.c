@@ -30,7 +30,7 @@
 #include "i2c_bus.h"
 #include <string.h>
 
-#ifdef CONFIG_ESP_LYRAT_V4_3_BOARD
+#if defined(CONFIG_ESP_LYRAT_V4_3_BOARD) || defined(CONFIG_ESP_AI_THINKER_ES8388_BOARD)
 #include "headphone_detect.h"
 #endif
 
@@ -292,7 +292,7 @@ es8388_deinit (void)
   res = es_write_reg (ES8388_ADDR, ES8388_CHIPPOWER,
                       0xFF); // reset and stop es8388
   i2c_bus_delete (i2c_handle);
-#ifdef CONFIG_ESP_LYRAT_V4_3_BOARD
+#if defined(CONFIG_ESP_LYRAT_V4_3_BOARD) || defined(CONFIG_ESP_AI_THINKER_ES8388_BOARD)
   headphone_detect_deinit ();
 #endif
 
@@ -308,7 +308,7 @@ esp_err_t
 es8388_init (audio_hal_codec_config_t *cfg)
 {
   int res = 0;
-#ifdef CONFIG_ESP_LYRAT_V4_3_BOARD
+#if defined(CONFIG_ESP_LYRAT_V4_3_BOARD) || defined(CONFIG_ESP_AI_THINKER_ES8388_BOARD)
   headphone_detect_init (get_headphone_detect_gpio ());
 #endif
 
