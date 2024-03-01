@@ -445,10 +445,26 @@ es8388_set_voice_volume (int volume)
     volume = 0;
   else if (volume > 100)
     volume = 100;
-  int inv_volume = 100 - volume;
-  volume /= 6;
+  /* Audio Settings can be checked here: 
+   * https://dl.radxa.com/rock2/docs/hw/ds/ES8388%20user%20Guide.pdf
+   *
+   * ES8388_DACCONTROL4 & ES8388_DACCONTROL5
+   * 0 = 0dB
+   * 192 = -96dB
+   *
+   * ES8388_DACCONTROL24 - ES8388_DACCONTROL27
+   * 0 = -45dB
+   * 33 = 4.5dB
+   */
+  
+
+  int inv_volume = (100 - volume)*1.92;
   res = es_write_reg (ES8388_ADDR, ES8388_DACCONTROL5, inv_volume);
   res |= es_write_reg (ES8388_ADDR, ES8388_DACCONTROL4, inv_volume);
+
+  volume /= 3;
+  res |= es_write_reg (ES8388_ADDR, ES8388_DACCONTROL24, volume);
+  res |= es_write_reg (ES8388_ADDR, ES8388_DACCONTROL25, volume);
   res |= es_write_reg (ES8388_ADDR, ES8388_DACCONTROL26, volume);
   res |= es_write_reg (ES8388_ADDR, ES8388_DACCONTROL27, volume);
   return res;
