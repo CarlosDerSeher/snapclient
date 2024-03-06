@@ -169,6 +169,13 @@ Configure to match your setup
 ```
 idf.py build flash monitor
 ```
+
+### Merge bin to flash at 0x0 with web.esphome.io
+
+```
+esptool.py --chip esp32  merge_bin -o merged.bin --flash_size 4MB --flash_freq 80m 0x1000 build/bootloader/bootloader.bin 0x8000 build/partition_table/partition-table.bin 0xd000 build/ota_data_initial.bin 0x10000 build/snapclient.bin 0x370000 build/storage.bin
+```
+
 ## Test
 Setup a snapcast server on your network
 

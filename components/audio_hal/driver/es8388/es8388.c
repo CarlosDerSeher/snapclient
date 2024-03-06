@@ -346,6 +346,10 @@ es8388_init (audio_hal_codec_config_t *cfg)
                        0x80); // set internal ADC and DAC use the same LRCK
                               // clock, ADC LRCK as internal LRCK
   res |= es_write_reg (ES8388_ADDR, ES8388_DACCONTROL23, 0x00); // vroi=0
+  res |= es_write_reg (ES8388_ADDR, ES8388_DACCONTROL24, 0x1E); // Set L1 R1 L2 R2 volume. 0x00: -30dB, 0x1E: 0dB, 0x21: 3dB
+  res |= es_write_reg (ES8388_ADDR, ES8388_DACCONTROL25, 0x1E);
+  res |= es_write_reg (ES8388_ADDR, ES8388_DACCONTROL26, 0x1E);
+  res |= es_write_reg (ES8388_ADDR, ES8388_DACCONTROL27, 0x1E);
   res |= es8388_set_adc_dac_volume (ES_MODULE_DAC, 0, 0);       // 0db
   int tmp = 0;
   if (AUDIO_HAL_DAC_OUTPUT_LINE2 == cfg->dac_output)
@@ -445,7 +449,7 @@ es8388_set_voice_volume (int volume)
     volume = 0;
   else if (volume > 100)
     volume = 100;
-  /* Audio Settings can be checked here: 
+  /* Audio Settings can be checked here:
    * https://dl.radxa.com/rock2/docs/hw/ds/ES8388%20user%20Guide.pdf
    *
    * ES8388_DACCONTROL4 & ES8388_DACCONTROL5
@@ -456,17 +460,11 @@ es8388_set_voice_volume (int volume)
    * 0 = -45dB
    * 33 = 4.5dB
    */
-  
 
-  int inv_volume = (100 - volume)*1.92;
+  // restrict range from 0-96 instead of 0-192
+  int inv_volume = -0.96 * volume + 96;
   res = es_write_reg (ES8388_ADDR, ES8388_DACCONTROL5, inv_volume);
   res |= es_write_reg (ES8388_ADDR, ES8388_DACCONTROL4, inv_volume);
-
-  volume /= 3;
-  res |= es_write_reg (ES8388_ADDR, ES8388_DACCONTROL24, volume);
-  res |= es_write_reg (ES8388_ADDR, ES8388_DACCONTROL25, volume);
-  res |= es_write_reg (ES8388_ADDR, ES8388_DACCONTROL26, volume);
-  res |= es_write_reg (ES8388_ADDR, ES8388_DACCONTROL27, volume);
   return res;
 }
 
@@ -480,17 +478,17 @@ es8388_get_voice_volume (int *volume)
 {
   esp_err_t res = ESP_OK;
   uint8_t reg = 0;
-  res = es_read_reg (ES8388_DACCONTROL24, &reg);
+  res = es_read_reg (ES8388_DACCONTROL4, &reg);
   if (res == ESP_FAIL)
     {
       *volume = 0;
     }
   else
     {
-      *volume = reg;
-      *volume *= 3;
-      if (*volume == 99)
-        *volume = 100;
+      // 0 = 0dB, 192 = -96dB
+      // max is 0, min is 96
+      // interpolate to 0-100
+      *volume = -(25/24) * reg + 100;
     }
   return res;
 }
