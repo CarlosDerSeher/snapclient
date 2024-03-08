@@ -461,8 +461,12 @@ es8388_set_voice_volume (int volume)
    * 33 = 4.5dB
    */
 
-  // restrict range from 0-96 instead of 0-192
-  int inv_volume = -0.96 * volume + 96;
+  // restrict range from 0-46 instead of 0-192
+  int inv_volume = -0.46 * volume + 46;
+  if (volume == 0) {
+    // if volume is 0, set to -96dB
+    inv_volume = 192;
+  }
   res = es_write_reg (ES8388_ADDR, ES8388_DACCONTROL5, inv_volume);
   res |= es_write_reg (ES8388_ADDR, ES8388_DACCONTROL4, inv_volume);
   return res;
@@ -486,9 +490,14 @@ es8388_get_voice_volume (int *volume)
   else
     {
       // 0 = 0dB, 192 = -96dB
-      // max is 0, min is 96
+      // max is 0, min is 46
       // interpolate to 0-100
-      *volume = -(25/24) * reg + 100;
+      if (reg == 192) {
+        *volume = 0;
+      }
+      else {
+        *volume = -(50/23) * reg + 100;
+      }
     }
   return res;
 }
