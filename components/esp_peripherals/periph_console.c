@@ -218,7 +218,7 @@ static void _console_task(void *pv) {
   printf("\r\n%s ", prompt_string);
   while (console->run) {
     if (console_get_line(console, console->buffer_size,
-                         10 / portTICK_RATE_MS)) {
+                         10 / portTICK_PERIOD_MS)) {
       if (console->total_bytes) {
         ESP_LOGD(TAG, "Read line: %s", console->buffer);
       }

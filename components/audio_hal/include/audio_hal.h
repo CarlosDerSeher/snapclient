@@ -156,7 +156,7 @@ typedef struct audio_hal {
   esp_err_t (*audio_codec_set_volume)(int volume);  /*!< set codec volume */
   esp_err_t (*audio_codec_get_volume)(int *volume); /*!< get codec volume */
   esp_err_t (*audio_codec_enable_pa)(bool enable);  /*!< enable pa */
-  xSemaphoreHandle audio_hal_lock;                  /*!< semaphore of codec */
+  SemaphoreHandle_t audio_hal_lock;                 /*!< semaphore of codec */
   void *handle; /*!< handle of audio codec */
 } audio_hal_func_t;
 

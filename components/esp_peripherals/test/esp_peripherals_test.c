@@ -214,7 +214,7 @@ static void periph_console_test(void) {
   TEST_ASSERT_FALSE(esp_periph_start(set, console_handle));
 
   while (task_flag) {
-    vTaskDelay(10 / portTICK_RATE_MS);
+    vTaskDelay(10 / portTICK_PERIOD_MS);
   }
 
   ESP_LOGI(TAG, "Quit test, release all resources");
@@ -295,7 +295,7 @@ static void periph_is31fl3216_test(void) {
       periph_is31fl3216_set_state(is31fl3216_handle, IS31FL3216_STATE_SHIFT));
   ESP_LOGI(TAG, "Start testing for 5 seconds...");
 
-  vTaskDelay(5000 / portTICK_RATE_MS);
+  vTaskDelay(5000 / portTICK_PERIOD_MS);
 
   ESP_LOGI(TAG, "Quit test, release all resources");
   TEST_ASSERT_FALSE(esp_periph_set_stop_all(set));
@@ -326,11 +326,11 @@ static void periph_led_test(void) {
                                      false, 4, 0));
 
   ESP_LOGI(TAG, "running...");
-  vTaskDelay(1000 / portTICK_RATE_MS);
+  vTaskDelay(1000 / portTICK_PERIOD_MS);
   ESP_LOGI(TAG, "STOP BLUE LED");
   TEST_ASSERT_FALSE(periph_led_stop(led_handle, get_blue_led_gpio()));
 
-  vTaskDelay(1000 / portTICK_RATE_MS);
+  vTaskDelay(1000 / portTICK_PERIOD_MS);
   ESP_LOGI(TAG, "Changing blink preset...");
   TEST_ASSERT_FALSE(periph_led_blink(led_handle, get_blue_led_gpio(), 500, 200,
                                      false, -1, 0));

@@ -36,7 +36,8 @@
 #include "freertos/task.h"
 #include "freertos/timers.h"
 
-#if defined(CONFIG_ESP_LYRAT_V4_3_BOARD) || defined(CONFIG_ESP_AI_THINKER_ES8388_BOARD)
+#if defined(CONFIG_ESP_LYRAT_V4_3_BOARD) || \
+    defined(CONFIG_ESP_AI_THINKER_ES8388_BOARD)
 
 #define HP_DELAY_TIME_MS 1000
 
@@ -51,7 +52,7 @@ static void hp_timer_cb(TimerHandle_t xTimer) {
 
 static int hp_timer_init(int num) {
   timer_headphone =
-      xTimerCreate("hp_timer0", HP_DELAY_TIME_MS / portTICK_RATE_MS, pdFALSE,
+      xTimerCreate("hp_timer0", HP_DELAY_TIME_MS / portTICK_PERIOD_MS, pdFALSE,
                    (void *)num, hp_timer_cb);
   if (timer_headphone == NULL) {
     ESP_LOGE(TAG, "hp_timer create err");
@@ -69,7 +70,7 @@ static void IRAM_ATTR headphone_gpio_intr_handler(void *arg) {
 }
 
 void headphone_detect_deinit() {
-  xTimerDelete(timer_headphone, HP_DELAY_TIME_MS / portTICK_RATE_MS);
+  xTimerDelete(timer_headphone, HP_DELAY_TIME_MS / portTICK_PERIOD_MS);
   gpio_uninstall_isr_service();
   timer_headphone = NULL;
 }
@@ -92,4 +93,5 @@ void headphone_detect_init(int num) {
   gpio_install_isr_service(0);
   gpio_isr_handler_add(num, headphone_gpio_intr_handler, (void *)num);
 }
-#endif /* defined(CONFIG_ESP_LYRAT_V4_3_BOARD) || defined(CONFIG_ESP_AI_THINKER_ES8388_BOARD) */
+#endif /* defined(CONFIG_ESP_LYRAT_V4_3_BOARD) || \
+          defined(CONFIG_ESP_AI_THINKER_ES8388_BOARD) */

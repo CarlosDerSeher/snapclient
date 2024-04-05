@@ -98,7 +98,7 @@ static esp_err_t _sdcard_init(esp_periph_handle_t self) {
   } else {
     ESP_LOGE(TAG, "no sdcard detect");
   }
-  esp_periph_start_timer(self, 1000 / portTICK_RATE_MS, sdcard_timer_handler);
+  esp_periph_start_timer(self, 1000 / portTICK_PERIOD_MS, sdcard_timer_handler);
   return ESP_OK;
 }
 

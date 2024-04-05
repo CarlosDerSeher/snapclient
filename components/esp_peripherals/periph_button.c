@@ -106,7 +106,7 @@ static esp_err_t _button_init(esp_periph_handle_t self) {
   };
   periph_btn->btn = button_init(&btn_config);
 
-  esp_periph_start_timer(self, 50 / portTICK_RATE_MS, button_timer_handler);
+  esp_periph_start_timer(self, 50 / portTICK_PERIOD_MS, button_timer_handler);
   return ret;
 }
 

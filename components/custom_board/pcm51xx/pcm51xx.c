@@ -106,9 +106,9 @@ io_conf.mode = GPIO_MODE_OUTPUT;
 io_conf.intr_type = GPIO_INTR_DISABLE;
 gpio_config(&io_conf);
 gpio_set_level(PCM51XX_RST_GPIO, 0);
-vTaskDelay(20 / portTICK_RATE_MS);
+vTaskDelay(20 / portTICK_PERIOD_MS);
 gpio_set_level(PCM51XX_RST_GPIO, 1);
-vTaskDelay(200 / portTICK_RATE_MS);
+vTaskDelay(200 / portTICK_PERIOD_MS);
   */
 
   ret = get_i2c_pins(I2C_NUM_0, &i2c_cfg);

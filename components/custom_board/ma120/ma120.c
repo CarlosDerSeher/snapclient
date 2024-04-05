@@ -271,7 +271,8 @@ esp_err_t ma_write(uint8_t i2c_addr, uint8_t prot, uint16_t address,
     i2c_master_write_byte(cmd, wbuf[i], ack);
   }
   i2c_master_stop(cmd);
-  int ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+  int ret =
+      i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_PERIOD_MS);
   i2c_cmd_link_delete(cmd);
   if (ret == ESP_FAIL) {
     return ret;
@@ -294,7 +295,7 @@ esp_err_t ma_write_byte(uint8_t i2c_addr, uint8_t prot, uint16_t address,
   }
   i2c_master_write_byte(cmd, value, ACK_VAL);
   i2c_master_stop(cmd);
-  ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+  ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_PERIOD_MS);
   i2c_cmd_link_delete(cmd);
   if (ret == ESP_FAIL) {
     printf("ESP_I2C_WRITE ERROR : %d\n", ret);
@@ -326,7 +327,7 @@ esp_err_t ma_read(uint8_t i2c_addr, uint8_t prot, uint16_t address,
   // { i2c_master_read_byte(cmd, rbuf++, ACK_VAL); }
   i2c_master_read_byte(cmd, rbuf + n - 1, NACK_VAL);
   i2c_master_stop(cmd);
-  ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 100 / portTICK_RATE_MS);
+  ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 100 / portTICK_PERIOD_MS);
   i2c_cmd_link_delete(cmd);
   if (ret == ESP_FAIL) {
     printf("i2c Error read - readback\n");
@@ -353,7 +354,7 @@ uint8_t ma_read_byte(uint8_t i2c_addr, uint8_t prot, uint16_t address) {
   i2c_master_read_byte(cmd, &value, NACK_VAL);
 
   i2c_master_stop(cmd);
-  ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+  ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 1000 / portTICK_PERIOD_MS);
   i2c_cmd_link_delete(cmd);
   if (ret == ESP_FAIL) {
     printf("i2c Error read - readback\n");

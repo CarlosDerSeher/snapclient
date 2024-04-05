@@ -20,7 +20,7 @@
 #include "ota_server.h"
 #include "player.h"
 
-extern xTaskHandle t_http_get_task;
+extern TaskHandle_t t_http_get_task;
 
 const int OTA_CONNECTED_BIT = BIT0;
 static const char *TAG = "OTA";

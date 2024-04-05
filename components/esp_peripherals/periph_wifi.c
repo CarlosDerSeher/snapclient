@@ -346,9 +346,9 @@ static void _wifi_event_callback(void *arg, esp_event_base_t event_base,
     if (periph_wifi->disable_auto_reconnect) {
       return;
     }
-    esp_periph_start_timer(self,
-                           periph_wifi->reconnect_timeout_ms / portTICK_RATE_MS,
-                           wifi_reconnect_timer);
+    esp_periph_start_timer(
+        self, periph_wifi->reconnect_timeout_ms / portTICK_PERIOD_MS,
+        wifi_reconnect_timer);
 
   } else {
     ESP_LOGW(TAG, "WiFi Event cb, Unhandle event_base:%s, event_id:%d",
@@ -395,10 +395,12 @@ static esp_err_t _wifi_event_callback(void *ctx, system_event_t *event) {
         break;
       }
       esp_periph_start_timer(
-          self, periph_wifi->reconnect_timeout_ms / portTICK_RATE_MS,
+          self, periph_wifi->reconnect_timeout_ms / portTICK_PERIOD_MS,
           wifi_reconnect_timer);
       break;
     default:
+      ESP_LOGW(TAG, "WiFi Event cb, Unhandled event_id: 0x%08X",
+               event->event_id);
       break;
   }
   return ESP_OK;

@@ -90,7 +90,7 @@ typedef struct periph_ws2812 {
   periph_rgb_value *color;
   uint32_t led_num;
   TimerHandle_t timer;
-  xSemaphoreHandle sem;
+  SemaphoreHandle_t sem;
   intr_handle_t rmt_intr_handle;
   periph_ws2812_state_t *state;
   periph_ws2812_process_t process;
@@ -404,7 +404,7 @@ esp_err_t periph_ws2812_control(esp_periph_handle_t periph,
     periph_ws2812->state[i].mode = control_cfg[i].mode;
   }
 
-  esp_periph_start_timer(periph, INTERVAL_TIME_MS / portTICK_RATE_MS,
+  esp_periph_start_timer(periph, INTERVAL_TIME_MS / portTICK_PERIOD_MS,
                          ws2812_timer_handler);
 
   return ESP_OK;
