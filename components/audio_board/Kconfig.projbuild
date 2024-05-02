@@ -102,6 +102,10 @@ menu "Audio Board"
 	    config DAC_TAS5805M
 	        bool "Texas Instruments TAS5805M"
 
+		config DAC_PT8211
+			bool "Princeton Technology PT8211"
+			select I2S_USE_MSB_FORMAT
+
 	    endchoice
 
 	    menu "DAC I2C control interface"
@@ -281,6 +285,24 @@ menu "Audio Board"
 	                    (L+R)/2 :    1Mohm
 	                Refer to Analog Devices' doc for more infos.
 	                This is labeled "SD" on chip/boards.
+	    endmenu
+
+		menu "PT8211 interface Configuration"
+	        depends on DAC_PT8211
+
+	        config PT8211_MUTE_PIN
+	            int "Master mute/unmute"
+	            default 18
+	            help
+	                GPIO number to control mute/unmute.
+					Note that PT8211 does not have a mute control pin. This output is intended to control external circuit (e.g., amplifier).
+
+	        config PT8211_MUTE_ACTIVE_LOW
+	            bool "Mute active LOW"
+	            default false
+	            help
+	            	Output LOW instead of HIGH on mute/unmute pin when in mute state.
+
 	    endmenu
 
 	    menu "Logic-Level-Settings"
