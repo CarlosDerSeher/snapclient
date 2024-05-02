@@ -257,8 +257,13 @@ static esp_err_t player_setup_i2s(i2s_port_t i2sNum,
   };
   i2s_std_config_t tx_std_cfg = {
       .clk_cfg = i2s_clkcfg,
+#if CONFIG_I2S_USE_MSB_FORMAT
+      .slot_cfg =
+          I2S_STD_MSB_SLOT_DEFAULT_CONFIG(setting->bits, I2S_SLOT_MODE_STEREO),
+#else
       .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(setting->bits,
                                                       I2S_SLOT_MODE_STEREO),
+#endif
       .gpio_cfg =
           {
               .mclk = pin_config0.mck_io_num,

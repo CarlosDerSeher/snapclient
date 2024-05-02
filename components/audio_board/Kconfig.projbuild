@@ -1,5 +1,14 @@
 menu "Audio Board"
 
+	config I2S_USE_MSB_FORMAT
+		bool
+		default n
+		help
+			Specifies if the I2S should use MSB format instead. Some DACs (such as PT8211) need this enabled to ensure
+			compatibility with their LSBJ timing under their native bit-depth. This option is only adjusted by the DAC
+			choice and is not exposed to menuconfig.
+			See https://github.com/schreibfaul1/ESP32-audioI2S/blob/1d9b299d0197f99fc70335295adcd226dc220f88/src/Audio.cpp#L4929
+
 	choice AUDIO_BOARD
 	    prompt "Audio board"
 	    default ESP_LYRAT_V4_3_BOARD
