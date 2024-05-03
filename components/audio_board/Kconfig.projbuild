@@ -113,14 +113,15 @@ menu "Audio Board"
 	        	int "SDA pin"
 	        	default 12 if DAC_ADAU1961
 	        	default 21 if DAC_MA120 || DAC_PCM51XX || DAC_MA120 || DAC_MA120X0 || DAC_MAX98357 || DAC_PCM5102A || DAC_TAS5805M
-
+	        	default -1 if DAC_PT8211
 	            help
 	        	    I2C SDA pin of the DAC control interface
 	    	config DAC_I2C_SCL
 	        	int "SCL pin"
 	        	default 14 if DAC_ADAU1961
 	        	default 22 if DAC_MA120 || DAC_PCM51XX || DAC_MA120 || DAC_MA120X0 || DAC_MAX98357 || DAC_PCM5102A
-	            default 27 if DAC_TAS5805M
+	        	default 27 if DAC_TAS5805M
+	        	default -1 if DAC_PT8211
 	            help
 	        	    I2C SCL pin of the DAC control interface
 	    	config DAC_I2C_ADDR
@@ -128,6 +129,7 @@ menu "Audio Board"
 	        	default 0x70 if DAC_ADAU1961
 	        	default 0x20 if DAC_MA120 || DAC_PCM51XX || DAC_MA120 || DAC_MA120X0 || DAC_MAX98357 || DAC_PCM5102A
 	        	default 0x2D if DAC_TAS5805M
+	        	default 0x00 if DAC_PT8211
 	            help
 	        	    I2C Address of the DAC control interface
 	    endmenu
@@ -292,7 +294,7 @@ menu "Audio Board"
 
 	        config PT8211_MUTE_PIN
 	            int "Master mute/unmute"
-	            default 18
+	            default -1
 	            help
 	                GPIO number to control mute/unmute.
 					Note that PT8211 does not have a mute control pin. This output is intended to control external circuit (e.g., amplifier).

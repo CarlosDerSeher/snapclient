@@ -35,8 +35,9 @@ audio_hal_func_t AUDIO_CODEC_PT8211_DEFAULT_HANDLE = {
 };
 
 esp_err_t pt8211_init(audio_hal_codec_config_t *codec_cfg) {
-  esp_err_t ret;
+  esp_err_t ret = ESP_OK;
 
+#if CONFIG_PT8211_MUTE_PIN != -1
   gpio_config_t io_conf;
 
   io_conf.intr_type = GPIO_INTR_DISABLE;
@@ -52,6 +53,9 @@ esp_err_t pt8211_init(audio_hal_codec_config_t *codec_cfg) {
     gpio_set_level(CONFIG_PT8211_MUTE_PIN, 0);
     ESP_LOGD(TAG, "Setup mute output %d\n", CONFIG_PT8211_MUTE_PIN);
   }
+#else
+  ESP_LOGD(TAG, "Mute gpio not specified\n");
+#endif
 
   return ret;
 }
@@ -61,8 +65,14 @@ esp_err_t pt8211_set_volume(int vol) { return ESP_OK; }
 esp_err_t pt8211_get_volume(int *value) { return ESP_OK; }
 
 esp_err_t pt8211_set_mute(bool enable) {
-  return gpio_set_level(CONFIG_PT8211_MUTE_PIN,
-                        enable ^ CONFIG_PT8211_MUTE_ACTIVE_LOW);
+  esp_err_t ret = ESP_OK;
+
+#if CONFIG_PT8211_MUTE_PIN != -1
+  ret = gpio_set_level(CONFIG_PT8211_MUTE_PIN,
+                       enable ^ CONFIG_PT8211_MUTE_ACTIVE_LOW);
+#endif
+
+  return ret;
 }
 
 esp_err_t pt8211_get_mute(bool *enabled) { return ESP_OK; }
