@@ -16,9 +16,6 @@
 
 #if ENABLE_WIFI_PROVISIONING
 #include <string.h>  // for memcpy
-// #include <wifi_provisioning/manager.h>
-// #include <wifi_provisioning/scheme_softap.h>
-
 #include "wifi_provisioning.h"
 #endif
 

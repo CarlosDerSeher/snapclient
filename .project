@@ -262,24 +262,25 @@
 			<name>build/ide/esp_idf_components/esp_partition/partition_target.c</name>
 			<type>1</type>
 			<location>/home/karl/espressif/esp-idf-v5.1.1/components/esp_partition/partition_target.c</location>
+
 		</link>
 		<link>
-			<name>build/ide/esp_idf_components/esp_pm/pm_impl.c</name>
+			<name>build/ide/esp_idf_components/esp_psram/mmu_psram_flash.c</name>
 			<type>1</type>
 			<location>/home/karl/espressif/esp-idf-v5.1.1/components/esp_pm/pm_impl.c</location>
 		</link>
 		<link>
-			<name>build/ide/esp_idf_components/esp_pm/pm_locks.c</name>
+			<name>build/ide/esp_idf_components/esp_ringbuf/ringbuf.c</name>
 			<type>1</type>
 			<location>/home/karl/espressif/esp-idf-v5.1.1/components/esp_pm/pm_locks.c</location>
 		</link>
 		<link>
-			<name>build/ide/esp_idf_components/esp_pm/pm_trace.c</name>
+			<name>build/ide/esp_idf_components/esp_system/crosscore_int.c</name>
 			<type>1</type>
 			<location>/home/karl/espressif/esp-idf-v5.1.1/components/esp_pm/pm_trace.c</location>
 		</link>
 		<link>
-			<name>build/ide/esp_idf_components/esp_ringbuf/ringbuf.c</name>
+			<name>build/ide/esp_idf_components/esp_system/debug_stubs.c</name>
 			<type>1</type>
 			<location>/home/karl/espressif/esp-idf-v5.1.1/components/esp_ringbuf/ringbuf.c</location>
 		</link>
@@ -312,6 +313,7 @@
 			<name>build/ide/esp_idf_components/esp_system/freertos_hooks.c</name>
 			<type>1</type>
 			<location>/home/karl/espressif/esp-idf-v5.1.1/components/esp_system/freertos_hooks.c</location>
+
 		</link>
 		<link>
 			<name>build/ide/esp_idf_components/esp_system/int_wdt.c</name>

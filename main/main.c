@@ -17,7 +17,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
-#if CONFIG_SNAPCLIENT_ENABLE_ETHERNET
+#if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
+    CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
 #include "eth_interface.h"
 #endif
 
@@ -904,7 +905,8 @@ static void http_get_task(void *pvParameters) {
     char mac_address[18];
     uint8_t base_mac[6];
     // Get MAC address for WiFi station
-#if CONFIG_SNAPCLIENT_ENABLE_ETHERNET
+#if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
+    CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
     esp_read_mac(base_mac, ESP_MAC_ETH);
 #else
     esp_read_mac(base_mac, ESP_MAC_WIFI_STA);
@@ -2754,11 +2756,13 @@ void app_main(void) {
   esp_log_level_set("uart", ESP_LOG_WARN);
   // esp_log_level_set("i2s_std", ESP_LOG_DEBUG);
   // esp_log_level_set("i2s_common", ESP_LOG_DEBUG);
-
+  esp_log_level_set("wifi", ESP_LOG_WARN);
+  esp_log_level_set("wifi_init", ESP_LOG_WARN);
   esp_log_level_set("wifi", ESP_LOG_WARN);
   esp_log_level_set("wifi_init", ESP_LOG_WARN);
 
-#if CONFIG_SNAPCLIENT_ENABLE_ETHERNET
+#if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
+    CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
   // clang-format off
   // nINT/REFCLKO Function Select Configuration Strap
   //  • When nINTSEL is floated or pulled to
@@ -2858,7 +2862,7 @@ void app_main(void) {
 
   ESP_LOGI(TAG, "init player");
   init_player();
-
+  
   // ensure there is no noise from DAC
   {
     board_i2s_pin_t pin_config0;
@@ -2885,7 +2889,31 @@ void app_main(void) {
     gpio_config(&gpioCfg);
   }
 
-#if CONFIG_SNAPCLIENT_ENABLE_ETHERNET
+  // ensure there is no noise from DAC
+  {
+    board_i2s_pin_t pin_config0;
+    get_i2s_pins(I2S_NUM_0, &pin_config0);
+
+    gpio_config_t gpioCfg = {
+        .pin_bit_mask =
+            BIT64(pin_config0.mck_io_num) | BIT64(pin_config0.data_out_num) |
+            BIT64(pin_config0.bck_io_num) | BIT64(pin_config0.ws_io_num) |
+            BIT64(pin_config0.data_in_num),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&gpioCfg);
+    gpio_set_level(pin_config0.mck_io_num, 0);
+    gpio_set_level(pin_config0.data_out_num, 0);
+    gpio_set_level(pin_config0.data_in_num, 0);
+    gpio_set_level(pin_config0.bck_io_num, 0);
+    gpio_set_level(pin_config0.ws_io_num, 0);
+  }
+
+#if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
+    CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
   eth_init();
   // pass "WIFI_STA_DEF", "WIFI_AP_DEF", "ETH_DEF"
   init_http_server_task("ETH_DEF");

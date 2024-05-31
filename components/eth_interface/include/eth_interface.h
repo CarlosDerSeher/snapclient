@@ -1,6 +1,13 @@
-#ifndef _ETH_INTERFACE_H_
-#define _ETH_INTERFACE_H_
+#pragma once
+
+#include "esp_eth_driver.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 void eth_init(void);
 
-#endif /* _ETH_INTERFACE_H_ */
+#ifdef __cplusplus
+}
+#endif

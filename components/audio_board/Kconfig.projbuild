@@ -1,5 +1,14 @@
 menu "Audio Board"
 
+	config I2S_USE_MSB_FORMAT
+		bool
+		default n
+		help
+			Specifies if the I2S should use MSB format instead. Some DACs (such as PT8211) need this enabled to ensure
+			compatibility with their LSBJ timing under their native bit-depth. This option is only adjusted by the DAC
+			choice and is not exposed to menuconfig.
+			See https://github.com/schreibfaul1/ESP32-audioI2S/blob/1d9b299d0197f99fc70335295adcd226dc220f88/src/Audio.cpp#L4929
+
 	choice AUDIO_BOARD
 	    prompt "Audio board"
 	    default ESP_LYRAT_V4_3_BOARD
@@ -92,7 +101,10 @@ menu "Audio Board"
 
 	    config DAC_TAS5805M
 	        bool "Texas Instruments TAS5805M"
-
+          
+		  config DAC_PT8211
+			  bool "Princeton Technology PT8211"
+			  select I2S_USE_MSB_FORMAT
 	    endchoice
 
 	    menu "DAC I2C control interface"
@@ -100,14 +112,15 @@ menu "Audio Board"
 	        	int "SDA pin"
 	        	default 12 if DAC_ADAU1961
 	        	default 21 if DAC_MA120 || DAC_PCM51XX || DAC_MA120 || DAC_MA120X0 || DAC_MAX98357 || DAC_PCM5102A || DAC_TAS5805M
-
+	        	default -1 if DAC_PT8211
 	            help
 	        	    I2C SDA pin of the DAC control interface
 	    	config DAC_I2C_SCL
 	        	int "SCL pin"
 	        	default 14 if DAC_ADAU1961
 	        	default 22 if DAC_MA120 || DAC_PCM51XX || DAC_MA120 || DAC_MA120X0 || DAC_MAX98357 || DAC_PCM5102A
-	            default 27 if DAC_TAS5805M
+	        	default 27 if DAC_TAS5805M
+	        	default -1 if DAC_PT8211
 	            help
 	        	    I2C SCL pin of the DAC control interface
 	    	config DAC_I2C_ADDR
@@ -115,6 +128,7 @@ menu "Audio Board"
 	        	default 0x70 if DAC_ADAU1961
 	        	default 0x20 if DAC_MA120 || DAC_PCM51XX || DAC_MA120 || DAC_MA120X0 || DAC_MAX98357 || DAC_PCM5102A
 	        	default 0x2D if DAC_TAS5805M
+	        	default 0x00 if DAC_PT8211
 	            help
 	        	    I2C Address of the DAC control interface
 	    endmenu
@@ -272,6 +286,24 @@ menu "Audio Board"
 	                    (L+R)/2 :    1Mohm
 	                Refer to Analog Devices' doc for more infos.
 	                This is labeled "SD" on chip/boards.
+	    endmenu
+
+		menu "PT8211 interface Configuration"
+	        depends on DAC_PT8211
+
+	        config PT8211_MUTE_PIN
+	            int "Master mute/unmute"
+	            default -1
+	            help
+	                GPIO number to control mute/unmute.
+					Note that PT8211 does not have a mute control pin. This output is intended to control external circuit (e.g., amplifier).
+
+	        config PT8211_MUTE_ACTIVE_LOW
+	            bool "Mute active LOW"
+	            default false
+	            help
+	            	Output LOW instead of HIGH on mute/unmute pin when in mute state.
+
 	    endmenu
 
 	    menu "Logic-Level-Settings"
