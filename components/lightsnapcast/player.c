@@ -30,7 +30,11 @@
 #include "player.h"
 #include "snapcast.h"
 
-#define USE_SAMPLE_INSERTION CONFIG_USE_SAMPLE_INSERTION
+#ifdef CONFIG_USE_APLL
+#define USE_SAMPLE_INSERTION 0
+#else
+#define USE_SAMPLE_INSERTION 1
+#endif
 
 #define SYNC_TASK_PRIORITY (configMAX_PRIORITIES - 1)
 #define SYNC_TASK_CORE_ID 1  // tskNO_AFFINITY
@@ -45,11 +49,12 @@ const uint32_t SHORT_OFFSET = 128;
 const uint32_t MINI_OFFSET = 64;
 
 #define USE_BIG_DMA_BUFFER 1
+#define BOARD_I2S_CLOCK_SOURCE I2S_CLK_SRC_DEFAULT
 
 #else
+#define BOARD_I2S_CLOCK_SOURCE I2S_CLK_SRC_APLL
 const uint32_t SHORT_OFFSET = 2;
 const uint32_t MINI_OFFSET = 1;
-#endif
 
 /**
  * @brief Pre define APLL parameters, save compute time. They are calculated in
@@ -61,6 +66,9 @@ const uint32_t MINI_OFFSET = 1;
 static uint32_t apll_normal_predefine[6] = {0, 0, 0, 0, 0, 0};
 static uint32_t apll_corr_predefine[][6] = {{0, 0, 0, 0, 0, 0},
                                             {0, 0, 0, 0, 0, 0}};
+
+static int8_t currentDir = 0;  //!< current apll direction, see apll_adjust()
+#endif
 
 static SemaphoreHandle_t latencyBufSemaphoreHandle = NULL;
 
@@ -78,8 +86,6 @@ static sMedianFilter_t miniMedianFilter;
 static sMedianNode_t miniMedianBuffer[MINI_BUFFER_LEN];
 
 static int64_t latencyToServer = 0;
-
-static int8_t currentDir = 0;  //!< current apll direction, see apll_adjust()
 
 static QueueHandle_t pcmChkQHdl = NULL;
 
@@ -104,7 +110,7 @@ static void player_task(void *pvParameters);
 
 extern esp_err_t audio_set_mute(bool mute);
 
-static i2s_chan_handle_t tx_chan = NULL;  // IsavedAge2S tx channel handler
+static i2s_chan_handle_t tx_chan = NULL;  // I2S tx channel handler
 static bool i2sEnabled = false;
 
 /**
@@ -252,7 +258,7 @@ static esp_err_t player_setup_i2s(i2s_port_t i2sNum,
 
   i2s_std_clk_config_t i2s_clkcfg = {
       .sample_rate_hz = setting->sr,
-      .clk_src = I2S_CLK_SRC_APLL,
+      .clk_src = BOARD_I2S_CLOCK_SOURCE,
       .mclk_multiple = I2S_MCLK_MULTIPLE_256,
   };
   i2s_std_config_t tx_std_cfg = {
@@ -783,6 +789,7 @@ static void tg0_timer1_start(uint64_t alarm_value) {
   // ESP_LOGI(TAG, "started age timer");
 }
 
+#if !USE_SAMPLE_INSERTION
 // void rtc_clk_apll_enable(bool enable, uint32_t sdm0, uint32_t sdm1, uint32_t
 // sdm2, uint32_t o_div); apll_freq = xtal_freq * (4 + sdm2 + sdm1/256 +
 // sdm0/65536)/((o_div + 2) * 2) xtal == 40MHz on lyrat v4.3 I2S bit_clock =
@@ -823,6 +830,7 @@ void adjust_apll(int8_t direction) {
 
   currentDir = direction;
 }
+#endif
 
 /**
  *
