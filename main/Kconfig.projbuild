@@ -35,7 +35,7 @@ menu "Snapclient Configuration"
 
     config USE_APLL
         bool "Use APLL for clock adjustment"
-        default false
+        default true
         depends on SOC_I2S_SUPPORTS_APLL
         help
             There are two syncronization implementations.
