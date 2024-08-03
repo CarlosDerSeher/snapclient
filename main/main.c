@@ -2090,7 +2090,7 @@ static void http_get_task(void *pvParameters) {
                           if (t_flac_decoder_task == NULL) {
                             xTaskCreatePinnedToCore(
                                 &flac_decoder_task, "flac_decoder_task",
-                                9 * 256, &scSet, FLAC_DECODER_TASK_PRIORITY,
+                                10 * 256, &scSet, FLAC_DECODER_TASK_PRIORITY,
                                 &t_flac_decoder_task,
                                 FLAC_DECODER_TASK_CORE_ID);
                           }
@@ -2098,7 +2098,7 @@ static void http_get_task(void *pvParameters) {
 #if TEST_DECODER_TASK
                           if (dec_task_handle == NULL) {
                             xTaskCreatePinnedToCore(
-                                &flac_task, "flac_task", 9 * 256, &scSet,
+                                &flac_task, "flac_task", 10 * 256, &scSet,
                                 FLAC_TASK_PRIORITY, &dec_task_handle,
                                 FLAC_TASK_CORE_ID);
                           }
