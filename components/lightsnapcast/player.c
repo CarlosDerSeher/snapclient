@@ -30,11 +30,7 @@
 #include "player.h"
 #include "snapcast.h"
 
-#ifdef CONFIG_USE_APLL
-#define USE_SAMPLE_INSERTION 0
-#else
-#define USE_SAMPLE_INSERTION 1
-#endif
+#define USE_SAMPLE_INSERTION CONFIG_USE_SAMPLE_INSERTION
 
 #define SYNC_TASK_PRIORITY (configMAX_PRIORITIES - 1)
 #define SYNC_TASK_CORE_ID 1  // tskNO_AFFINITY

@@ -33,10 +33,9 @@ menu "Snapclient Configuration"
 				HTTP server port to use.
 	endmenu
 
-    config USE_APLL
-        bool "Use APLL for clock adjustment"
+    config USE_SAMPLE_INSERTION
+        bool "Use sample insertion for clock adjustment"
         default true
-        depends on SOC_I2S_SUPPORTS_APLL
         help
             There are two syncronization implementations.
 
