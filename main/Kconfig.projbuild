@@ -33,8 +33,8 @@ menu "Snapclient Configuration"
 				HTTP server port to use.
 	endmenu
 
-	config USE_SAMPLE_INSERTION
-        bool "Use sample insertion"
+    config USE_SAMPLE_INSERTION
+        bool "Use sample insertion for clock adjustment"
         default true
         help
             There are two syncronization implementations.
