@@ -409,7 +409,7 @@ CONFIG_SLAVE_I2S_DATAOUT_PIN=5
 #
 # MAX98357 interface Configuration
 #
-CONFIG_MAX98357_MUTE_PIN=255
+CONFIG_MAX98357_MUTE_PIN=13
 # end of MAX98357 interface Configuration
 
 #
@@ -433,7 +433,6 @@ CONFIG_SNAPCLIENT_DSP_FLOW_BASS_TREBLE_EQ=y
 # CONFIG_USE_BIQUAD_ASM is not set
 CONFIG_SNAPCLIENT_USE_SOFT_VOL=y
 # end of ESP32 DSP processor config
-
 
 #
 # Snapclient Ethernet Configuration
