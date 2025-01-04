@@ -98,7 +98,7 @@ static bool gpTimerRunning = false;
 
 static void player_task(void *pvParameters);
 
-extern esp_err_t audio_set_mute(bool mute);
+extern void audio_set_mute(bool mute);
 
 static i2s_chan_handle_t tx_chan = NULL;  // I2S tx channel handler
 static bool i2sEnabled = false;
