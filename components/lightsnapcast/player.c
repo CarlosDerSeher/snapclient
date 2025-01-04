@@ -24,7 +24,6 @@
 #include <math.h>
 
 #include "MedianFilter.h"
-#include "board_pins_config.h"
 #include "driver/gptimer.h"
 #include "driver/i2s_std.h"
 #include "player.h"
@@ -104,6 +103,9 @@ extern esp_err_t audio_set_mute(bool mute);
 static i2s_chan_handle_t tx_chan = NULL;  // I2S tx channel handler
 static bool i2sEnabled = false;
 
+i2s_std_gpio_config_t pin_config0;
+i2s_port_t i2sNum;
+
 /**
  *
  */
@@ -137,8 +139,7 @@ esp_err_t my_i2s_channel_enable(i2s_chan_handle_t handle) {
 /**
  *
  */
-static esp_err_t player_setup_i2s(i2s_port_t i2sNum,
-                                  snapcastSetting_t *setting) {
+static esp_err_t player_setup_i2s(snapcastSetting_t *setting) {
   // ensure save setting
   int32_t sr = setting->sr;
   if (sr == 0) {
@@ -235,8 +236,6 @@ static esp_err_t player_setup_i2s(i2s_port_t i2sNum,
   };
   ESP_ERROR_CHECK(i2s_new_channel(&tx_chan_cfg, &tx_chan, NULL));
 
-  board_i2s_pin_t pin_config0;
-  get_i2s_pins(i2sNum, &pin_config0);
 
   ESP_LOGI(TAG,
            "player_setup_i2s: dma_buf_len is %ld, dma_buf_count is %ld, sample "
@@ -261,35 +260,7 @@ static esp_err_t player_setup_i2s(i2s_port_t i2sNum,
       .slot_cfg =
           I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(bits, I2S_SLOT_MODE_STEREO),
 #endif
-      .gpio_cfg =
-          {
-              .mclk = pin_config0.mck_io_num,
-              .bclk = pin_config0.bck_io_num,
-              .ws = pin_config0.ws_io_num,
-              .dout = pin_config0.data_out_num,
-              .din = pin_config0.data_in_num,
-              .invert_flags =
-                  {
-#if CONFIG_INVERT_MCLK_LEVEL
-                      .mclk_inv = true,
-
-#else
-                      .mclk_inv = false,
-#endif
-
-#if CONFIG_INVERT_BCLK_LEVEL
-                      .bclk_inv = true,
-#else
-                      .bclk_inv = false,
-#endif
-
-#if CONFIG_INVERT_WORD_SELECT_LEVEL
-                      .ws_inv = true,
-#else
-                      .ws_inv = false,
-#endif
-                  },
-          },
+      .gpio_cfg = pin_config0,
   };
 
   ESP_ERROR_CHECK(i2s_channel_init_std_mode(tx_chan, &tx_std_cfg));
@@ -368,10 +339,13 @@ int deinit_player(void) {
 /**
  *  call before http task creation!
  */
-int init_player(void) {
+int init_player(i2s_std_gpio_config_t pin_config0_, i2s_port_t i2sNum_) {
   int ret = 0;
 
   deinit_player();
+
+  pin_config0 = pin_config0_;
+  i2sNum = i2sNum_;
 
   currentSnapcastSetting.buf_ms = 0;
   currentSnapcastSetting.chkInFrames = 0;
@@ -1225,7 +1199,7 @@ static void player_task(void *pvParameters) {
           audio_set_mute(true);
           my_i2s_channel_disable(tx_chan);
 
-          ret = player_setup_i2s(I2S_NUM_0, &__scSet);
+          ret = player_setup_i2s(&__scSet);
           if (ret < 0) {
             ESP_LOGE(TAG, "player_setup_i2s failed: %d", ret);
 

@@ -2469,6 +2469,9 @@ void app_main(void) {
   gpio_config(&cfg);
 #endif
 
+  board_i2s_pin_t pin_config0;
+  get_i2s_pins(I2S_NUM_0, &pin_config0);
+
 #if CONFIG_AUDIO_BOARD_CUSTOM && CONFIG_DAC_ADAU1961
   // some codecs need i2s mclk for initialization
 
@@ -2482,9 +2485,6 @@ void app_main(void) {
       .auto_clear = true,
   };
   ESP_ERROR_CHECK(i2s_new_channel(&tx_chan_cfg, &tx_chan, NULL));
-
-  board_i2s_pin_t pin_config0;
-  get_i2s_pins(I2S_NUM_0, &pin_config0);
 
   i2s_std_clk_config_t i2s_clkcfg = {
       .sample_rate_hz = 44100,
@@ -2542,13 +2542,39 @@ void app_main(void) {
 #endif
 
   //  ESP_LOGI(TAG, "init player");
-  init_player();
+  i2s_std_gpio_config_t i2s_pin_config0 =
+  {
+      .mclk = pin_config0.mck_io_num,
+      .bclk = pin_config0.bck_io_num,
+      .ws = pin_config0.ws_io_num,
+      .dout = pin_config0.data_out_num,
+      .din = pin_config0.data_in_num,
+      .invert_flags =
+          {
+#if CONFIG_INVERT_MCLK_LEVEL
+              .mclk_inv = true,
+
+#else
+              .mclk_inv = false,
+#endif
+
+#if CONFIG_INVERT_BCLK_LEVEL
+              .bclk_inv = true,
+#else
+              .bclk_inv = false,
+#endif
+
+#if CONFIG_INVERT_WORD_SELECT_LEVEL
+              .ws_inv = true,
+#else
+              .ws_inv = false,
+#endif
+          },
+  };
+  init_player(i2s_pin_config0, I2S_NUM_0);
 
   // ensure there is no noise from DAC
   {
-    board_i2s_pin_t pin_config0;
-    get_i2s_pins(I2S_NUM_0, &pin_config0);
-
     gpio_config_t gpioCfg = {
         .pin_bit_mask =
             BIT64(pin_config0.mck_io_num) | BIT64(pin_config0.data_out_num) |

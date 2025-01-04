@@ -63,7 +63,7 @@ typedef struct snapcastSetting_s {
   uint32_t pcmBufSize;
 } snapcastSetting_t;
 
-int init_player(void);
+int init_player(i2s_std_gpio_config_t pin_config0_, i2s_port_t i2sNum_);
 int deinit_player(void);
 
 int32_t allocate_pcm_chunk_memory(pcm_chunk_message_t **pcmChunk, size_t bytes);
