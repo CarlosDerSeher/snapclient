@@ -430,8 +430,8 @@ void error_callback(const FLAC__StreamDecoder *decoder,
 /**
  *
  */
-void init_snapcast(QueueHandle_t audioQHdl_) {
-  audioDACQHdl = audioQHdl_;
+void init_snapcast(QueueHandle_t audioQHdl) {
+  audioDACQHdl = audioQHdl;
   audioDACSemaphore = xSemaphoreCreateMutex();
   audioDAC_data.mute = true;
   audioDAC_data.volume = 100;
@@ -443,8 +443,8 @@ void init_snapcast(QueueHandle_t audioQHdl_) {
 void audio_set_mute(bool mute) {
   xSemaphoreTake(audioDACSemaphore, portMAX_DELAY);
   if (mute != audioDAC_data.mute) {
-    audioDAC_data.mute=mute;
-    xQueueSend(audioDACQHdl, &audioDAC_data, portMAX_DELAY);
+    audioDAC_data.mute = mute;
+    xQueueOverwrite(audioDACQHdl, &audioDAC_data);
   }
   xSemaphoreGive(audioDACSemaphore);
 }
@@ -455,8 +455,8 @@ void audio_set_mute(bool mute) {
 void audio_set_volume(int volume) {
   xSemaphoreTake(audioDACSemaphore, portMAX_DELAY);
   if (volume != audioDAC_data.volume) {
-    audioDAC_data.volume=volume;
-    xQueueSend(audioDACQHdl, &audioDAC_data, portMAX_DELAY);
+    audioDAC_data.volume = volume;
+    xQueueOverwrite(audioDACQHdl, &audioDAC_data);
   }
   xSemaphoreGive(audioDACSemaphore);
 }
@@ -2598,9 +2598,9 @@ void app_main(void) {
           },
   };
 
-  QueueHandle_t audioQHdl_ = xQueueCreate(1, sizeof(audioDACdata_t*));
+  QueueHandle_t audioQHdl = xQueueCreate(1, sizeof(audioDACdata_t));
 
-  init_snapcast(audioQHdl_);
+  init_snapcast(audioQHdl);
   init_player(i2s_pin_config0, I2S_NUM_0);
 
   // ensure there is no noise from DAC
@@ -2676,7 +2676,7 @@ void app_main(void) {
   };
 
   while(1) {
-    if (xQueueReceive(audioQHdl_, &dac_data, portMAX_DELAY) == pdTRUE) {
+    if (xQueueReceive(audioQHdl, &dac_data, portMAX_DELAY) == pdTRUE) {
       if (dac_data.mute != dac_data_old.mute){
         audio_hal_set_mute(board_handle->audio_hal, dac_data.mute);
       }
