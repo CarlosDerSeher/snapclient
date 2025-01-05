@@ -361,7 +361,7 @@ int init_player(i2s_std_gpio_config_t pin_config0_, i2s_port_t i2sNum_) {
     xSemaphoreGive(snapcastSettingsMux);
   }
 
-  ret = player_setup_i2s(I2S_NUM_0, &currentSnapcastSetting);
+  ret = player_setup_i2s(&currentSnapcastSetting);
   if (ret < 0) {
     ESP_LOGE(TAG, "player_setup_i2s failed: %d", ret);
 
