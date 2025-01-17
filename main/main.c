@@ -113,7 +113,6 @@ TaskHandle_t dec_task_handle = NULL;
 #define NORMAL_SYNC_LATENCY_BUF 1000000  // in µs
 
 struct timeval tdif, tavg;
-static audio_board_handle_t board_handle = NULL;
 
 /* snapast parameters; configurable in menuconfig */
 #define SNAPCAST_SERVER_USE_MDNS CONFIG_SNAPSERVER_USE_MDNS
@@ -144,6 +143,15 @@ dspFlows_t dspFlow = dspfBiamp;
 dspFlows_t dspFlow = dspfEQBassTreble;
 #endif
 #endif
+
+typedef struct audioDACdata_s {
+  bool mute;
+  int volume;
+} audioDACdata_t;
+
+audioDACdata_t audioDAC_data;
+static QueueHandle_t audioDACQHdl = NULL;
+SemaphoreHandle_t audioDACSemaphore = NULL;
 
 typedef struct decoderData_s {
   uint32_t type;  // should be SNAPCAST_MESSAGE_CODEC_HEADER
@@ -717,17 +725,36 @@ void opus_decoder_task(void *pvParameters) {
   }
 }
 
+
+
+void init_snapcast(QueueHandle_t audioQHdl) {
+  audioDACQHdl = audioQHdl;
+  audioDACSemaphore = xSemaphoreCreateMutex();
+  audioDAC_data.mute = true;
+  audioDAC_data.volume = 100;
+}
 /**
  *
  */
-esp_err_t audio_set_mute(bool mute) {
-  if (!board_handle) {
-    ESP_LOGW(TAG, "audio board not initialized yet");
-
-    return ESP_OK;
-  } else {
-    return audio_hal_set_mute(board_handle->audio_hal, mute);
+void audio_set_mute(bool mute) {
+  xSemaphoreTake(audioDACSemaphore, portMAX_DELAY);
+  if (mute != audioDAC_data.mute) {
+    audioDAC_data.mute = mute;
+    xQueueOverwrite(audioDACQHdl, &audioDAC_data);
   }
+  xSemaphoreGive(audioDACSemaphore);
+}
+
+/**
+ *
+ */
+void audio_set_volume(int volume) {
+  xSemaphoreTake(audioDACSemaphore, portMAX_DELAY);
+  if (volume != audioDAC_data.volume) {
+    audioDAC_data.volume = volume;
+    xQueueOverwrite(audioDACQHdl, &audioDAC_data);
+  }
+  xSemaphoreGive(audioDACSemaphore);
 }
 
 /**
@@ -2360,8 +2387,7 @@ static void http_get_task(void *pvParameters) {
                                 (double)server_settings_message.volume / 100);
                           }
 #endif
-                          audio_hal_set_mute(board_handle->audio_hal,
-                                             server_settings_message.muted);
+                          audio_set_mute(server_settings_message.muted);
                         }
 
                         if (scSet.volume != server_settings_message.volume) {
@@ -2371,8 +2397,7 @@ static void http_get_task(void *pvParameters) {
                                 (double)server_settings_message.volume / 100);
                           }
 #else
-                          audio_hal_set_volume(board_handle->audio_hal,
-                                               server_settings_message.volume);
+                          audio_set_volume(server_settings_message.volume);
 #endif
                         }
 
@@ -2788,6 +2813,9 @@ void app_main(void) {
   gpio_config(&cfg);
 #endif
 
+  board_i2s_pin_t pin_config0;
+  get_i2s_pins(I2S_NUM_0, &pin_config0);
+
 #if CONFIG_AUDIO_BOARD_CUSTOM && CONFIG_DAC_ADAU1961
   // some codecs need i2s mclk for initialization
 
@@ -2801,9 +2829,6 @@ void app_main(void) {
       .auto_clear = true,
   };
   ESP_ERROR_CHECK(i2s_new_channel(&tx_chan_cfg, &tx_chan, NULL));
-
-  board_i2s_pin_t pin_config0;
-  get_i2s_pins(I2S_NUM_0, &pin_config0);
 
   i2s_std_clk_config_t i2s_clkcfg = {
       .sample_rate_hz = 44100,
@@ -2836,7 +2861,7 @@ void app_main(void) {
 #endif
 
   ESP_LOGI(TAG, "Start codec chip");
-  board_handle = audio_board_init();
+  audio_board_handle_t board_handle = audio_board_init();
   if (board_handle) {
     ESP_LOGI(TAG, "Audio board_init done");
   } else {
@@ -2861,13 +2886,43 @@ void app_main(void) {
 #endif
 
   ESP_LOGI(TAG, "init player");
-  init_player();
+  i2s_std_gpio_config_t i2s_pin_config0 =
+  {
+      .mclk = pin_config0.mck_io_num,
+      .bclk = pin_config0.bck_io_num,
+      .ws = pin_config0.ws_io_num,
+      .dout = pin_config0.data_out_num,
+      .din = pin_config0.data_in_num,
+      .invert_flags =
+          {
+#if CONFIG_INVERT_MCLK_LEVEL
+              .mclk_inv = true,
+
+#else
+              .mclk_inv = false,
+#endif
+
+#if CONFIG_INVERT_BCLK_LEVEL
+              .bclk_inv = true,
+#else
+              .bclk_inv = false,
+#endif
+
+#if CONFIG_INVERT_WORD_SELECT_LEVEL
+              .ws_inv = true,
+#else
+              .ws_inv = false,
+#endif
+          },
+  };
+
+  QueueHandle_t audioQHdl = xQueueCreate(1, sizeof(audioDACdata_t));
+
+  init_snapcast(audioQHdl);
+  init_player(i2s_pin_config0, I2S_NUM_0);
 
   // ensure there is no noise from DAC
   {
-    board_i2s_pin_t pin_config0;
-    get_i2s_pins(I2S_NUM_0, &pin_config0);
-
     gpio_config_t gpioCfg = {
         .pin_bit_mask =
             BIT64(pin_config0.mck_io_num) | BIT64(pin_config0.data_out_num) |
@@ -2936,4 +2991,22 @@ void app_main(void) {
   //      continue;
   //    }
   //  }
+
+  audioDACdata_t dac_data;
+  audioDACdata_t dac_data_old = {
+    .mute = true,
+    .volume = 100,
+  };
+
+  while(1) {
+    if (xQueueReceive(audioQHdl, &dac_data, portMAX_DELAY) == pdTRUE) {
+      if (dac_data.mute != dac_data_old.mute){
+        audio_hal_set_mute(board_handle->audio_hal, dac_data.mute);
+      }
+      if (dac_data.volume != dac_data_old.volume){
+        audio_hal_set_volume(board_handle->audio_hal, dac_data.volume);
+      }
+      dac_data_old = dac_data;
+    }
+  }
 }
