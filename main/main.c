@@ -442,9 +442,6 @@ void audio_set_volume(int volume) {
   xSemaphoreGive(audioDACSemaphore);
 }
 
-#define INTERFACE_ETH 0
-#define INTERFACE_STA 1
-
 /**
  *
  */
@@ -611,6 +608,8 @@ static void http_get_task(void *pvParameters) {
         netif = re->esp_netif;
         break;
       }
+
+      // TODO: fall back to IPv4 if no IPv6 was available
 #else
       if (a->addr.type == IPADDR_TYPE_V4) {
         netif = re->esp_netif;
@@ -630,7 +629,6 @@ static void http_get_task(void *pvParameters) {
     }
 
     ip_addr_copy(remote_ip, re->addr->addr);
-    // remote_ip.type = a->addr.type;
     remotePort = r->port;
 
     mdns_query_results_free(r);
@@ -649,76 +647,6 @@ static void http_get_task(void *pvParameters) {
     ESP_LOGI(TAG, "try connecting to static configuration %s:%d",
              ipaddr_ntoa(&remote_ip), remotePort);
 #endif
-
-    //    ip_addr_t ipAddr;
-    //    if (remote_ip.type == IPADDR_TYPE_V4) {
-    //      esp_netif_ip_info_t ip_info;
-    //      memset(&ip_info, 0, sizeof(esp_netif_ip_info_t));
-    //
-    //      // #if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET ||
-    //      // CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
-    //      //       if (network_is_netif_up(
-    //      //       network_get_netif_from_desc(NETWORK_INTERFACE_DESC_ETH)) )
-    //      {
-    //      //         esp_netif_get_ip_info(eth_netif, &ip_info);
-    //      //       }
-    //      //       else
-    //      // #endif
-    //      //       {
-    //      // if (network_is_netif_up( netif ) )
-    ////      {
-    //        esp_netif_get_ip_info(netif, &ip_info);
-    ////      }
-    //      //      }
-    //
-    //      ip_addr_t _ipAddr = IPADDR4_INIT(ip_info.ip.addr);
-    //
-    //      ipAddr = _ipAddr;
-    //
-    //      char str[INET_ADDRSTRLEN];
-    //      inet_ntop(AF_INET, &(ipAddr.u_addr.ip4.addr), str, INET_ADDRSTRLEN);
-    //
-    //      ESP_LOGI(TAG, "IP4 %s", str);
-    //    } else if (remote_ip.type == IPADDR_TYPE_V6) {
-    //      esp_netif_ip6_info_t ip_info;
-    //      memset(&ip_info, 0, sizeof(esp_netif_ip6_info_t));
-    //
-    //      // #if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET ||
-    //      // CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
-    //      //       if (network_is_netif_up(
-    //      //       network_get_netif_from_desc(NETWORK_INTERFACE_DESC_ETH)) )
-    //      {
-    //      //         esp_netif_get_ip6_linklocal(eth_netif, &ip_info.ip);
-    //      //       }
-    //      //       else
-    //      // #endif
-    //      //       {
-    //      //         if (network_is_netif_up(
-    //      //         network_get_netif_from_desc(NETWORK_INTERFACE_DESC_STA))
-    //      ) { esp_netif_get_ip6_linklocal(netif, &ip_info.ip);
-    //      //        }
-    //      //      }
-    //
-    //      ip_addr_t _ipAddr = IPADDR6_INIT(ip_info.ip.addr[0],
-    //      ip_info.ip.addr[1],
-    //                                       ip_info.ip.addr[2],
-    //                                       ip_info.ip.addr[3]);
-    //      ipAddr = _ipAddr;
-    //
-    //      char str[INET6_ADDRSTRLEN];
-    //      // inet_ntop(AF_INET6, &(ipAddr.u_addr.ip6.addr), str,
-    //      INET6_ADDRSTRLEN); inet_ntop(AF_INET6, &(ip_info.ip.addr), str,
-    //      INET6_ADDRSTRLEN);
-    //
-    //      //    ESP_LOGI(TAG, "Got IPv6 event: address: " IPV6STR,
-    //      //    IPV62STR(ip_info->ip));
-    //
-    //      //			ESP_LOGI(TAG, "IP6 %s", str);
-    //    } else {
-    //      ESP_LOGI(TAG, "wrong remote IP address type %u", remote_ip.type);
-    //
-    //      continue;
-    //    }
 
     if (remote_ip.type == IPADDR_TYPE_V4) {
       lwipNetconn = netconn_new(NETCONN_TCP);
@@ -787,9 +715,9 @@ static void http_get_task(void *pvParameters) {
     }
 
     uint8_t base_mac[6];
-    // Get MAC address for WiFi station
 #if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
     CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
+    // Get MAC address for Eth Interface
     char eth_mac_address[18];
 
     esp_read_mac(base_mac, ESP_MAC_ETH);
@@ -797,6 +725,7 @@ static void http_get_task(void *pvParameters) {
             base_mac[1], base_mac[2], base_mac[3], base_mac[4], base_mac[5]);
     ESP_LOGI(TAG, "eth mac: %s", eth_mac_address);
 #endif
+    // Get MAC address for WiFi station
     char mac_address[18];
     esp_read_mac(base_mac, ESP_MAC_WIFI_STA);
     sprintf(mac_address, "%02X:%02X:%02X:%02X:%02X:%02X", base_mac[0],
