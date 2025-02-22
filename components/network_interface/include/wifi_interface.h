@@ -1,6 +1,8 @@
 #ifndef _WIFI_INTERFACE_H_
 #define _WIFI_INTERFACE_H_
 
+#include <stdbool.h>
+
 // use wifi provisioning
 #define ENABLE_WIFI_PROVISIONING CONFIG_ENABLE_WIFI_PROVISIONING
 

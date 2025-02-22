@@ -4,7 +4,6 @@
 
     Must be taken over/merge with wifi provision
 */
-
 #include "wifi_interface.h"
 
 #include "esp_event.h"
