@@ -172,13 +172,25 @@ menu "Audio Board"
 	    endmenu
 
 	    menu "DAC-Operation-Mode"
-			 depends on DAC_TAS5805M
+			depends on DAC_TAS5805M
 
-	         config DAC_BRIDGE_MODE
-	            bool "Enable Bridge-Mode"
-	            default false if DAC_TAS5805M
-	            help
-	                If enabled left channel will be played with more power. To use the right channel please change Word-Select-Setting in Logic-Level-Settings.
+	        choice DAC_BRIDGE_MODE
+	            prompt "Bridge-Mode selection"
+	            default DAC_BRIDGE_MODE_DISABLED
+
+				config DAC_BRIDGE_MODE_DISABLED
+					bool "Stereo (bridge mode disabled)"
+
+				config DAC_BRIDGE_MODE_MONO
+					bool "Mono mode (Left + Right / 2)"
+				
+				config DAC_BRIDGE_MODE_LEFT
+					bool "Output left input channel"
+
+				config DAC_BRIDGE_MODE_RIGHT
+					bool "Output right input channel"
+	        
+			endchoice
 		endmenu
 
 		menu "Merus MA120x0 interface Configuration"
