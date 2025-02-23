@@ -8,20 +8,19 @@
          CONDITIONS OF ANY KIND, either express or implied.
 */
 
+#include "ui_http_server.h"
+
 #include <string.h>
 
+#include "dsp_processor.h"
 #include "esp_err.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "esp_spiffs.h"
 #include "esp_vfs.h"
-// #include "esp_wifi.h"
-
-#include "dsp_processor.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
-#include "ui_http_server.h"
 
 static const char *TAG = "UI_HTTP";
 

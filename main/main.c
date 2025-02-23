@@ -137,9 +137,9 @@ typedef struct audioDACdata_s {
   int volume;
 } audioDACdata_t;
 
-audioDACdata_t audioDAC_data;
+static audioDACdata_t audioDAC_data;
 static QueueHandle_t audioDACQHdl = NULL;
-SemaphoreHandle_t audioDACSemaphore = NULL;
+static SemaphoreHandle_t audioDACSemaphore = NULL;
 
 typedef struct decoderData_s {
   uint32_t type;  // should be SNAPCAST_MESSAGE_CODEC_HEADER
@@ -415,7 +415,7 @@ void init_snapcast(QueueHandle_t audioQHdl) {
   audioDACQHdl = audioQHdl;
   audioDACSemaphore = xSemaphoreCreateMutex();
   audioDAC_data.mute = true;
-  audioDAC_data.volume = 100;
+  audioDAC_data.volume = -1;
 }
 
 /**
@@ -1454,9 +1454,8 @@ static void http_get_task(void *pvParameters) {
 
 #if CONFIG_USE_DSP_PROCESSOR
                                 if (new_pcmChunk->fragment->payload) {
-                                  dsp_processor_worker(
-                                      new_pcmChunk->fragment->payload,
-                                      new_pcmChunk->fragment->size, scSet.sr);
+                                  dsp_processor_worker((void *)new_pcmChunk,
+                                                       (void *)&scSet);
                                 }
 #endif
 
@@ -1565,9 +1564,8 @@ static void http_get_task(void *pvParameters) {
 
 #if CONFIG_USE_DSP_PROCESSOR
                                 if (new_pcmChunk->fragment->payload) {
-                                  dsp_processor_worker(
-                                      new_pcmChunk->fragment->payload,
-                                      new_pcmChunk->fragment->size, scSet.sr);
+                                  dsp_processor_worker((void *)new_pcmChunk,
+                                                       (void *)&scSet);
                                 }
 
 #endif
@@ -1627,9 +1625,8 @@ static void http_get_task(void *pvParameters) {
 
 #if CONFIG_USE_DSP_PROCESSOR
                               if ((pcmData) && (pcmData->fragment->payload)) {
-                                dsp_processor_worker(pcmData->fragment->payload,
-                                                     pcmData->fragment->size,
-                                                     scSet.sr);
+                                dsp_processor_worker((void *)pcmData,
+                                                     (void *)&scSet);
                               }
 #endif
 

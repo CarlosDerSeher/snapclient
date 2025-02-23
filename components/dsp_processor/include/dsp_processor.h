@@ -64,7 +64,7 @@ typedef struct pnode {
 
 void dsp_processor_init(void);
 void dsp_processor_uninit(void);
-int dsp_processor_worker(char *audio, size_t chunk_size, uint32_t samplerate);
+int dsp_processor_worker(void *pcmChnk, const void *scSet);
 esp_err_t dsp_processor_update_filter_params(filterParams_t *params);
 void dsp_processor_set_volome(double volume);
 

@@ -6,6 +6,8 @@
 */
 #include "wifi_interface.h"
 
+#include <string.h>  // for memcpy
+
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_mac.h"
@@ -19,8 +21,6 @@
 #include "nvs_flash.h"
 
 #if ENABLE_WIFI_PROVISIONING
-#include <string.h>  // for memcpy
-
 #include "wifi_provisioning.h"
 #endif
 

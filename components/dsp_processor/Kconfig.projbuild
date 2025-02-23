@@ -7,6 +7,12 @@ menu "ESP32 DSP processor config"
         help
             enable audio filtering before queueing it to player component
 
+    config SNAPCLIENT_MIX_LR_TO_MONO
+        bool "mix stereo audio to mono"
+        default false
+        help
+            mix stereo audio (left and right channel) to mono and play it on the left AND the right channel
+
     choice SNAPCLIENT_DSP_FLOW
         prompt "DSP flow"
         default SNAPCLIENT_DSP_FLOW_STEREO

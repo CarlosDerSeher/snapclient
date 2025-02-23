@@ -7,12 +7,12 @@
 #include "freertos/FreeRTOS.h"
 
 #if CONFIG_USE_DSP_PROCESSOR
+#include "dsp_processor.h"
 #include "dsps_biquad.h"
 #include "dsps_biquad_gen.h"
 #include "esp_log.h"
 #include "freertos/queue.h"
-
-#include "dsp_processor.h"
+#include "player.h"
 
 #ifdef CONFIG_USE_BIQUAD_ASM
 #define BIQUAD dsps_biquad_f32_ae32
@@ -112,7 +112,9 @@ void dsp_processor_init(void) {
       break;
     }
 
-    default: { break; }
+    default: {
+      break;
+    }
   }
 
   ESP_LOGI(TAG, "%s: init done", __func__);
@@ -203,12 +205,36 @@ static int32_t dsp_processor_gen_filter(ptype_t *filter, uint32_t cnt) {
 /**
  *
  */
-int dsp_processor_worker(char *audio, size_t chunk_size, uint32_t samplerate) {
-  int16_t len = chunk_size / 4;
+int dsp_processor_worker(void *p_pcmChnk, const void *p_scSet) {
+  const snapcastSetting_t *scSet = (const snapcastSetting_t *)p_scSet;
+  pcm_chunk_message_t *pcmChnk = (pcm_chunk_message_t *)p_pcmChnk;
+  uint32_t samplerate = scSet->sr;
+
+  if (!pcmChnk || !pcmChnk->fragment->payload) {
+    return -1;
+  }
+
+  int bits = scSet->bits;
+  int ch = scSet->ch;
+
+  if (bits == 0) {
+    bits = 16;
+  }
+
+  if (ch == 0) {
+    ch = 2;
+  }
+
+  if (samplerate == 0) {
+    samplerate = 44100;
+  }
+
+  int16_t len = pcmChnk->fragment->size / ((bits / 8) * ch);
   int16_t valint;
   uint16_t i;
   // volatile needed to ensure 32 bit access
-  volatile uint32_t *audio_tmp = (volatile uint32_t *)audio;
+  volatile uint32_t *audio_tmp =
+      (volatile uint32_t *)(pcmChnk->fragment->payload);
   dspFlows_t dspFlow;
 
   // check if we need to update filters
@@ -332,7 +358,9 @@ int dsp_processor_worker(char *audio, size_t chunk_size, uint32_t samplerate) {
         break;
       }
 
-      default: { break; }
+      default: {
+        break;
+      }
     }
 
     dsp_processor_gen_filter(filter, cnt);
@@ -359,6 +387,28 @@ int dsp_processor_worker(char *audio, size_t chunk_size, uint32_t samplerate) {
 
       return -1;
     }
+
+#if CONFIG_SNAPCLIENT_MIX_LR_TO_MONO
+    if (ch == 2) {
+      for (int k = 0; k < len; k += DSP_PROCESSOR_LEN) {
+        volatile uint32_t *tmp = (uint32_t *)(&audio_tmp[k]);
+        uint32_t max = DSP_PROCESSOR_LEN;
+        uint32_t test = len - k;
+
+        if (test < DSP_PROCESSOR_LEN) {
+          max = test;
+        }
+
+        for (i = 0; i < max; i++) {
+          int16_t channel0 = (int16_t)((tmp[i] & 0xFFFF0000) >> 16);
+          int16_t channel1 = (int16_t)(tmp[i] & 0x0000FFFF);
+          int16_t mixMono = (float)channel0 / 2.0 + (float)channel1 / 2.0;
+
+          tmp[i] = ((uint32_t)mixMono << 16) | ((uint32_t)mixMono & 0x0000FFFF);
+        }
+      }
+    }
+#endif
 
     switch (dspFlow) {
       case dspfEQBassTreble: {
@@ -411,6 +461,7 @@ int dsp_processor_worker(char *audio, size_t chunk_size, uint32_t samplerate) {
       }
 
       case dspfStereo: {
+#if SNAPCAST_USE_SOFT_VOL
         for (int k = 0; k < len; k += DSP_PROCESSOR_LEN) {
           volatile uint32_t *tmp = (uint32_t *)(&audio_tmp[k]);
           uint32_t max = DSP_PROCESSOR_LEN;
@@ -432,6 +483,7 @@ int dsp_processor_worker(char *audio, size_t chunk_size, uint32_t samplerate) {
             }
           }
         }
+#endif
 
         break;
       }
@@ -448,8 +500,11 @@ int dsp_processor_worker(char *audio, size_t chunk_size, uint32_t samplerate) {
 
           // channel 0
           for (i = 0; i < max; i++) {
-            sbuffer0[i] = dynamic_vol * 0.5 *
-                          ((float)((int16_t)(tmp[i] & 0xFFFF))) / INT16_MAX;
+            sbuffer0[i] =
+                0.5 * ((float)((int16_t)(tmp[i] & 0xFFFF))) / INT16_MAX;
+#if SNAPCAST_USE_SOFT_VOL
+            sbuffer0[i] *= dynamic_vol;
+#endif
           }
           BIQUAD(sbuffer0, sbufout0, max, filter[0].coeffs, filter[0].w);
 
@@ -460,9 +515,12 @@ int dsp_processor_worker(char *audio, size_t chunk_size, uint32_t samplerate) {
 
           // channel 1
           for (i = 0; i < max; i++) {
-            sbuffer0[i] = dynamic_vol * 0.5 *
+            sbuffer0[i] = 0.5 *
                           ((float)((int16_t)((tmp[i] & 0xFFFF0000) >> 16))) /
                           INT16_MAX;
+#if SNAPCAST_USE_SOFT_VOL
+            sbuffer0[i] *= dynamic_vol;
+#endif
           }
           BIQUAD(sbuffer0, sbufout0, max, filter[1].coeffs, filter[1].w);
 
@@ -487,8 +545,11 @@ int dsp_processor_worker(char *audio, size_t chunk_size, uint32_t samplerate) {
 
           // Process audio ch0 LOW PASS FILTER
           for (i = 0; i < max; i++) {
-            sbuffer0[i] = dynamic_vol * 0.5 *
-                          ((float)((int16_t)(tmp[i] & 0xFFFF))) / INT16_MAX;
+            sbuffer0[i] =
+                0.5 * ((float)((int16_t)(tmp[i] & 0xFFFF))) / INT16_MAX;
+#if SNAPCAST_USE_SOFT_VOL
+            sbuffer0[i] *= dynamic_vol;
+#endif
           }
           BIQUAD(sbuffer0, sbufout0, max, filter[0].coeffs, filter[0].w);
           BIQUAD(sbufout0, sbuffer0, max, filter[1].coeffs, filter[1].w);
@@ -500,9 +561,12 @@ int dsp_processor_worker(char *audio, size_t chunk_size, uint32_t samplerate) {
 
           // Process audio ch1 HIGH PASS FILTER
           for (i = 0; i < max; i++) {
-            sbuffer0[i] = dynamic_vol * 0.5 *
+            sbuffer0[i] = 0.5 *
                           ((float)((int16_t)((tmp[i] & 0xFFFF0000) >> 16))) /
                           INT16_MAX;
+#if SNAPCAST_USE_SOFT_VOL
+            sbuffer0[i] *= dynamic_vol;
+#endif
           }
           BIQUAD(sbuffer0, sbufout0, max, filter[2].coeffs, filter[2].w);
           BIQUAD(sbufout0, sbuffer0, max, filter[3].coeffs, filter[3].w);
@@ -602,7 +666,9 @@ int dsp_processor_worker(char *audio, size_t chunk_size, uint32_t samplerate) {
                  "dspfFunkyHonda, not implemented yet, using stereo instead");
       } break;
 
-      default: { } break; }
+      default: {
+      } break;
+    }
 
     free(sbuffer0);
     sbuffer0 = NULL;
