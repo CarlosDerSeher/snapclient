@@ -22,7 +22,6 @@ static const char *TAG = "NETF";
 
 extern EventGroupHandle_t s_wifi_event_group;
 
-static const char *if_str[] = {"STA", "AP", "ETH", "MAX"};
 static const char *ip_protocol_str[] = {"V4", "V6", "MAX"};
 
 void net_mdns_register(const char *clientname) {
@@ -34,9 +33,8 @@ void net_mdns_register(const char *clientname) {
 }
 
 void mdns_print_results(const mdns_result_t *results) {
-  mdns_result_t *r = results;
+  mdns_result_t *r = (mdns_result_t *)results;
   mdns_ip_addr_t *a = NULL;
-  int i = 1, t;
 
   while (r) {
     ESP_LOGI(TAG, "Interface: %s", esp_netif_get_desc(r->esp_netif));
@@ -49,7 +47,7 @@ void mdns_print_results(const mdns_result_t *results) {
     }
     if (r->txt_count) {
       ESP_LOGI(TAG, "  TXT : [%u] ", r->txt_count);
-      for (t = 0; t < r->txt_count; t++) {
+      for (int t = 0; t < r->txt_count; t++) {
         ESP_LOGI(TAG, "%s=%s; ", r->txt[t].key, r->txt[t].value);
       }
     }

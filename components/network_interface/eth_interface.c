@@ -476,7 +476,6 @@ static void eth_on_got_ipv6(void *arg, esp_event_base_t event_base,
 void eth_start(void) {
   // Initialize Ethernet driver
   esp_eth_handle_t *eth_handles;
-  esp_netif_t *eth_netif;
 
   if (!connIpSemaphoreHandle) {
     connIpSemaphoreHandle = xSemaphoreCreateMutex();
@@ -486,6 +485,8 @@ void eth_start(void) {
 
 #if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
     CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
+  esp_netif_t *eth_netif;
+
   // Create instance(s) of esp-netif for Ethernet(s)
   if (eth_port_cnt == 1) {
     // Use ESP_NETIF_DEFAULT_ETH when just one Ethernet interface is used and
