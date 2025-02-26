@@ -4,9 +4,10 @@ on: push
 
 jobs:
   build:
-
+    strategy:
+      matrix:
+        sdkconfig: [sdkconfig_TAS5805M, sdkconfig_PCM5102A, sdkconfig_lyrat_v4.3, sdkconfig_adau1961]
     runs-on: ubuntu-latest
-
     steps:
     - name: Checkout repo
       uses: actions/checkout@v2
@@ -24,4 +25,4 @@ jobs:
         # ESP32 variant to build for
         target: esp32 # optional, default is esp32
         # Command to run inside the docker container (default: builds the project)
-        command: idf.py build -DSDKCONFIG=./sdkconfig_lyrat_v4.3 # optional, default is idf.py build
+        command: idf.py build -DSDKCONFIG=${{ matrix.sdkconfig }} # optional, default is idf.py build
