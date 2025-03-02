@@ -97,9 +97,9 @@ static esp_err_t pcm51xx_transmit_registers(const pcm51xx_cfg_reg_t *conf_buf,
 
 esp_err_t pcm51xx_init(audio_hal_codec_config_t *codec_cfg) {
   esp_err_t ret = ESP_OK;
-  ESP_LOGI(TAG, "Power ON CODEC with GPIO %d", PCM51XX_RST_GPIO);
   // probably unnecessary...
   /*
+ESP_LOGI(TAG, "Power ON CODEC with GPIO %d", PCM51XX_RST_GPIO);
 gpio_config_t io_conf;
 io_conf.pin_bit_mask = BIT64(PCM51XX_RST_GPIO);
 io_conf.mode = GPIO_MODE_OUTPUT;
