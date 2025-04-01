@@ -1,0 +1,36 @@
+{
+    "name": "snapclient on the amped-esp32",
+    "version": "latest",
+    "home_assistant_domain": "media_player",
+    "funding_url": "https://esphome.io/guides/supporters.html",
+    "new_install_prompt_erase": true,
+    "new_install_improv_wait_time": 20,
+    "builds": [
+        {
+            "chipFamily": "ESP32",
+            "parts": [
+                {
+                    "path": "binaries/amped-esp32-snapclient-latest-bootloader.bin",
+                    "offset": "0x1000"
+                },
+                {
+                    "path": "binaries/amped-esp32-snapclient-latest-partition-table.bin",
+                    "offset": "0x8000"
+                },
+                {
+                    "path": "binaries/amped-esp32-snapclient-latest-ota_data_initial.bin",
+                    "offset": "0xd000"
+                },
+                {
+                    "path": "binaries/amped-esp32-snapclient-latest-snapclient.bin",
+                    "offset": "0x10000"
+                },
+                {
+                    "path": "binaries/amped-esp32-snapclient-latest-storage.bin",
+                    "offset": "0x370000"
+                }
+            ]
+        }
+    ],
+    "manifest_name": "manifest-amped-esp32-latest.json"
+}

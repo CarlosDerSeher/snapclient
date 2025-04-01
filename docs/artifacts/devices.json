@@ -33,7 +33,7 @@
         ],
         "title": "Hifi-ESP32",
         "description": "Reviewed design on the HiFi-ESP32 model includes onboard WROVER module with external Wifi antenna. It dramatically improved WiFi perception while usage of the WROVER module maintains lower device cost.",
-        "manifest": "artifacts/manifest-hifi-esparagus-latest.json"
+        "manifest": "artifacts/manifest-hifi-esp32-latest.json"
       },
       {
         "images": [
@@ -41,7 +41,15 @@
         ],
         "title": "Loud-ESP32",
         "description": "Reviewed design on the ESP Audio Duo model includes onboard WROVER module with external Wifi antenna. It dramatically improved WiFi perception while usage of the WROVER module maintains lower device cost.",
-        "manifest": "artifacts/manifest-loud-esparagus-latest.json"
+        "manifest": "artifacts/manifest-loud-esp32-latest.json"
+      },
+      {
+        "images": [
+            "https://github.com/user-attachments/assets/447a628c-9225-4beb-b8cc-054cc1d1a20d"
+        ],
+        "title": "Amped-ESP32",
+        "description": "As extension of the HiFi-ESP32 board, it adds a high quality D-class amp to the PCM5100 DAC. You can use either 3.5mm jack for line output (amp will be muted) or screw terminals to connect speakers.",
+        "manifest": "artifacts/manifest-amped-esp32-latest.json"
       },
       {
         "images": [
@@ -49,7 +57,7 @@
         ],
         "title": "Louder-ESP32",
         "description": "Reviewed design on the Louder-ESP32 model includes onboard WROVER module with external Wifi antenna. It dramatically improved WiFi perception while usage of the WROVER module maintains lower device cost.",
-        "manifest": "artifacts/manifest-louder-esparagus-latest.json"
+        "manifest": "artifacts/manifest-louder-esp32-latest.json"
       }
     ]
   },
