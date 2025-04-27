@@ -253,7 +253,7 @@ void wifi_start(void) {
               .ssid = WIFI_SSID,
               .password = WIFI_PASSWORD,
               .sort_method = WIFI_CONNECT_AP_BY_SIGNAL,
-              .threshold.authmode = WIFI_AUTH_WPA2_PSK,
+              .threshold.authmode = WIFI_AUTH_WPA2_WPA3_PSK,
               .pmf_cfg = {.capable = true, .required = false},
           },
   };
