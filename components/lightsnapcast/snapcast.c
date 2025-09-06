@@ -257,7 +257,7 @@ int wire_chunk_message_deserialize(wire_chunk_message_t *msg, const char *data,
 
   result |= buffer_read_int32(&buffer, &(msg->timestamp.sec));
   result |= buffer_read_int32(&buffer, &(msg->timestamp.usec));
-  result |= buffer_read_uint32(&buffer, &(msg->size));
+  result |= buffer_read_uint32(&buffer, (uint32_t *)&(msg->size));
 
   // If there's been an error already (especially for the size bit) return
   // early
