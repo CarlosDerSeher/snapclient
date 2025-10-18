@@ -2559,6 +2559,80 @@ void app_main(void) {
   audio_hal_set_mute(board_handle->audio_hal,
                      true);  // ensure no noise is sent after firmware crash
 
+
+// Prime the audio path with silence before snapcast starts
+{
+  ESP_LOGI(TAG, "Priming audio path with silence...");
+  
+  // Create a temporary I2S channel to push silence
+  i2s_chan_handle_t temp_tx_chan;
+  i2s_chan_config_t temp_chan_cfg = {
+      .id = I2S_NUM_0,
+      .role = I2S_ROLE_MASTER,
+      .dma_desc_num = 4,
+      .dma_frame_num = 512,
+      .auto_clear = true,
+  };
+  
+  if (i2s_new_channel(&temp_chan_cfg, &temp_tx_chan, NULL) == ESP_OK) {
+    i2s_std_clk_config_t temp_clk_cfg = {
+        .sample_rate_hz = 44100,
+        .clk_src = I2S_CLK_SRC_DEFAULT,
+        .mclk_multiple = I2S_MCLK_MULTIPLE_256,
+    };
+    
+    i2s_std_config_t temp_std_cfg = {
+        .clk_cfg = temp_clk_cfg,
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT,
+                                                        I2S_SLOT_MODE_STEREO),
+        .gpio_cfg = {
+            .mclk = pin_config0.mck_io_num,
+            .bclk = pin_config0.bck_io_num,
+            .ws = pin_config0.ws_io_num,
+            .dout = pin_config0.data_out_num,
+            .din = pin_config0.data_in_num,
+            .invert_flags = {
+                .mclk_inv = false,
+                .bclk_inv = false,
+                .ws_inv = false,
+            },
+        },
+    };
+    
+    if (i2s_channel_init_std_mode(temp_tx_chan, &temp_std_cfg) == ESP_OK) {
+      i2s_channel_enable(temp_tx_chan);
+      
+      // Play 100ms of silence (44100 Hz * 2 channels * 2 bytes * 0.1 sec)
+      size_t silence_size = 44100 * 2 * 2 / 10;
+      char *silence_buf = calloc(1, silence_size);
+      
+      if (silence_buf) {
+        size_t bytes_written;
+        // Unmute briefly to let the silence flow through
+        audio_hal_set_mute(board_handle->audio_hal, false);
+        vTaskDelay(pdMS_TO_TICKS(10)); // Let unmute settle
+        
+        // Write silence
+        i2s_channel_write(temp_tx_chan, silence_buf, silence_size, 
+                         &bytes_written, pdMS_TO_TICKS(200));
+        
+        // Wait for DMA to flush
+        vTaskDelay(pdMS_TO_TICKS(150));
+        
+        // Mute again
+        audio_hal_set_mute(board_handle->audio_hal, true);
+        
+        free(silence_buf);
+        ESP_LOGI(TAG, "Audio path primed with %d bytes of silence", bytes_written);
+      }
+      
+      i2s_channel_disable(temp_tx_chan);
+    }
+    
+    i2s_del_channel(temp_tx_chan);
+  }
+}
+
 #if CONFIG_AUDIO_BOARD_CUSTOM && CONFIG_DAC_ADAU1961
   if (tx_chan) {
     i2s_channel_disable(tx_chan);
