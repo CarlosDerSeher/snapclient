@@ -434,7 +434,7 @@ void init_snapcast(QueueHandle_t audioQHdl) {
   audioDACQHdl = audioQHdl;
   audioDACSemaphore = xSemaphoreCreateMutex();
   audioDAC_data.mute = true;
-  audioDAC_data.volume = 100;
+  audioDAC_data.volume = -1; // invalid volume to force update on first set
 }
 
 /**
@@ -453,6 +453,7 @@ void audio_set_mute(bool mute) {
  *
  */
 void audio_set_volume(int volume) {
+  ESP_LOGE(TAG, "set volume %d called.", volume);
   xSemaphoreTake(audioDACSemaphore, portMAX_DELAY);
   if (volume != audioDAC_data.volume) {
     audioDAC_data.volume = volume;
