@@ -453,7 +453,6 @@ void audio_set_mute(bool mute) {
  *
  */
 void audio_set_volume(int volume) {
-  ESP_LOGE(TAG, "set volume %d called.", volume);
   xSemaphoreTake(audioDACSemaphore, portMAX_DELAY);
   if (volume != audioDAC_data.volume) {
     audioDAC_data.volume = volume;
