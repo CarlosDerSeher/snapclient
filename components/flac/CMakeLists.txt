@@ -23,4 +23,5 @@ idf_component_register(SRCS "${srcs}"
 
 set_source_files_properties(flac/src/libFLAC/bitwriter.c PROPERTIES COMPILE_FLAGS -Wno-error=format)
 set_source_files_properties(flac/src/libFLAC/bitreader.c PROPERTIES COMPILE_FLAGS -Wno-error=format)
+set_source_files_properties(flac/src/libFLAC/stream_decoder.c PROPERTIES COMPILE_FLAGS -Wno-incompatible-pointer-types)
 target_compile_definitions(${COMPONENT_TARGET} PRIVATE "-DHAVE_CONFIG_H")
