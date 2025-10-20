@@ -171,6 +171,16 @@ menu "Audio Board"
 
 	    endmenu
 
+	    menu "TAS5805M interface Configuration"
+	        depends on DAC_TAS5805M
+
+	        config PIN_DAC_PWDN
+	            int "Power down pin"
+	            default 17
+	            help
+	                GPIO number to power down the DAC
+	    endmenu
+
 	    menu "DAC-Operation-Mode"
 			depends on DAC_TAS5805M
 

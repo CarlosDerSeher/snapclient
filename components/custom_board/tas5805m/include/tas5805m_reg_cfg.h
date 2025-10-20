@@ -45,8 +45,8 @@ extern "C"
 #define TAS5805M_ADDRESS 0x2D /*!< 7-bit address with a 15k pull up resistor */
 
 
-#ifdef PIN_DAC_PWDN
-#define TAS5805M_GPIO_PDN PIN_DAC_PWDN
+#ifdef CONFIG_PIN_DAC_PWDN
+#define TAS5805M_GPIO_PDN CONFIG_PIN_DAC_PWDN
 #else
 #define TAS5805M_GPIO_PDN GPIO_NUM_33 /*!< GPIO used for !PDN pin */
 #endif 
