@@ -176,7 +176,7 @@ menu "Audio Board"
 
 	        config PIN_DAC_PWDN
 	            int "Power down pin"
-	            default 17
+	            default 33
 	            help
 	                GPIO number to power down the DAC
 	    endmenu
