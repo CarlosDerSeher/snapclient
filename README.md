@@ -152,6 +152,7 @@ Configure to match your setup
     - Lyrat Mini (1.1)
     - KORVO DU1906	--> not supported yet
     - ESP32-S2 Kaluga (1.2)	--> not supported yet
+    - ESP-AI-Thinker-ES8388 (2.2)
     - Or a custom board
   - <b>Custom Audio Board :</b> Configure your DAC and GPIO
     - DAC Chip :
