@@ -176,6 +176,7 @@ menu "Audio Board"
 
 	        config PIN_DAC_PWDN
 	            int "Power down pin"
+                default 17 if IDF_TARGET_ESP32S3
 	            default 33
 	            help
 	                GPIO number to power down the DAC
