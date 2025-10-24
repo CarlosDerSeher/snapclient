@@ -139,6 +139,44 @@ esp_err_t my_i2s_channel_enable(i2s_chan_handle_t handle) {
 /**
  *
  */
+static void ensure_noiseless(i2s_chan_handle_t tx) {
+  // We only need to prime I2S once
+  static bool i2s_primed = false;
+  if (i2s_primed) {
+    return;
+  }
+  i2s_primed = true;
+
+  ESP_LOGI(TAG, "Priming I2S with silence to avoid noise");
+  // enabling I2S channel stops noise
+  my_i2s_channel_enable(tx);
+
+  // This could be adjusted size according to sample rate, bits, channels
+  size_t silence_size = 44100 * 2 * 2 / 10;
+  char *silence_buf = calloc(1, silence_size);
+
+  if (silence_buf) {
+    size_t bytes_written;
+
+    // Write silence
+    // While this is not required to stop noise, it somehow prevents pops later.
+    i2s_channel_write(tx, silence_buf, silence_size, &bytes_written,
+                      pdMS_TO_TICKS(200));
+
+    // Wait for DMA to flush
+    vTaskDelay(pdMS_TO_TICKS(150));
+
+    free(silence_buf);
+    ESP_LOGI(TAG, "Audio path primed with %d bytes of silence", bytes_written);
+  }
+
+  // Disable I2S channel again. Leaving it enabled may cause pops later.
+  my_i2s_channel_disable(tx);
+}
+
+/**
+ *
+ */
 static esp_err_t player_setup_i2s(snapcastSetting_t *setting) {
   // ensure save setting
   int32_t sr = setting->sr;
@@ -264,6 +302,8 @@ static esp_err_t player_setup_i2s(snapcastSetting_t *setting) {
   };
 
   ESP_ERROR_CHECK(i2s_channel_init_std_mode(tx_chan, &tx_std_cfg));
+  // This should run IMMEDIATELY after i2s_channel_init_std_mode to avoid noise
+  ensure_noiseless(tx_chan);
 
   // my_i2s_channel_enable(tx_chan);
 
