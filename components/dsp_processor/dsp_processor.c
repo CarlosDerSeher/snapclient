@@ -38,6 +38,7 @@ static float *sbuffer0 = NULL;
 static float *sbufout0 = NULL;
 
 #if CONFIG_USE_DSP_PROCESSOR
+#define SNAPCAST_USE_SOFT_VOL CONFIG_SNAPCLIENT_USE_SOFT_VOL
 #if CONFIG_SNAPCLIENT_DSP_FLOW_STEREO
 dspFlows_t dspFlowInit = dspfStereo;
 #endif
