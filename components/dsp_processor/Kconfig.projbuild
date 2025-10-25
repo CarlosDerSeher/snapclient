@@ -36,7 +36,8 @@ menu "ESP32 DSP processor config"
 
     config USE_BIQUAD_ASM
         bool "Use optimized asm version of Biquad_f32"
-        default true
+        default y if IDF_TARGET_ESP32
+        default n
         depends on USE_DSP_PROCESSOR
         help
             Asm version 2 x speed on ESP32 - not working on ESP32-S2

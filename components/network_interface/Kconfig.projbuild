@@ -5,7 +5,7 @@ menu "Snapclient Ethernet Configuration"
     config SNAPCLIENT_USE_INTERNAL_ETHERNET
         depends on SOC_EMAC_SUPPORTED
         select ETH_USE_ESP32_EMAC
-        default y
+        default n
         bool "Internal EMAC"
         help
             Use internal Ethernet MAC controller.

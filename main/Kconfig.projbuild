@@ -1,13 +1,13 @@
 menu "Snapclient Configuration"
     config SNAPSERVER_USE_MDNS
         bool "Use mDNS"
-        default true
+        default y
         help
             Use mDNS to look for the snapserver to connect to on the local network.
 
     config SNAPCLIENT_CONNECT_IPV6
         bool "use IPv6"
-        default false
+        default n
         help
             Use IPv6 to connect to snapserver
 
@@ -41,7 +41,7 @@ menu "Snapclient Configuration"
 
 	config USE_SAMPLE_INSERTION
         bool "Use sample insertion"
-        default true
+        default y
         help
             There are two syncronization implementations.
 
