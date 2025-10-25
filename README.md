@@ -5,11 +5,11 @@
 ## Feature list
 - FLAC, OPUS and PCM decoding currently supported
 - Wifi setup from menuconfig
-- WiFi provisioning via [ImprovWifi via Serial](https://www.improv-wifi.com/)<br>
+- WiFi provisioning via [ImprovWifi via Serial](https://www.improv-wifi.com/) (e.g. via [this link](https://web.esphome.io/))<br>
   Ensure your browser supports this, Chrome or Edge will handle serial communication just fine.
 - Auto connect to snapcast server on network
 - Buffers up to 758ms on Wroom modules (tested with 44100:16:2)
-- Buffers more then enough on Wrover modules
+- Buffers more than enough on Wrover modules
 - Multiroom sync delay controlled from Snapcast server (user has to ensure not to set this too high on the server)
 - DSP / EQ functionality configurable through menuconfig and partly controllable through HTTP server running on ESP client (work in progress)
 
@@ -58,15 +58,15 @@ Components
  - network_interface : init code for wifi module and AP connection and ethernet init code
  - ui_http_server : work in progress control interface for DSP functions
 
-The snapclient functionanlity are implemented in a task included in main - but
+The snapclient functionality are implemented in a task included in main - but
 should be refactored to a component at some point.
 
 I did my own syncing implementation which is different than jorgenkraghjakobsen's
 approach in the original repository, at least regarding syncing itself. I tried to
-replicate the behaivior of how badaix did it for his original snapclients.
+replicate the behavior of how badaix did it for his original snapclients.
 
 The snapclient frontend handles communication with the server and after
-successfull hello hand shake it dispatches packages from the server.
+successfull hello handshake it dispatches packages from the server.
 Normally these packages contain messages in the following order:
 
  - SERVER_SETTING : volume, mute state, playback delay etc
@@ -79,7 +79,7 @@ Normally these packages contain messages in the following order:
 
 Each WIRE_CHUNK of audio data comes with a timestamp in server time and clients
 can use information from TIME and SERVER_SETTING messages to determine when playback
-has to be started. We handle this using a buffer with a length that compensate for for
+has to be started. We handle this using a buffer with a length that compensate for
 playback-delay, network jitter and DAC to speaker (determined through SERVER_SETTING).
 
 In this implementation I have separated the sync task to a backend on the other
@@ -124,7 +124,7 @@ git submodule update --init
 
 <a name="config"></a>
 ### Snapcast ESP Configuration
-Frist copy one of the template sdkconfig files and rename it to sdkconfig
+First copy one of the template sdkconfig files and rename it to sdkconfig
 
 ```
 cp sdkconfig_lyrat_v4.3 sdkconfig
@@ -163,14 +163,14 @@ Configure to match your setup
   - <b>WiFi Configuration :</b>
     - WiFi Provisioning : Use the Espressif "ESP SoftAP Prov" APP to configure your wifi network.
     - SSID : The SSID to connect to or the provisioning SSID.
-    - Password : The password of your WiFi network or the provisioning netword.
+    - Password : The password of your WiFi network or the provisioning network.
     - Maximum retry: Use 0 for no limit.
   - <b>Snapclient configuration :</b>
     - Use mDNS : The client will search on the network for the snapserver automatically. Your network must support mDNS.
     - Snapserver host : IP or URL of the server if mDNS is disabled or the mDNS resolution fail.
     - Snapserver port : Port of your snapserver, default is 1704.
-    - Snapclient name : The name under wich your ESP will appear on the Snapserver.
-    - HTTP Server Setting : The ESP create a basic webpage. You can configure the port to view this page and configure the DSP.
+    - Snapclient name : The name under which your ESP will appear on the Snapserver.
+    - HTTP Server Setting : The ESP creates a basic webpage. You can configure the port to view this page and configure the DSP.
 
 
 ### Compile and flash
@@ -197,7 +197,7 @@ Pipe some audio to the snapcast server fifo
 
     mplayer http://ice1.somafm.com/secretagent-128-aac -ao pcm:file=/tmp/snapfifo -af format=s16LE -srate 48000
 
-Test the server config on other knowen platform
+Test the server config on other known platform
 
     ./snapclient  from the snapcast repo
 
@@ -237,7 +237,7 @@ Then on every `git commit`, a few sanity/formatting checks will be performed.
 
 ## Task list
 - [ ] put kconfig to better locations in tree
-- [ ] add missing codec's (ogg)
+- [ ] add missing codecs (ogg)
 - [ ] dsp_processor: add equalizer
 - [ ] Control interface for equalizer (component: ui_http_server)
 - [ ] clean and polish code (remove all unused variables etc.)

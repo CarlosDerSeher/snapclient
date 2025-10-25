@@ -503,20 +503,22 @@ int32_t player_send_snapcast_setting(snapcastSetting_t *setting) {
 
     // check if it is only volume / mute related setting, which is handled by
     // http_get_task()
-    if ((((curSet.muted != setting->muted) ||
-          (curSet.volume != setting->volume)) &&
-         ((curSet.bits == setting->bits) &&
-          (curSet.buf_ms == setting->buf_ms) && (curSet.ch == setting->ch) &&
-          (curSet.chkInFrames == setting->chkInFrames) &&
-          (curSet.codec == setting->codec) && (curSet.sr == setting->sr) &&
-          (curSet.cDacLat_ms == setting->cDacLat_ms))) == false) {
+    // if ((((curSet.muted != setting->muted) ||
+          //(curSet.volume != setting->volume)) &&
+         //((curSet.bits == setting->bits) &&
+          //(curSet.buf_ms == setting->buf_ms) && (curSet.ch == setting->ch) &&
+          //(curSet.chkInFrames == setting->chkInFrames) &&
+          //(curSet.codec == setting->codec) && (curSet.sr == setting->sr) &&
+          //(curSet.cDacLat_ms == setting->cDacLat_ms))) == false) {
       // notify needed
       ret = xQueueOverwrite(snapcastSettingQueueHandle, &settingChanged);
       if (ret != pdPASS) {
         ESP_LOGE(TAG,
                  "player_send_snapcast_setting: couldn't notify "
                  "snapcast setting");
-      }
+      } else {
+                  ESP_LOGI(TAG,
+                 "got settings and notified player_task");
     }
   }
 
@@ -1265,6 +1267,9 @@ static void player_task(void *pvParameters) {
                    "sample rate %ld, ch %d, bits %d mute %d latency %ld",
                    __scSet.buf_ms, __scSet.chkInFrames, __scSet.sr, __scSet.ch,
                    __scSet.bits, __scSet.muted, __scSet.cDacLat_ms);
+        } else {
+          audio_set_mute(__scSet.muted);
+          ESP_LOGI(TAG, "snapserver config changed, mute: %d", __scSet.muted);
         }
 
         scSet = __scSet;  // store for next round
