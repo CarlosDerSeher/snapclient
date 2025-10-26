@@ -22,8 +22,6 @@
 
 static const char *TAG = "WIFI";
 
-static void reset_reason_timer_counter_cb(void *);
-
 static char mac_address[18];
 
 EventGroupHandle_t s_wifi_event_group;
@@ -31,38 +29,6 @@ EventGroupHandle_t s_wifi_event_group;
 static int s_retry_num = 0;
 
 static esp_netif_t *esp_wifi_netif = NULL;
-
-#if ENABLE_WIFI_PROVISIONING
-static esp_timer_handle_t resetReasonTimerHandle = NULL;
-static const esp_timer_create_args_t resetReasonTimerArgs = {
-    .callback = &reset_reason_timer_counter_cb,
-    .dispatch_method = ESP_TIMER_TASK,
-    .name = "rstCnt",
-    .skip_unhandled_events = false};
-
-static uint8_t resetReasonCounter = 0;
-
-static void reset_reason_timer_counter_cb(void *args) {
-  nvs_handle_t nvs_handle;
-  esp_err_t err = nvs_open("storage", NVS_READWRITE, &nvs_handle);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "%s: Error (%s) opening NVS handle!", __func__,
-             esp_err_to_name(err));
-  } else {
-    ESP_LOGI(TAG, "resetting POR reset counter ...");
-
-    resetReasonCounter = 0;
-
-    err |= nvs_set_u8(nvs_handle, "restart_counter", resetReasonCounter);
-    err |= nvs_commit(nvs_handle);
-    ESP_LOGI(TAG, "%s", (err != ESP_OK) ? "Failed!" : "Done");
-
-    nvs_close(nvs_handle);
-  }
-
-  esp_timer_delete(resetReasonTimerHandle);
-}
-#endif
 
 /* The event group allows multiple bits for each event,
    but we only care about one event - are we connected
@@ -121,48 +87,6 @@ void wifi_init(void) {
   //   esp_wifi_set_ps(WIFI_PS_NONE);
 
 #if ENABLE_WIFI_PROVISIONING
-  esp_reset_reason_t resetReason = esp_reset_reason();
-  ESP_LOGI(TAG, "reset reason was: %d", resetReason);
-  esp_timer_create(&resetReasonTimerArgs, &resetReasonTimerHandle);
-  esp_timer_start_once(resetReasonTimerHandle, 5000000);
-  if (resetReason == ESP_RST_POWERON) {
-    nvs_handle_t nvs_handle;
-    esp_err_t err = nvs_open("storage", NVS_READWRITE, &nvs_handle);
-    if (err != ESP_OK) {
-      ESP_LOGE(TAG, "%s: Error (%s) opening NVS handle!", __func__,
-               esp_err_to_name(err));
-    } else {
-      ESP_LOGI(TAG, "get POR reset counter ...");
-      err |= nvs_get_u8(nvs_handle, "restart_counter", &resetReasonCounter);
-
-      ESP_LOGI(TAG, "reset counter %d", resetReasonCounter);
-
-      resetReasonCounter++;
-
-      if (resetReasonCounter > 3) {
-        ESP_LOGW(TAG, "resetting WIFI credentials!");
-
-        resetReasonCounter = 0;
-
-        esp_wifi_restore();
-        // esp_wifi_set_bandwidth (WIFI_IF_STA, WIFI_BW_HT20);
-        esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT40);
-        esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B |
-                                               WIFI_PROTOCOL_11G |
-                                               WIFI_PROTOCOL_11N);
-
-        esp_timer_stop(resetReasonTimerHandle);
-        esp_timer_delete(resetReasonTimerHandle);
-      }
-
-      err |= nvs_set_u8(nvs_handle, "restart_counter", resetReasonCounter);
-      err |= nvs_commit(nvs_handle);
-      ESP_LOGI(TAG, "%s", (err != ESP_OK) ? "Failed!" : "Done");
-
-      nvs_close(nvs_handle);
-    }
-  }
-
   /* Start Wi-Fi station */
   ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
 
