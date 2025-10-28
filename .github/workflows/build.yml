@@ -1,12 +1,12 @@
 name: build_lyrat_v4.3
 
-on: push
+on: [push, pull_request]
 
 jobs:
   build:
     strategy:
       matrix:
-        sdkconfig: [sdkconfig_TAS5805M, sdkconfig_PCM5102A, sdkconfig_lyrat_v4.3, sdkconfig_adau1961]
+        sdkconfig: [sdkconfig_TAS5805M, sdkconfig_PCM5102A_WT32-ETH01, sdkconfig_lyrat_v4.3, sdkconfig_adau1961]
     runs-on: ubuntu-latest
     steps:
     - name: Checkout repo
@@ -21,8 +21,31 @@ jobs:
         # Relative path under $GITHUB_WORKSPACE to place the repository
         #path: # optional, default is
         # Version of ESP-IDF docker image to use
-        esp_idf_version: v5.1.5 # optional, default is latest
+        esp_idf_version: v5.5.1 # optional, default is latest
         # ESP32 variant to build for
         target: esp32 # optional, default is esp32
         # Command to run inside the docker container (default: builds the project)
         command: idf.py build -DSDKCONFIG=${{ matrix.sdkconfig }} # optional, default is idf.py build
+  build_defaults:
+    strategy:
+      matrix:
+        target: [esp32, esp32s3]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v2
+      with:
+        submodules: 'recursive'
+    - name: Espressif IoT Development Framework (ESP-IDF)
+      # You may pin to the exact commit or the version.
+      # uses: espressif/esp-idf-ci-action@8cd22ae10042fadc37890e81e9988a9113e7b506
+      uses: espressif/esp-idf-ci-action@v1.1.0
+      with:
+        # Relative path under $GITHUB_WORKSPACE to place the repository
+        #path: # optional, default is
+        # Version of ESP-IDF docker image to use
+        esp_idf_version: v5.5.1 # optional, default is latest
+        # ESP32 variant to build for
+        target: ${{ matrix.target }} # optional, default is esp32
+        # Command to run inside the docker container (default: builds the project)
+        command: idf.py build # optional, default is idf.py build

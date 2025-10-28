@@ -11,7 +11,9 @@ menu "Audio Board"
 
 	choice AUDIO_BOARD
 	    prompt "Audio board"
-	    default ESP_LYRAT_V4_3_BOARD
+		default ESP32_S2_KALUGA_1_V1_2_BOARD if IDF_TARGET_ESP32S2
+	    default ESP_LYRAT_V4_3_BOARD if IDF_TARGET_ESP32
+		default AUDIO_BOARD_CUSTOM
 	    help
 	        Select an audio board to use with the ESP-ADF
 	config AUDIO_BOARD_CUSTOM
