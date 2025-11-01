@@ -151,7 +151,7 @@ esp_err_t tas5805m_init() {
 
   ESP_LOGW(TAG, "Setting to HI Z");
 
-  ESP_ERROR_CHECK(tas5805m_write_byte(TAS5805M_DEVICE_CTRL_2_REGISTER, 0x02));
+  ESP_ERROR_CHECK(tas5805m_write_byte(TAS5805M_DEVICE_CTRL_2_REGISTER, TAS5805M_CTRL_HI_Z));
   vTaskDelay(10 / portTICK_PERIOD_MS);
   if (ret != ESP_OK) {
     ESP_LOGW(TAG, "TAS5805M_DEVICE_CTRL_2_REGISTER, 0x02 FAILED!!!");
@@ -160,11 +160,13 @@ esp_err_t tas5805m_init() {
 
   ESP_LOGW(TAG, "Setting to PLAY");
 
-  ret = tas5805m_write_byte(TAS5805M_DEVICE_CTRL_2_REGISTER, 0x03);
+  ret = tas5805m_write_byte(TAS5805M_DEVICE_CTRL_2_REGISTER, TAS5805M_CTRL_PLAY);
   if (ret != ESP_OK) {
     ESP_LOGW(TAG, "TAS5805M_DEVICE_CTRL_2_REGISTER, 0x03 FAILED!!");
     return ret;
   }
+  state = TAS5805M_CTRL_PLAY;
+  mute = false;
 
   // Check if Bridge-Mode is enabled
 #if defined(CONFIG_DAC_BRIDGE_MODE_MONO) || defined(CONFIG_DAC_BRIDGE_MODE_LEFT) || defined(CONFIG_DAC_BRIDGE_MODE_RIGHT)
@@ -262,8 +264,6 @@ esp_err_t tas5805m_set_volume(int vol) {
   }
   /* Mapping the Values from 0-100 to 254-0 */
   vol_idx = vol / 5;
-  /* Updating the global volume Variable */
-  currentVolume = vol_idx;
   /* Writing the Volume to the Register*/
   return tas5805m_write_byte(TAS5805M_DIG_VOL_CTRL_REGISTER,
                              tas5805m_volume[vol_idx]);
@@ -277,48 +277,50 @@ esp_err_t tas5805m_get_volume(int *vol) {
   for (i = 0; i < sizeof(tas5805m_volume); i++) {
     if (rxbuf >= tas5805m_volume[i]) break;
   }
-  /* Updating the global volume Variable */
-  currentVolume = i;
   ESP_LOGI(TAG, "Volume is %d", i * 5);
   *vol = 5 * i;  // Converting it to percent
   return ret;
 }
 
 esp_err_t tas5805m_deinit(void) {
-  // TODO
+  tas5805m_write_byte(TAS5805M_DEVICE_CTRL_2_REGISTER, TAS5805M_CTRL_HI_Z);
+  gpio_set_level(TAS5805M_GPIO_PDN, 0);
+  vTaskDelay(6 / portTICK_PERIOD_MS);
   return ESP_OK;
 }
 
 esp_err_t tas5805m_set_mute(bool enable) {
-  if (enable == true) {
-    // Set the Volume to 255 to enable the MUTE
-    return tas5805m_write_byte(TAS5805M_DIG_VOL_CTRL_REGISTER,
-                               TAS5805M_VOLUME_MUTE);
-  } else {
-    return tas5805m_write_byte(
-        TAS5805M_DIG_VOL_CTRL_REGISTER,
-        tas5805m_volume[currentVolume]);  // Restore Volume to its old value
-  }
+  if (mute != enable) {
+    mute = enable;
+    return tas5805m_write_byte(TAS5805M_DEVICE_CTRL_2_REGISTER,
+                               state + 0x08*mute);
+    }
   return ESP_OK;
 }
 
 esp_err_t tas5805m_get_mute(bool *enabled) {
-  int currentVolume;
-  if (tas5805m_get_volume(&currentVolume) != ESP_OK) {
-    ESP_LOGW(TAG, "Cant get volume in get-Mute-Function");
-  }
-  if (currentVolume == TAS5805M_VOLUME_MUTE) {
-    *enabled = true;
-  } else {
-    *enabled = false;
-  }
+  *enabled = mute;
   return ESP_OK;
 }
 
 esp_err_t tas5805m_ctrl(audio_hal_codec_mode_t mode,
                         audio_hal_ctrl_t ctrl_state) {
-  // TODO
-  return ESP_OK;
+  esp_err_t ret;
+  if (AUDIO_HAL_CTRL_STOP == ctrl_state) {
+    // set deepsleep
+    ret = tas5805m_write_byte(TAS5805M_DEVICE_CTRL_2_REGISTER,
+                                TAS5805M_CTRL_DEEP_SLEEP + 0x08*mute);
+    ESP_LOGI(TAG, "set DAC to deepsleep");
+  } else {
+    tas5805m_write_byte(TAS5805M_DEVICE_CTRL_2_REGISTER,
+                                TAS5805M_CTRL_HI_Z + 0x08*mute);
+    vTaskDelay(1 / portTICK_PERIOD_MS);
+    ret = tas5805m_write_byte(TAS5805M_DEVICE_CTRL_2_REGISTER,
+                                TAS5805M_CTRL_PLAY + 0x08*mute);
+    ESP_LOGI(TAG, "enable DAC");
+  }
+  
+  return ret;
 }
 
 esp_err_t tas5805m_config_iface(audio_hal_codec_mode_t mode,

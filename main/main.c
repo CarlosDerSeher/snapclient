@@ -2821,9 +2821,17 @@ void app_main(void) {
       .enabled = false,
   };
   
-#if 1
-  esp_pm_config_t pmConfig = {80 , 240, true};
-  esp_pm_configure(&pmConfig);
+#if CONFIG_PM_ENABLE
+    //Configure dynamic frequency scaling:
+    //automatic light sleep is enabled if tickless idle support is enabled.
+    esp_pm_config_t pmConfig = {
+        .max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ, //Maximum CPU frequency
+        .min_freq_mhz = 40,  //Minimum CPU frequency
+#if CONFIG_FREERTOS_USE_TICKLESS_IDLE
+        .light_sleep_enable = true
+#endif
+    };
+    esp_pm_configure(&pmConfig);
 #endif
 
   while (1) {

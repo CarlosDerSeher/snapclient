@@ -52,11 +52,21 @@ extern "C"
 /* See here for the original Implementation : audio_hal/driver/tas5805m */
 /* Its not from me it was developed by Espressif */
 /* Volume steps tas5805m_volume[0] => 255 which means mute */ 
-   static const uint8_t tas5805m_volume[]
-      = { 0xff, 0x9f, 0x8f, 0x7f, 0x6f, 0x5f, 0x5c, 0x5a, 0x58, 0x54, 0x50,
+  static const uint8_t tas5805m_volume[]
+    = { 0xff, 0x9f, 0x8f, 0x7f, 0x6f, 0x5f, 0x5c, 0x5a, 0x58, 0x54, 0x50,
           0x4c, 0x4a, 0x48, 0x44, 0x40, 0x3d, 0x3b, 0x39, 0x37, 0x35 };
 
- int8_t currentVolume = 0; // Last Volume gets updated after a change or before a mute 
+  typedef enum
+  {
+    TAS5805M_CTRL_DEEP_SLEEP = 0x00, // Deep Sleep
+    TAS5805M_CTRL_SLEEP = 0x01,      // Sleep
+    TAS5805M_CTRL_HI_Z = 0x02,       // Hi-Z
+    TAS5805M_CTRL_PLAY = 0x03,       // Play
+  } TAS5805M_CTRL_STATE;
+
+  TAS5805M_CTRL_STATE state;
+  bool mute;
+
   /**
    * @brief Initialize TAS5805 codec chip
    *
