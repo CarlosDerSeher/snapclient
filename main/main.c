@@ -2439,9 +2439,9 @@ static void http_get_task(void *pvParameters) {
                         ttx = (int64_t)base_message_rx.sent.sec * 1000000LL +
                               (int64_t)base_message_rx.sent.usec;
                         tdif = trx - ttx;
-                        trx = (int64_t)time_message_rx.latency.sec * 1000000LL +
+                        ttx = (int64_t)time_message_rx.latency.sec * 1000000LL +
                               (int64_t)time_message_rx.latency.usec;
-                        tmpDiffToServer = (trx - tdif) / 2;
+                        tmpDiffToServer = (ttx - tdif) / 2;
 
                         int64_t diff;
 
@@ -2467,7 +2467,7 @@ static void http_get_task(void *pvParameters) {
                           }
                         }
 
-                        player_latency_insert(tmpDiffToServer);
+                        player_latency_insert(-tmpDiffToServer, (tdif + trx) / 2, trx);
 
                         // ESP_LOGI(TAG, "Current latency:%lld:",
                         // tmpDiffToServer);

@@ -26,6 +26,7 @@
 #include <math.h>
 
 #include "MedianFilter.h"
+#include "TimeFilter.h"
 #include "driver/gptimer.h"
 #include "driver/i2s_std.h"
 #include "player.h"
@@ -68,8 +69,7 @@ static bool latencyBuffFull = 0;
 
 static gptimer_handle_t gptimer = NULL;
 
-static sMedianFilter_t latencyMedianFilter;
-static sMedianNode_t latencyMedianLong[LATENCY_MEDIAN_FILTER_LEN];
+static sTimeFilter_t latencyTimeFilter;
 
 static sMedianFilter_t shortMedianFilter;
 static sMedianNode_t shortMedianBuffer[SHORT_BUFFER_LEN];
@@ -77,7 +77,9 @@ static sMedianNode_t shortMedianBuffer[SHORT_BUFFER_LEN];
 static sMedianFilter_t miniMedianFilter;
 static sMedianNode_t miniMedianBuffer[MINI_BUFFER_LEN];
 
-static int64_t latencyToServer = 0;
+static double latencyToServer = 0;
+static double latencyDrift = 0;
+static int64_t latencyLastUpdate = 0;
 
 static int8_t currentDir = 0;  //!< current apll direction, see apll_adjust()
 
@@ -405,9 +407,7 @@ int init_player(i2s_std_gpio_config_t pin_config0_, i2s_port_t i2sNum_) {
   }
 
   // init diff buff median filter
-  latencyMedianFilter.numNodes = LATENCY_MEDIAN_FILTER_LEN;
-  latencyMedianFilter.medianBuffer = latencyMedianLong;
-  reset_latency_buffer();
+  TIMEFILTER_Init(&latencyTimeFilter, 0.01, 0.0, 1.001, 0.75, 100);
 
   shortMedianFilter.numNodes = SHORT_BUFFER_LEN;
   shortMedianFilter.medianBuffer = shortMedianBuffer;
@@ -486,12 +486,13 @@ int8_t player_get_snapcast_settings(snapcastSetting_t *setting) {
 /**
  *
  */
-int32_t player_latency_insert(int64_t newValue) {
-  int64_t medianValue;
-
-  medianValue = MEDIANFILTER_Insert(&latencyMedianFilter, newValue);
+int32_t player_latency_insert(int64_t newValue, int64_t max_error, int64_t time_added) {
+  TIMEFILTER_Insert(&latencyTimeFilter, newValue, max_error, time_added);
+  int64_t last_update_ = latencyTimeFilter.last_update_;
+  double offset_ = latencyTimeFilter.offset_;
+  double drift_ = latencyTimeFilter.drift_;
   if (xSemaphoreTake(latencyBufSemaphoreHandle, pdMS_TO_TICKS(0)) == pdTRUE) {
-    if (MEDIANFILTER_isFull(&latencyMedianFilter, LATENCY_MEDIAN_FILTER_FULL)) {
+    if (TIMEFILTER_isFull(&latencyTimeFilter, LATENCY_TIME_FILTER_FULL)) {
       latencyBuffFull = true;
 
       //      ESP_LOGI(TAG, "(full) latency median: %lldus", medianValue);
@@ -500,7 +501,9 @@ int32_t player_latency_insert(int64_t newValue) {
     //      ESP_LOGI(TAG, "(not full) latency median: %lldus", medianValue);
     //    }
 
-    latencyToServer = medianValue;
+    latencyToServer = offset_;
+    latencyDrift = drift_;
+    latencyLastUpdate = last_update_;
 
     xSemaphoreGive(latencyBufSemaphoreHandle);
   } else {
@@ -569,11 +572,7 @@ int32_t player_send_snapcast_setting(snapcastSetting_t *setting) {
  */
 int32_t reset_latency_buffer(void) {
   // init diff buff median filter
-  if (MEDIANFILTER_Init(&latencyMedianFilter) < 0) {
-    ESP_LOGE(TAG, "reset_diff_buffer: couldn't init median filter long. STOP");
-
-    return -2;
-  }
+  TIMEFILTER_Reset(&latencyTimeFilter);
 
   if (latencyBufSemaphoreHandle == NULL) {
     ESP_LOGE(TAG, "reset_diff_buffer: latencyBufSemaphoreHandle == NULL");
@@ -584,6 +583,8 @@ int32_t reset_latency_buffer(void) {
   if (xSemaphoreTake(latencyBufSemaphoreHandle, portMAX_DELAY) == pdTRUE) {
     latencyBuffFull = false;
     latencyToServer = 0;
+    latencyDrift = 0;
+    latencyLastUpdate = 0;
 
     xSemaphoreGive(latencyBufSemaphoreHandle);
   } else {
@@ -610,7 +611,7 @@ int32_t latency_buffer_full(bool *is_full, TickType_t wait) {
   }
 
   if (xSemaphoreTake(latencyBufSemaphoreHandle, wait) == pdFALSE) {
-    // ESP_LOGW(TAG, "latency_buffer_full: can't take semaphore");
+    ESP_LOGW(TAG, "latency_buffer_full: can't take semaphore");
 
     return -1;
   }
@@ -625,8 +626,10 @@ int32_t latency_buffer_full(bool *is_full, TickType_t wait) {
 /**
  *
  */
-int32_t get_diff_to_server(int64_t *tDiff) {
-  static int64_t lastDiff = 0;
+int32_t get_diff_to_server(int64_t *tDiff, int64_t now) {
+  static double lastDiff = 0;
+  static double lastDrift = 0;
+  static int64_t lastLastUpdate = 0;
 
   if (latencyBufSemaphoreHandle == NULL) {
     ESP_LOGE(TAG, "get_diff_to_server: latencyBufSemaphoreHandle == NULL");
@@ -634,8 +637,12 @@ int32_t get_diff_to_server(int64_t *tDiff) {
     return -2;
   }
 
+  double dt;
+  int64_t offset;
   if (xSemaphoreTake(latencyBufSemaphoreHandle, 0) == pdFALSE) {
-    *tDiff = lastDiff;
+    dt = now - lastLastUpdate;
+    offset = round(lastDiff + lastDrift * dt);
+    *tDiff = -offset;
 
     // ESP_LOGW(TAG,
     //          "get_diff_to_server: can't take semaphore. Old diff retrieved");
@@ -643,7 +650,12 @@ int32_t get_diff_to_server(int64_t *tDiff) {
     return -1;
   }
 
-  *tDiff = latencyToServer;
+  dt = now - latencyLastUpdate;
+  offset = round(latencyToServer + latencyDrift * dt);
+
+  *tDiff = -offset;
+  lastLastUpdate = latencyLastUpdate;
+  lastDrift = latencyDrift;
   lastDiff = latencyToServer;  // store value, so we can return a value if
                                // semaphore couldn't be taken
 
@@ -664,7 +676,7 @@ int32_t server_now(int64_t *sNow, int64_t *diff2Server) {
 
   now = esp_timer_get_time();
 
-  if (get_diff_to_server(&diff) == -1) {
+  if (get_diff_to_server(&diff, now) == -1) {
     // ESP_LOGW(TAG,
     //          "server_now: can't get current diff to server. Retrieved old
     //          one");
