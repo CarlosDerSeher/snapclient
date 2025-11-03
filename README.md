@@ -169,7 +169,7 @@ Configure to match your setup
     - Use asm version of Biquad_f32 : Optimized version of the DSP algorithm only for ESP32. Don't work on ESP32-S2
     - Use software volume : Handle snapcast volume in the ESP. Activate this if your DAC do not provide a volume control (no I2C like PCM5102A or MAX98357)
   - <b>WiFi Configuration :</b>
-    - WiFi Provisioning : Use the Espressif "ESP SoftAP Prov" APP to configure your wifi network.
+    - WiFi Provisioning : Use Improv WiFi (e.g. via [this link](https://web.esphome.io/) on a supported browser)
     - SSID : The SSID to connect to or the provisioning SSID.
     - Password : The password of your WiFi network or the provisioning network.
     - Maximum retry: Use 0 for no limit.
