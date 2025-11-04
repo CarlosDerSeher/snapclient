@@ -34,6 +34,7 @@ list. Also there is a lot of code clean up needed.
 Components
  - audio-board : taken from ADF, stripped down to strictly necessary parts for playback
  - audio-hal : taken from ADF, stripped down to strictly necessary parts for playback
+   * additional modification: es8388 driver was changed to remove a noise bug introduced by ADF upstream.
  - audio-sal : taken from ADF, stripped down to strictly necessary parts for playback
  - custom_board : generic board component to support easy integration of DACs
  - dsp_processor : Audio Processor, low pass filters, effects, etc.
@@ -241,3 +242,6 @@ Then on every `git commit`, a few sanity/formatting checks will be performed.
 
 ## Minor task
 - [ ] fill in missing component descriptions in Readme.md
+
+## Known issues
+- The ADF introduced a bug in `components/audio_hal/driver/es8388/es8388.c` which results in loud noise between i2s channel initialization and i2s enabling. The issue was caused by three lines setting undocumented registers. This was fixed by a simple hack in this repo: we modified the file to comment out these lines.
