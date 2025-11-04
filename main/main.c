@@ -2585,6 +2585,43 @@ static void http_get_task(void *pvParameters) {
   }
 }
 
+
+
+/**
+ *
+ */
+static void dac_control_task(audio_board_handle_t board_handle,
+                                    QueueHandle_t audioQHdl) {
+  audioDACdata_t dac_data;
+  audioDACdata_t dac_data_old = {
+      .mute = true,
+      .volume = -1,
+      .enabled = false,
+  };
+  // TODO: can and should we pass audio_hal_handle_t instead of
+  // audio_board_handle_t?
+  while (1) {
+    if (xQueueReceive(audioQHdl, &dac_data, portMAX_DELAY) == pdTRUE) {
+      if (dac_data.mute != dac_data_old.mute) {
+        audio_hal_set_mute(board_handle->audio_hal, dac_data.mute);
+      }
+      if (dac_data.volume != dac_data_old.volume) {
+        audio_hal_set_volume(board_handle->audio_hal, dac_data.volume);
+      }
+      if (dac_data.enabled != dac_data_old.enabled) {
+        if (dac_data.enabled) { 
+          audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_DECODE, AUDIO_HAL_CTRL_START);
+        }
+        else {
+          audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_DECODE, AUDIO_HAL_CTRL_STOP);
+        }
+      }
+      dac_data_old = dac_data;
+    }
+  }
+}
+
+
 /**
  *
  */
@@ -2814,13 +2851,6 @@ void app_main(void) {
   //    }
   //  }
 
-  audioDACdata_t dac_data;
-  audioDACdata_t dac_data_old = {
-      .mute = true,
-      .volume = -1,
-      .enabled = false,
-  };
-  
 #if CONFIG_PM_ENABLE
     //Configure dynamic frequency scaling:
     //automatic light sleep is enabled if tickless idle support is enabled.
@@ -2833,24 +2863,7 @@ void app_main(void) {
     };
     esp_pm_configure(&pmConfig);
 #endif
+  
+  dac_control_task(board_handle, audioQHdl);
 
-  while (1) {
-    if (xQueueReceive(audioQHdl, &dac_data, portMAX_DELAY) == pdTRUE) {
-      if (dac_data.mute != dac_data_old.mute) {
-        audio_hal_set_mute(board_handle->audio_hal, dac_data.mute);
-      }
-      if (dac_data.volume != dac_data_old.volume) {
-        audio_hal_set_volume(board_handle->audio_hal, dac_data.volume);
-      }
-      if (dac_data.enabled != dac_data_old.enabled) {
-        if (dac_data.enabled) { 
-          audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_DECODE, AUDIO_HAL_CTRL_START);
-        }
-        else {
-          audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_DECODE, AUDIO_HAL_CTRL_STOP);
-        }
-      }
-      dac_data_old = dac_data;
-    }
-  }
 }
