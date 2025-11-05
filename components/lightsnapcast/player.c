@@ -321,11 +321,18 @@ int deinit_player(void) {
 
   // must disable i2s before stopping player task or it will hang
   my_i2s_channel_disable(tx_chan);
+  
+  //wait max 10s for task to stop itself
+  for(int i = 0; i< 100; i++) {
+    if (playerstarted) {
+      vTaskDelay(pdMS_TO_TICKS(100));
+    } else {
+      break;
+    }
+  }
 
-  // stop the task
-  if (playerTaskHandle == NULL) {
-    ESP_LOGV(TAG, "no sync task created?");
-  } else {
+  // stop the task f still running
+  if (playerTaskHandle != NULL) {
     vTaskDelete(playerTaskHandle);
     playerTaskHandle = NULL;
   }
@@ -341,9 +348,7 @@ int deinit_player(void) {
   }
   ret = destroy_pcm_queue(&pcmChkQHdl);
 
-  if (latencyBufSemaphoreHandle == NULL) {
-    ESP_LOGV(TAG, "no latency buffer semaphore created?");
-  } else {
+  if (latencyBufSemaphoreHandle != NULL) {
     vSemaphoreDelete(latencyBufSemaphoreHandle);
     latencyBufSemaphoreHandle = NULL;
   }
@@ -712,7 +717,7 @@ esp_err_t my_gptimer_stop(gptimer_handle_t timer) {
     
     esp_err_t ret = 0;
     ret |= gptimer_stop(timer);
-    ret |= gptimer_disable(gptimer);
+    ret |= gptimer_disable(timer);
     
     return ret;
   }
@@ -1826,5 +1831,6 @@ static void player_task(void *pvParameters) {
   tg0_timer_deinit();
   playerstarted = false;
   ESP_LOGI(TAG, "stop player done");
+  playerTaskHandle = NULL;
   vTaskDelete(NULL);
 }
