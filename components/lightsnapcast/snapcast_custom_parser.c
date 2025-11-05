@@ -4,7 +4,7 @@
 
 void parse_base_message(snapcast_custom_parser_t *parser,
                         base_message_t *base_message_rx, const char *start,
-                        uint16_t *len) {
+                        int64_t *now) {
   switch (parser->internalState) {
     case 0:
       base_message_rx->type = *start & 0xFF;
@@ -135,11 +135,11 @@ void parse_base_message(snapcast_custom_parser_t *parser,
       base_message_rx->size |= (*start & 0xFF) << 24;
       parser->internalState = 0;
 
-      int64_t now = esp_timer_get_time();
+      *now = esp_timer_get_time();
 
-      base_message_rx->received.sec = now / 1000000;
+      base_message_rx->received.sec = *now / 1000000;
       base_message_rx->received.usec =
-          now - base_message_rx->received.sec * 1000000;
+          *now - base_message_rx->received.sec * 1000000;
 
       parser->typedMsgCurrentPos = 0;
 

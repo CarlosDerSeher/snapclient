@@ -898,7 +898,8 @@ static void http_get_task(void *pvParameters) {
           switch (parser.state) {
             // decode base message
             case BASE_MESSAGE_STATE: {
-              parse_base_message(&parser, &base_message_rx, start, &len);
+              parse_base_message(&parser, &base_message_rx, start, &now);
+
               // currentPos++;++;
               len--;
               start++;
