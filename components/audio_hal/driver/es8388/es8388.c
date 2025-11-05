@@ -307,9 +307,10 @@ esp_err_t es8388_init(audio_hal_codec_config_t *cfg) {
                       0x00);  // normal all and power up all
 
   // Disable the internal DLL to improve 8K sample rate
-  res |= es_write_reg(ES8388_ADDR, 0x35, 0xA0);
-  res |= es_write_reg(ES8388_ADDR, 0x37, 0xD0);
-  res |= es_write_reg(ES8388_ADDR, 0x39, 0xD0);
+  // res |= es_write_reg(ES8388_ADDR, 0x35, 0xA0);
+  // res |= es_write_reg(ES8388_ADDR, 0x37, 0xD0);
+  // res |= es_write_reg(ES8388_ADDR, 0x39, 0xD0);
+  ESP_LOGI(ES_TAG, "SKIPPED DLL DISABLE TO AVOID NOISE ISSUE");
 
   res |= es_write_reg(ES8388_ADDR, ES8388_MASTERMODE,
                       cfg->i2s_iface.mode);  // CODEC IN I2S SLAVE MODE
