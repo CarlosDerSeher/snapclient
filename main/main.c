@@ -55,6 +55,7 @@
 #include "ota_server.h"
 #include "player.h"
 #include "snapcast.h"
+#include "snapcast_custom_parser.h"
 #include "ui_http_server.h"
 
 static bool isCachedChunk = false;
@@ -816,20 +817,19 @@ static void http_get_task(void *pvParameters) {
     scSet.muted = true;
 
     uint64_t startTime, endTime;
+    snapcast_custom_parser_t parser;
+
+    // TODO: init method
+    parser.state = BASE_MESSAGE_STATE;
+    parser.typedMsgCurrentPos = 0;
+    parser.internalState = 0;
+
     //    size_t currentPos = 0;
-    size_t typedMsgCurrentPos = 0;
     uint32_t typedMsgLen = 0;
     uint32_t offset = 0;
     uint32_t payloadOffset = 0;
     uint32_t tmpData = 0;
     int32_t payloadDataShift = 0;
-
-#define BASE_MESSAGE_STATE 0
-#define TYPED_MESSAGE_STATE 1
-
-    // 0 ... base message, 1 ... typed message
-    uint32_t state = BASE_MESSAGE_STATE;
-    uint32_t internalState = 0;
 
     firstNetBuf = NULL;
 
@@ -895,166 +895,10 @@ static void http_get_task(void *pvParameters) {
         while (len > 0) {
           rc1 = ERR_OK;  // probably not necessary
 
-          switch (state) {
+          switch (parser.state) {
             // decode base message
             case BASE_MESSAGE_STATE: {
-              switch (internalState) {
-                case 0:
-                  base_message_rx.type = *start & 0xFF;
-                  internalState++;
-                  break;
-
-                case 1:
-                  base_message_rx.type |= (*start & 0xFF) << 8;
-                  internalState++;
-                  break;
-
-                case 2:
-                  base_message_rx.id = *start & 0xFF;
-                  internalState++;
-                  break;
-
-                case 3:
-                  base_message_rx.id |= (*start & 0xFF) << 8;
-                  internalState++;
-                  break;
-
-                case 4:
-                  base_message_rx.refersTo = *start & 0xFF;
-                  internalState++;
-                  break;
-
-                case 5:
-                  base_message_rx.refersTo |= (*start & 0xFF) << 8;
-                  internalState++;
-                  break;
-
-                case 6:
-                  base_message_rx.sent.sec = *start & 0xFF;
-                  internalState++;
-                  break;
-
-                case 7:
-                  base_message_rx.sent.sec |= (*start & 0xFF) << 8;
-                  internalState++;
-                  break;
-
-                case 8:
-                  base_message_rx.sent.sec |= (*start & 0xFF) << 16;
-                  internalState++;
-                  break;
-
-                case 9:
-                  base_message_rx.sent.sec |= (*start & 0xFF) << 24;
-                  internalState++;
-                  break;
-
-                case 10:
-                  base_message_rx.sent.usec = *start & 0xFF;
-                  internalState++;
-                  break;
-
-                case 11:
-                  base_message_rx.sent.usec |= (*start & 0xFF) << 8;
-                  internalState++;
-                  break;
-
-                case 12:
-                  base_message_rx.sent.usec |= (*start & 0xFF) << 16;
-                  internalState++;
-                  break;
-
-                case 13:
-                  base_message_rx.sent.usec |= (*start & 0xFF) << 24;
-                  internalState++;
-                  break;
-
-                case 14:
-                  base_message_rx.received.sec = *start & 0xFF;
-                  internalState++;
-                  break;
-
-                case 15:
-                  base_message_rx.received.sec |= (*start & 0xFF) << 8;
-                  internalState++;
-                  break;
-
-                case 16:
-                  base_message_rx.received.sec |= (*start & 0xFF) << 16;
-                  internalState++;
-                  break;
-
-                case 17:
-                  base_message_rx.received.sec |= (*start & 0xFF) << 24;
-                  internalState++;
-                  break;
-
-                case 18:
-                  base_message_rx.received.usec = *start & 0xFF;
-                  internalState++;
-                  break;
-
-                case 19:
-                  base_message_rx.received.usec |= (*start & 0xFF) << 8;
-                  internalState++;
-                  break;
-
-                case 20:
-                  base_message_rx.received.usec |= (*start & 0xFF) << 16;
-                  internalState++;
-                  break;
-
-                case 21:
-                  base_message_rx.received.usec |= (*start & 0xFF) << 24;
-                  internalState++;
-                  break;
-
-                case 22:
-                  base_message_rx.size = *start & 0xFF;
-                  internalState++;
-                  break;
-
-                case 23:
-                  base_message_rx.size |= (*start & 0xFF) << 8;
-                  internalState++;
-                  break;
-
-                case 24:
-                  base_message_rx.size |= (*start & 0xFF) << 16;
-                  internalState++;
-                  break;
-
-                case 25:
-                  base_message_rx.size |= (*start & 0xFF) << 24;
-                  internalState = 0;
-
-                  now = esp_timer_get_time();
-
-                  base_message_rx.received.sec = now / 1000000;
-                  base_message_rx.received.usec =
-                      now - base_message_rx.received.sec * 1000000;
-
-                  typedMsgCurrentPos = 0;
-
-                  // ESP_LOGI(TAG, "BM type %d ts %ld.%ld, refers to %u",
-                  //          base_message_rx.type,
-                  //          base_message_rx.received.sec,
-                  //          base_message_rx.received.usec,
-                  //          base_message_rx.refersTo);
-
-                  // ESP_LOGI(TAG,"%u, %ld.%ld", base_message_rx.type,
-                  //                   base_message_rx.received.sec,
-                  //                   base_message_rx.received.usec);
-                  // ESP_LOGI(TAG,"%u, %llu", base_message_rx.type,
-                  //		                      1000000ULL *
-                  //                          (uint64_t)base_message_rx.received.sec
-                  //                          +
-                  //                          (uint64_t)base_message_rx.received.usec);
-
-                  state = TYPED_MESSAGE_STATE;
-                  break;
-              }
-
+              parse_base_message(&parser, &base_message_rx, start, &len);
               // currentPos++;++;
               len--;
               start++;
@@ -1066,16 +910,16 @@ static void http_get_task(void *pvParameters) {
             case TYPED_MESSAGE_STATE: {
               switch (base_message_rx.type) {
                 case SNAPCAST_MESSAGE_WIRE_CHUNK: {
-                  switch (internalState) {
+                  switch (parser.internalState) {
                     case 0: {
                       wire_chnk.timestamp.sec = *start & 0xFF;
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -1085,12 +929,12 @@ static void http_get_task(void *pvParameters) {
                     case 1: {
                       wire_chnk.timestamp.sec |= (*start & 0xFF) << 8;
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -1100,12 +944,12 @@ static void http_get_task(void *pvParameters) {
                     case 2: {
                       wire_chnk.timestamp.sec |= (*start & 0xFF) << 16;
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -1119,12 +963,12 @@ static void http_get_task(void *pvParameters) {
                       // "wire chunk time sec: %d",
                       // wire_chnk.timestamp.sec);
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -1134,12 +978,12 @@ static void http_get_task(void *pvParameters) {
                     case 4: {
                       wire_chnk.timestamp.usec = (*start & 0xFF);
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -1149,12 +993,12 @@ static void http_get_task(void *pvParameters) {
                     case 5: {
                       wire_chnk.timestamp.usec |= (*start & 0xFF) << 8;
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -1164,12 +1008,12 @@ static void http_get_task(void *pvParameters) {
                     case 6: {
                       wire_chnk.timestamp.usec |= (*start & 0xFF) << 16;
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -1183,12 +1027,12 @@ static void http_get_task(void *pvParameters) {
                       // "wire chunk time usec: %d",
                       // wire_chnk.timestamp.usec);
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -1198,12 +1042,12 @@ static void http_get_task(void *pvParameters) {
                     case 8: {
                       wire_chnk.size = (*start & 0xFF);
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -1213,12 +1057,12 @@ static void http_get_task(void *pvParameters) {
                     case 9: {
                       wire_chnk.size |= (*start & 0xFF) << 8;
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -1228,12 +1072,12 @@ static void http_get_task(void *pvParameters) {
                     case 10: {
                       wire_chnk.size |= (*start & 0xFF) << 16;
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -1243,12 +1087,12 @@ static void http_get_task(void *pvParameters) {
                     case 11: {
                       wire_chnk.size |= (*start & 0xFF) << 24;
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       // TODO: we could use wire chunk directly maybe?
                       decoderChunk.bytes = wire_chnk.size;
@@ -1281,8 +1125,8 @@ static void http_get_task(void *pvParameters) {
                     case 12: {
                       size_t tmp_size;
 
-                      if ((base_message_rx.size - typedMsgCurrentPos) <= len) {
-                        tmp_size = base_message_rx.size - typedMsgCurrentPos;
+                      if ((base_message_rx.size - parser.typedMsgCurrentPos) <= len) {
+                        tmp_size = base_message_rx.size - parser.typedMsgCurrentPos;
                       } else {
                         tmp_size = len;
                       }
@@ -1370,12 +1214,12 @@ static void http_get_task(void *pvParameters) {
                         }
                       }
 
-                      typedMsgCurrentPos += tmp_size;
+                      parser.typedMsgCurrentPos += tmp_size;
                       start += tmp_size;
                       // currentPos += tmp_size;
                       len -= tmp_size;
 
-                      if (typedMsgCurrentPos >= base_message_rx.size) {
+                      if (parser.typedMsgCurrentPos >= base_message_rx.size) {
                         if (received_header == true) {
                           switch (codec) {
                             case OPUS: {
@@ -1609,7 +1453,7 @@ static void http_get_task(void *pvParameters) {
 
                               // ESP_LOGW(TAG, "got PCM chunk,"
                               //               "typedMsgCurrentPos %d",
-                              //               typedMsgCurrentPos);
+                              //               parser.typedMsgCurrentPos);
 
                               if (pcmData) {
                                 pcmData->timestamp = wire_chnk.timestamp;
@@ -1665,10 +1509,10 @@ static void http_get_task(void *pvParameters) {
                           }
                         }
 
-                        state = BASE_MESSAGE_STATE;
-                        internalState = 0;
+                        parser.state = BASE_MESSAGE_STATE;
+                        parser.internalState = 0;
 
-                        typedMsgCurrentPos = 0;
+                        parser.typedMsgCurrentPos = 0;
                       }
 
                       break;
@@ -1687,18 +1531,18 @@ static void http_get_task(void *pvParameters) {
                 }
 
                 case SNAPCAST_MESSAGE_CODEC_HEADER: {
-                  switch (internalState) {
+                  switch (parser.internalState) {
                     case 0: {
                       received_header = false;
 
                       typedMsgLen = *start & 0xFF;
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -1708,12 +1552,12 @@ static void http_get_task(void *pvParameters) {
                     case 1: {
                       typedMsgLen |= (*start & 0xFF) << 8;
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -1723,12 +1567,12 @@ static void http_get_task(void *pvParameters) {
                     case 2: {
                       typedMsgLen |= (*start & 0xFF) << 16;
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -1759,12 +1603,12 @@ static void http_get_task(void *pvParameters) {
                       // "codec header string is %d long",
                       // typedMsgLen);
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -1777,7 +1621,7 @@ static void http_get_task(void *pvParameters) {
 
                         offset += typedMsgLen;
 
-                        typedMsgCurrentPos += typedMsgLen;
+                        parser.typedMsgCurrentPos += typedMsgLen;
                         start += typedMsgLen;
                         // currentPos += typedMsgLen;
                         len -= typedMsgLen;
@@ -1786,7 +1630,7 @@ static void http_get_task(void *pvParameters) {
 
                         offset += len;
 
-                        typedMsgCurrentPos += len;
+                        parser.typedMsgCurrentPos += len;
                         start += len;
                         // currentPos += len;
                         len -= len;
@@ -1821,7 +1665,7 @@ static void http_get_task(void *pvParameters) {
                         free(codecString);
                         codecString = NULL;
 
-                        internalState++;
+                        parser.internalState++;
                       }
 
                       if (len == 0) {
@@ -1832,12 +1676,12 @@ static void http_get_task(void *pvParameters) {
                     case 5: {
                       typedMsgLen = *start & 0xFF;
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -1847,12 +1691,12 @@ static void http_get_task(void *pvParameters) {
                     case 6: {
                       typedMsgLen |= (*start & 0xFF) << 8;
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -1862,12 +1706,12 @@ static void http_get_task(void *pvParameters) {
                     case 7: {
                       typedMsgLen |= (*start & 0xFF) << 16;
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -1894,12 +1738,12 @@ static void http_get_task(void *pvParameters) {
 
                       offset = 0;
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -1912,7 +1756,7 @@ static void http_get_task(void *pvParameters) {
 
                         offset += typedMsgLen;
 
-                        typedMsgCurrentPos += typedMsgLen;
+                        parser.typedMsgCurrentPos += typedMsgLen;
                         start += typedMsgLen;
                         // currentPos += typedMsgLen;
                         len -= typedMsgLen;
@@ -1921,7 +1765,7 @@ static void http_get_task(void *pvParameters) {
 
                         offset += len;
 
-                        typedMsgCurrentPos += len;
+                        parser.typedMsgCurrentPos += len;
                         start += len;
                         // currentPos += len;
                         len -= len;
@@ -2047,8 +1891,8 @@ static void http_get_task(void *pvParameters) {
 
                         // ESP_LOGI(TAG, "done codec header msg");
 
-                        state = BASE_MESSAGE_STATE;
-                        internalState = 0;
+                        parser.state = BASE_MESSAGE_STATE;
+                        parser.internalState = 0;
 
                         received_header = true;
                         esp_timer_stop(timeSyncMessageTimer);
@@ -2074,16 +1918,16 @@ static void http_get_task(void *pvParameters) {
                 }
 
                 case SNAPCAST_MESSAGE_SERVER_SETTINGS: {
-                  switch (internalState) {
+                  switch (parser.internalState) {
                     case 0: {
                       typedMsgLen = *start & 0xFF;
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -2093,12 +1937,12 @@ static void http_get_task(void *pvParameters) {
                     case 1: {
                       typedMsgLen |= (*start & 0xFF) << 8;
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -2108,12 +1952,12 @@ static void http_get_task(void *pvParameters) {
                     case 2: {
                       typedMsgLen |= (*start & 0xFF) << 16;
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -2135,12 +1979,12 @@ static void http_get_task(void *pvParameters) {
                                  "server settings string");
                       }
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       offset = 0;
 
@@ -2151,7 +1995,7 @@ static void http_get_task(void *pvParameters) {
 
                     case 4: {
                       size_t tmpSize =
-                          base_message_rx.size - typedMsgCurrentPos;
+                          base_message_rx.size - parser.typedMsgCurrentPos;
 
                       if (len > 0) {
                         if (tmpSize < len) {
@@ -2165,7 +2009,7 @@ static void http_get_task(void *pvParameters) {
                           // currentPos += tmpSize;  // will be
                           //  incremented by 1
                           //  later so -1 here
-                          typedMsgCurrentPos += tmpSize;
+                          parser.typedMsgCurrentPos += tmpSize;
                           len -= tmpSize;
                         } else {
                           if (serverSettingsString) {
@@ -2177,12 +2021,12 @@ static void http_get_task(void *pvParameters) {
                           // currentPos += len;  // will be incremented
                           //  by 1 later so -1
                           //  here
-                          typedMsgCurrentPos += len;
+                          parser.typedMsgCurrentPos += len;
                           len = 0;
                         }
                       }
 
-                      if (typedMsgCurrentPos >= base_message_rx.size) {
+                      if (parser.typedMsgCurrentPos >= base_message_rx.size) {
                         if (serverSettingsString) {
                           // ESP_LOGI(TAG, "done server settings %lu/%lu",
                           //								offset,
@@ -2202,7 +2046,7 @@ static void http_get_task(void *pvParameters) {
                                      "settings: %d",
                                      result);
                           } else {
-                            // log mute state, buffer, latency
+                            // log mute parser.state, buffer, latency
                             ESP_LOGI(TAG, "Buffer length:  %ld",
                                      server_settings_message.buffer_ms);
                             ESP_LOGI(TAG, "Latency:        %ld",
@@ -2255,10 +2099,10 @@ static void http_get_task(void *pvParameters) {
                           serverSettingsString = NULL;
                         }
 
-                        state = BASE_MESSAGE_STATE;
-                        internalState = 0;
+                        parser.state = BASE_MESSAGE_STATE;
+                        parser.internalState = 0;
 
-                        typedMsgCurrentPos = 0;
+                        parser.typedMsgCurrentPos = 0;
                       }
 
                       break;
@@ -2278,18 +2122,18 @@ static void http_get_task(void *pvParameters) {
 
                   //                case SNAPCAST_MESSAGE_STREAM_TAGS: {
                   //                  size_t tmpSize = base_message_rx.size -
-                  //                  typedMsgCurrentPos;
+                  //                  parser.typedMsgCurrentPos;
                   //
                   //                  if (tmpSize < len) {
                   //                    start += tmpSize;
                   //                    // currentPos += tmpSize;
-                  //                    typedMsgCurrentPos += tmpSize;
+                  //                    parser.typedMsgCurrentPos += tmpSize;
                   //                    len -= tmpSize;
                   //                  } else {
                   //                    start += len;
                   //                    // currentPos += len;
                   //
-                  //                    typedMsgCurrentPos += len;
+                  //                    parser.typedMsgCurrentPos += len;
                   //                    len = 0;
                   //                  }
                   //
@@ -2301,27 +2145,27 @@ static void http_get_task(void *pvParameters) {
                   //                    // base_message_rx.size, currentPos,
                   //                    // tmpSize);
                   //
-                  //                    typedMsgCurrentPos = 0;
+                  //                    parser.typedMsgCurrentPos = 0;
                   //                    // currentPos = 0;
                   //
-                  //                    state = BASE_MESSAGE_STATE;
-                  //                    internalState = 0;
+                  //                    parser.state = BASE_MESSAGE_STATE;
+                  //                    parser.internalState = 0;
                   //                  }
                   //
                   //                  break;
                   //                }
 
                 case SNAPCAST_MESSAGE_TIME: {
-                  switch (internalState) {
+                  switch (parser.internalState) {
                     case 0: {
                       time_message_rx.latency.sec = *start;
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -2331,12 +2175,12 @@ static void http_get_task(void *pvParameters) {
                     case 1: {
                       time_message_rx.latency.sec |= (int32_t)*start << 8;
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -2346,12 +2190,12 @@ static void http_get_task(void *pvParameters) {
                     case 2: {
                       time_message_rx.latency.sec |= (int32_t)*start << 16;
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -2361,12 +2205,12 @@ static void http_get_task(void *pvParameters) {
                     case 3: {
                       time_message_rx.latency.sec |= (int32_t)*start << 24;
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -2376,12 +2220,12 @@ static void http_get_task(void *pvParameters) {
                     case 4: {
                       time_message_rx.latency.usec = *start;
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -2391,12 +2235,12 @@ static void http_get_task(void *pvParameters) {
                     case 5: {
                       time_message_rx.latency.usec |= (int32_t)*start << 8;
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -2406,12 +2250,12 @@ static void http_get_task(void *pvParameters) {
                     case 6: {
                       time_message_rx.latency.usec |= (int32_t)*start << 16;
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
 
-                      internalState++;
+                      parser.internalState++;
 
                       if (len == 0) {
                         break;
@@ -2421,17 +2265,17 @@ static void http_get_task(void *pvParameters) {
                     case 7: {
                       time_message_rx.latency.usec |= (int32_t)*start << 24;
 
-                      typedMsgCurrentPos++;
+                      parser.typedMsgCurrentPos++;
                       start++;
                       // currentPos++;
                       len--;
-                      if (typedMsgCurrentPos >= base_message_rx.size) {
+                      if (parser.typedMsgCurrentPos >= base_message_rx.size) {
                         // ESP_LOGI(TAG, "done time message");
 
-                        typedMsgCurrentPos = 0;
+                        parser.typedMsgCurrentPos = 0;
 
-                        state = BASE_MESSAGE_STATE;
-                        internalState = 0;
+                        parser.state = BASE_MESSAGE_STATE;
+                        parser.internalState = 0;
 
                         trx =
                             (int64_t)base_message_rx.received.sec * 1000000LL +
@@ -2513,12 +2357,12 @@ static void http_get_task(void *pvParameters) {
                         ESP_LOGE(TAG,
                                  "error time message, this "
                                  "shouldn't happen! %d %ld",
-                                 typedMsgCurrentPos, base_message_rx.size);
+                                 parser.typedMsgCurrentPos, base_message_rx.size);
 
-                        typedMsgCurrentPos = 0;
+                        parser.typedMsgCurrentPos = 0;
 
-                        state = BASE_MESSAGE_STATE;
-                        internalState = 0;
+                        parser.state = BASE_MESSAGE_STATE;
+                        parser.internalState = 0;
                       }
 
                       break;
@@ -2528,8 +2372,8 @@ static void http_get_task(void *pvParameters) {
                       ESP_LOGE(TAG,
                                "time message decoder shouldn't "
                                "get here %d %ld %ld",
-                               typedMsgCurrentPos, base_message_rx.size,
-                               internalState);
+                               parser.typedMsgCurrentPos, base_message_rx.size,
+                               parser.internalState);
 
                       break;
                     }
@@ -2539,19 +2383,19 @@ static void http_get_task(void *pvParameters) {
                 }
 
                 default: {
-                  typedMsgCurrentPos++;
+                  parser.typedMsgCurrentPos++;
                   start++;
                   // currentPos++;
                   len--;
 
-                  if (typedMsgCurrentPos >= base_message_rx.size) {
+                  if (parser.typedMsgCurrentPos >= base_message_rx.size) {
                     ESP_LOGI(TAG, "done unknown typed message %d",
                              base_message_rx.type);
 
-                    state = BASE_MESSAGE_STATE;
-                    internalState = 0;
+                    parser.state = BASE_MESSAGE_STATE;
+                    parser.internalState = 0;
 
-                    typedMsgCurrentPos = 0;
+                    parser.typedMsgCurrentPos = 0;
                   }
 
                   break;
