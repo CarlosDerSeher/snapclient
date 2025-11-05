@@ -245,3 +245,4 @@ Then on every `git commit`, a few sanity/formatting checks will be performed.
 
 ## Known issues
 - The ADF introduced a bug in `components/audio_hal/driver/es8388/es8388.c` which results in loud noise between i2s channel initialization and i2s enabling. The issue was caused by three lines setting undocumented registers. This was fixed by a simple hack in this repo: we modified the file to comment out these lines.
+- There is a hacky `ensure_noiseless` function in `player.c`, that streams silence for a short period of time, once. It was originally added to fix the aforementioned noise issue. It remains in the codebase (although the es8388 driver is fixed now) because it prevents random clicks and pops during playback, especially when `PLAYER: pcm chunk queue not created` messages occur. The root cause of the clicks and the reason why this hack works are currently unknown.
