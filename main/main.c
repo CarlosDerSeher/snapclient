@@ -2603,25 +2603,6 @@ void app_main(void) {
   init_snapcast(audioQHdl);
   init_player(i2s_pin_config0, I2S_NUM_0);
 
-  // COMMENTED OUT TO AVOID CLICKS. NOT NEEDED AFTER ES8388 FIX
-  // ensure there is no noise from DAC
-  // {
-  //   gpio_config_t gpioCfg = {
-  //       .pin_bit_mask =
-  //           BIT64(pin_config0.mck_io_num) | BIT64(pin_config0.data_out_num) |
-  //           BIT64(pin_config0.bck_io_num) | BIT64(pin_config0.ws_io_num),
-  //       .mode = GPIO_MODE_OUTPUT,
-  //       .pull_up_en = GPIO_PULLUP_DISABLE,
-  //       .pull_down_en = GPIO_PULLDOWN_DISABLE,
-  //       .intr_type = GPIO_INTR_DISABLE,
-  //   };
-  //   gpio_config(&gpioCfg);
-  //   gpio_set_level(pin_config0.mck_io_num, 0);
-  //   gpio_set_level(pin_config0.data_out_num, 0);
-  //   gpio_set_level(pin_config0.bck_io_num, 0);
-  //   gpio_set_level(pin_config0.ws_io_num, 0);
-  // }
-
 #if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
     CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
   eth_init();
