@@ -227,7 +227,7 @@ void ota_server_start_my(void) {
 
   char res_buff[128];
   int send_len;
-  send_len = sprintf(res_buff, "200 OK\n\n");
+  send_len = sprintf(res_buff, "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
   send(connect_socket, res_buff, send_len, 0);
   vTaskDelay(2000 / portTICK_PERIOD_MS);
   close(connect_socket);
