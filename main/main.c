@@ -91,8 +91,6 @@ TaskHandle_t t_http_get_task = NULL;
 #define FAST_SYNC_LATENCY_BUF 10000      // in µs
 #define NORMAL_SYNC_LATENCY_BUF 1000000  // in µs
 
-struct timeval tdif, tavg;
-
 /* snapast parameters; configurable in menuconfig */
 #define SNAPCAST_SERVER_USE_MDNS CONFIG_SNAPSERVER_USE_MDNS
 #if !SNAPCAST_SERVER_USE_MDNS
@@ -231,6 +229,14 @@ void time_sync_msg_cb(void *args) {
   // ESP_LOGI(TAG, "%s: sent time sync message, %u", __func__,
   // base_message_tx.id);
 }
+
+typedef struct {
+  int64_t now;
+  int64_t lastTimeSync;
+  uint64_t timeout;
+  esp_timer_handle_t timeSyncMessageTimer;
+} time_sync_data_t;
+
 
 /**
  *
@@ -464,12 +470,11 @@ static void http_get_task(void *pvParameters) {
   wire_chunk_message_t wire_chnk = {{0, 0}, 0, NULL};
   char *hello_message_serialized = NULL;
   int result;
-  int64_t now, trx, tdif, ttx;
+  time_sync_data_t time_sync_data;
   time_message_t time_message_rx = {{0, 0}};
   client_info_t clientInfo = {0, 0};
-  int64_t tmpDiffToServer;
-  int64_t lastTimeSync = 0;
-  esp_timer_handle_t timeSyncMessageTimer = NULL;
+  time_sync_data.lastTimeSync = 0;
+  time_sync_data.timeSyncMessageTimer = NULL;
   esp_err_t err = 0;
   server_settings_message_t server_settings_message;
   bool received_header = false;
@@ -481,7 +486,7 @@ static void http_get_task(void *pvParameters) {
   int rc1 = ERR_OK, rc2 = ERR_OK;
   struct netbuf *firstNetBuf = NULL;
   uint16_t len;
-  uint64_t timeout = FAST_SYNC_LATENCY_BUF;
+  time_sync_data.timeout = FAST_SYNC_LATENCY_BUF;
   char *codecString = NULL;
   char *codecPayload = NULL;
   char *serverSettingsString = NULL;
@@ -489,7 +494,7 @@ static void http_get_task(void *pvParameters) {
   esp_netif_t *netif = NULL;
 
   // create a timer to send time sync messages every x µs
-  esp_timer_create(&tSyncArgs, &timeSyncMessageTimer);
+  esp_timer_create(&tSyncArgs, &time_sync_data.timeSyncMessageTimer);
 
   idCounterSemaphoreHandle = xSemaphoreCreateMutex();
   if (idCounterSemaphoreHandle == NULL) {
@@ -506,11 +511,11 @@ static void http_get_task(void *pvParameters) {
   while (1) {
     // do some house keeping
     {
-      esp_timer_stop(timeSyncMessageTimer);
+      esp_timer_stop(time_sync_data.timeSyncMessageTimer);
 
       connected_interface = -1;
       received_header = false;
-      timeout = FAST_SYNC_LATENCY_BUF;
+      time_sync_data.timeout = FAST_SYNC_LATENCY_BUF;
 
       xSemaphoreTake(idCounterSemaphoreHandle, portMAX_DELAY);
       id_counter = 0;
@@ -744,7 +749,7 @@ static void http_get_task(void *pvParameters) {
             base_mac[1], base_mac[2], base_mac[3], base_mac[4], base_mac[5]);
     ESP_LOGI(TAG, "sta mac: %s", mac_address);
 
-    now = esp_timer_get_time();
+    time_sync_data.now = esp_timer_get_time();
 
     // init base message
     base_message_rx.type = SNAPCAST_MESSAGE_HELLO;
@@ -753,8 +758,8 @@ static void http_get_task(void *pvParameters) {
     xSemaphoreGive(idCounterSemaphoreHandle);
 
     base_message_rx.refersTo = 0x0000;
-    base_message_rx.sent.sec = now / 1000000;
-    base_message_rx.sent.usec = now - base_message_rx.sent.sec * 1000000;
+    base_message_rx.sent.sec = time_sync_data.now / 1000000;
+    base_message_rx.sent.usec = time_sync_data.now - base_message_rx.sent.sec * 1000000;
     base_message_rx.received.sec = 0;
     base_message_rx.received.usec = 0;
     base_message_rx.size = 0x00000000;
@@ -816,7 +821,6 @@ static void http_get_task(void *pvParameters) {
     scSet.volume = 0;
     scSet.muted = true;
 
-    uint64_t startTime, endTime;
     snapcast_custom_parser_t parser;
 
     // TODO: init method
@@ -898,7 +902,7 @@ static void http_get_task(void *pvParameters) {
           switch (parser.state) {
             // decode base message
             case BASE_MESSAGE_STATE: {
-              parse_base_message(&parser, &base_message_rx, start, &now);
+              parse_base_message(&parser, &base_message_rx, start, &time_sync_data.now);
 
               // currentPos++;++;
               len--;
@@ -1896,10 +1900,10 @@ static void http_get_task(void *pvParameters) {
                         parser.internalState = 0;
 
                         received_header = true;
-                        esp_timer_stop(timeSyncMessageTimer);
-                        if (!esp_timer_is_active(timeSyncMessageTimer)) {
-                          esp_timer_start_periodic(timeSyncMessageTimer,
-                                                   timeout);
+                        esp_timer_stop(time_sync_data.timeSyncMessageTimer);
+                        if (!esp_timer_is_active(time_sync_data.timeSyncMessageTimer)) {
+                          esp_timer_start_periodic(time_sync_data.timeSyncMessageTimer,
+                                                   time_sync_data.timeout);
                         }
                       }
 
@@ -2278,6 +2282,8 @@ static void http_get_task(void *pvParameters) {
                         parser.state = BASE_MESSAGE_STATE;
                         parser.internalState = 0;
 
+                        // convert to callback:
+                        int64_t tmpDiffToServer, trx, tdif, ttx;
                         trx =
                             (int64_t)base_message_rx.received.sec * 1000000LL +
                             (int64_t)base_message_rx.received.usec;
@@ -2292,7 +2298,7 @@ static void http_get_task(void *pvParameters) {
 
                         // clear diffBuffer if last update is
                         // older than a minute
-                        diff = now - lastTimeSync;
+                        diff = time_sync_data.now - time_sync_data.lastTimeSync;
                         if (diff > 60000000LL) {
                           ESP_LOGW(TAG,
                                    "Last time sync older "
@@ -2301,13 +2307,13 @@ static void http_get_task(void *pvParameters) {
 
                           reset_latency_buffer();
 
-                          timeout = FAST_SYNC_LATENCY_BUF;
+                          time_sync_data.timeout = FAST_SYNC_LATENCY_BUF;
 
-                          esp_timer_stop(timeSyncMessageTimer);
+                          esp_timer_stop(time_sync_data.timeSyncMessageTimer);
                           if (received_header == true) {
-                            if (!esp_timer_is_active(timeSyncMessageTimer)) {
-                              esp_timer_start_periodic(timeSyncMessageTimer,
-                                                       timeout);
+                            if (!esp_timer_is_active(time_sync_data.timeSyncMessageTimer)) {
+                              esp_timer_start_periodic(time_sync_data.timeSyncMessageTimer,
+                                                       time_sync_data.timeout);
                             }
                           }
                         }
@@ -2318,40 +2324,40 @@ static void http_get_task(void *pvParameters) {
                         // tmpDiffToServer);
 
                         // store current time
-                        lastTimeSync = now;
+                        time_sync_data.lastTimeSync = time_sync_data.now;
 
                         if (received_header == true) {
-                          if (!esp_timer_is_active(timeSyncMessageTimer)) {
-                            esp_timer_start_periodic(timeSyncMessageTimer,
-                                                     timeout);
+                          if (!esp_timer_is_active(time_sync_data.timeSyncMessageTimer)) {
+                            esp_timer_start_periodic(time_sync_data.timeSyncMessageTimer,
+                                                     time_sync_data.timeout);
                           }
 
                           bool is_full = false;
                           latency_buffer_full(&is_full, portMAX_DELAY);
                           if ((is_full == true) &&
-                              (timeout < NORMAL_SYNC_LATENCY_BUF)) {
-                            timeout = NORMAL_SYNC_LATENCY_BUF;
+                              (time_sync_data.timeout < NORMAL_SYNC_LATENCY_BUF)) {
+                            time_sync_data.timeout = NORMAL_SYNC_LATENCY_BUF;
 
                             ESP_LOGI(TAG, "latency buffer full");
 
-                            if (esp_timer_is_active(timeSyncMessageTimer)) {
-                              esp_timer_stop(timeSyncMessageTimer);
+                            if (esp_timer_is_active(time_sync_data.timeSyncMessageTimer)) {
+                              esp_timer_stop(time_sync_data.timeSyncMessageTimer);
                             }
 
-                            esp_timer_start_periodic(timeSyncMessageTimer,
-                                                     timeout);
+                            esp_timer_start_periodic(time_sync_data.timeSyncMessageTimer,
+                                                     time_sync_data.timeout);
                           } else if ((is_full == false) &&
-                                     (timeout > FAST_SYNC_LATENCY_BUF)) {
-                            timeout = FAST_SYNC_LATENCY_BUF;
+                                     (time_sync_data.timeout > FAST_SYNC_LATENCY_BUF)) {
+                            time_sync_data.timeout = FAST_SYNC_LATENCY_BUF;
 
                             ESP_LOGI(TAG, "latency buffer not full");
 
-                            if (esp_timer_is_active(timeSyncMessageTimer)) {
-                              esp_timer_stop(timeSyncMessageTimer);
+                            if (esp_timer_is_active(time_sync_data.timeSyncMessageTimer)) {
+                              esp_timer_stop(time_sync_data.timeSyncMessageTimer);
                             }
 
-                            esp_timer_start_periodic(timeSyncMessageTimer,
-                                                     timeout);
+                            esp_timer_start_periodic(time_sync_data.timeSyncMessageTimer,
+                                                     time_sync_data.timeout);
                           }
                         }
                       } else {
