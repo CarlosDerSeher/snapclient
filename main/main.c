@@ -615,6 +615,143 @@ int server_settings_msg_received(char *serverSettingsString, snapcastSetting_t* 
 /**
  *
  */
+int codec_header_received(
+  char **codecPayload,
+  uint32_t typedMsgLen,
+  codec_type_t codec,
+  snapcastSetting_t* scSet,
+  time_sync_data_t* time_sync_data
+){
+ // first ensure everything is set up
+ // correctly and resources are
+ // available
+
+ if (flacDecoder != NULL) {
+   FLAC__stream_decoder_finish(flacDecoder);
+   FLAC__stream_decoder_delete(flacDecoder);
+   flacDecoder = NULL;
+ }
+
+ if (opusDecoder != NULL) {
+   opus_decoder_destroy(opusDecoder);
+   opusDecoder = NULL;
+ }
+
+ if (codec == OPUS) {
+   uint16_t channels;
+   uint32_t rate;
+   uint16_t bits;
+
+   memcpy(&rate, *codecPayload + 4, sizeof(rate));
+   memcpy(&bits, *codecPayload + 8, sizeof(bits));
+   memcpy(&channels, *codecPayload + 10,
+          sizeof(channels));
+
+   scSet->codec = codec;
+   scSet->bits = bits;
+   scSet->ch = channels;
+   scSet->sr = rate;
+
+   ESP_LOGI(TAG, "Opus sample format: %ld:%d:%d\n", rate,
+            bits, channels);
+
+   int error = 0;
+
+   opusDecoder =
+       opus_decoder_create(scSet->sr, scSet->ch, &error);
+   if (error != 0) {
+     ESP_LOGI(TAG, "Failed to init opus coder");
+     return -1;
+   }
+
+   ESP_LOGI(TAG, "Initialized opus Decoder: %d", error);
+ } else if (codec == FLAC) {
+   decoderChunk.bytes = typedMsgLen;
+   do {
+     decoderChunk.inData =
+         (uint8_t *)malloc(decoderChunk.bytes);
+     vTaskDelay(pdMS_TO_TICKS(1));
+   } while (decoderChunk.inData == NULL);
+   memcpy(decoderChunk.inData, *codecPayload,
+          typedMsgLen);
+   decoderChunk.outData = NULL;
+   decoderChunk.type = SNAPCAST_MESSAGE_CODEC_HEADER;
+
+   flacDecoder = FLAC__stream_decoder_new();
+   if (flacDecoder == NULL) {
+     ESP_LOGE(TAG, "Failed to init flac decoder");
+     return -1;
+   }
+
+   FLAC__StreamDecoderInitStatus init_status =
+       FLAC__stream_decoder_init_stream(
+           flacDecoder, read_callback, NULL, NULL, NULL,
+           NULL, write_callback, metadata_callback,
+           error_callback, scSet);
+   if (init_status !=
+       FLAC__STREAM_DECODER_INIT_STATUS_OK) {
+     ESP_LOGE(TAG, "ERROR: initializing decoder: %s\n",
+              FLAC__StreamDecoderInitStatusString
+                  [init_status]);
+
+     return -1;
+   }
+
+   FLAC__stream_decoder_process_until_end_of_metadata(
+       flacDecoder);
+
+   // ESP_LOGI(TAG, "%s: processed codec header",
+   // __func__);
+ } else if (codec == PCM) {
+   uint16_t channels;
+   uint32_t rate;
+   uint16_t bits;
+
+   memcpy(&channels, *codecPayload + 22,
+          sizeof(channels));
+   memcpy(&rate, *codecPayload + 24, sizeof(rate));
+   memcpy(&bits, *codecPayload + 34, sizeof(bits));
+
+   scSet->codec = codec;
+   scSet->bits = bits;
+   scSet->ch = channels;
+   scSet->sr = rate;
+
+   ESP_LOGI(TAG, "pcm sampleformat: %ld:%d:%d", scSet->sr,
+            scSet->bits, scSet->ch);
+ } else {
+   ESP_LOGE(TAG,
+            "codec header decoder "
+            "shouldn't get here after "
+            "codec string was detected");
+
+   return -1;
+ }
+
+ free(*codecPayload);
+ *codecPayload = NULL;
+
+ if (player_send_snapcast_setting(scSet) != pdPASS) {
+   ESP_LOGE(TAG,
+            "Failed to notify sync task. "
+            "Did you init player?");
+
+   return -1;
+ }
+
+ // ESP_LOGI(TAG, "done codec header msg");
+
+ esp_timer_stop(time_sync_data->timeSyncMessageTimer);
+ if (!esp_timer_is_active(time_sync_data->timeSyncMessageTimer)) {
+   esp_timer_start_periodic(time_sync_data->timeSyncMessageTimer,
+                            time_sync_data->timeout);
+ }
+  return 0;
+}
+
+/**
+ *
+ */
 static void http_get_task(void *pvParameters) {
   char *start;
   base_message_t base_message_rx;
@@ -1925,134 +2062,15 @@ static void http_get_task(void *pvParameters) {
                       }
 
                       if (offset == typedMsgLen) {
-                        // first ensure everything is set up
-                        // correctly and resources are
-                        // available
-
-                        if (flacDecoder != NULL) {
-                          FLAC__stream_decoder_finish(flacDecoder);
-                          FLAC__stream_decoder_delete(flacDecoder);
-                          flacDecoder = NULL;
-                        }
-
-                        if (opusDecoder != NULL) {
-                          opus_decoder_destroy(opusDecoder);
-                          opusDecoder = NULL;
-                        }
-
-                        if (codec == OPUS) {
-                          uint16_t channels;
-                          uint32_t rate;
-                          uint16_t bits;
-
-                          memcpy(&rate, codecPayload + 4, sizeof(rate));
-                          memcpy(&bits, codecPayload + 8, sizeof(bits));
-                          memcpy(&channels, codecPayload + 10,
-                                 sizeof(channels));
-
-                          scSet.codec = codec;
-                          scSet.bits = bits;
-                          scSet.ch = channels;
-                          scSet.sr = rate;
-
-                          ESP_LOGI(TAG, "Opus sample format: %ld:%d:%d\n", rate,
-                                   bits, channels);
-
-                          int error = 0;
-
-                          opusDecoder =
-                              opus_decoder_create(scSet.sr, scSet.ch, &error);
-                          if (error != 0) {
-                            ESP_LOGI(TAG, "Failed to init opus coder");
-                            return;
-                          }
-
-                          ESP_LOGI(TAG, "Initialized opus Decoder: %d", error);
-                        } else if (codec == FLAC) {
-                          decoderChunk.bytes = typedMsgLen;
-                          do {
-                            decoderChunk.inData =
-                                (uint8_t *)malloc(decoderChunk.bytes);
-                            vTaskDelay(pdMS_TO_TICKS(1));
-                          } while (decoderChunk.inData == NULL);
-                          memcpy(decoderChunk.inData, codecPayload,
-                                 typedMsgLen);
-                          decoderChunk.outData = NULL;
-                          decoderChunk.type = SNAPCAST_MESSAGE_CODEC_HEADER;
-
-                          flacDecoder = FLAC__stream_decoder_new();
-                          if (flacDecoder == NULL) {
-                            ESP_LOGE(TAG, "Failed to init flac decoder");
-                            return;
-                          }
-
-                          FLAC__StreamDecoderInitStatus init_status =
-                              FLAC__stream_decoder_init_stream(
-                                  flacDecoder, read_callback, NULL, NULL, NULL,
-                                  NULL, write_callback, metadata_callback,
-                                  error_callback, &scSet);
-                          if (init_status !=
-                              FLAC__STREAM_DECODER_INIT_STATUS_OK) {
-                            ESP_LOGE(TAG, "ERROR: initializing decoder: %s\n",
-                                     FLAC__StreamDecoderInitStatusString
-                                         [init_status]);
-
-                            return;
-                          }
-
-                          FLAC__stream_decoder_process_until_end_of_metadata(
-                              flacDecoder);
-
-                          // ESP_LOGI(TAG, "%s: processed codec header",
-                          // __func__);
-                        } else if (codec == PCM) {
-                          uint16_t channels;
-                          uint32_t rate;
-                          uint16_t bits;
-
-                          memcpy(&channels, codecPayload + 22,
-                                 sizeof(channels));
-                          memcpy(&rate, codecPayload + 24, sizeof(rate));
-                          memcpy(&bits, codecPayload + 34, sizeof(bits));
-
-                          scSet.codec = codec;
-                          scSet.bits = bits;
-                          scSet.ch = channels;
-                          scSet.sr = rate;
-
-                          ESP_LOGI(TAG, "pcm sampleformat: %ld:%d:%d", scSet.sr,
-                                   scSet.bits, scSet.ch);
-                        } else {
-                          ESP_LOGE(TAG,
-                                   "codec header decoder "
-                                   "shouldn't get here after "
-                                   "codec string was detected");
-
+                        // Handle codec header payload
+                        if (codec_header_received(&codecPayload, typedMsgLen, codec,
+                                                  &scSet, &time_sync_data) != 0) {
                           return;
                         }
-
-                        free(codecPayload);
-                        codecPayload = NULL;
-
-                        if (player_send_snapcast_setting(&scSet) != pdPASS) {
-                          ESP_LOGE(TAG,
-                                   "Failed to notify sync task. "
-                                   "Did you init player?");
-
-                          return;
-                        }
-
-                        // ESP_LOGI(TAG, "done codec header msg");
-
                         parser.state = BASE_MESSAGE_STATE;
                         parser.internalState = 0;
 
                         received_codec_header = true;
-                        esp_timer_stop(time_sync_data.timeSyncMessageTimer);
-                        if (!esp_timer_is_active(time_sync_data.timeSyncMessageTimer)) {
-                          esp_timer_start_periodic(time_sync_data.timeSyncMessageTimer,
-                                                   time_sync_data.timeout);
-                        }
                       }
 
                       break;
