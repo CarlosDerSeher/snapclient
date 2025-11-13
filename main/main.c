@@ -544,6 +544,74 @@ void audio_set_volume(int volume) {
   xSemaphoreGive(audioDACSemaphore);
 }
 
+
+/**
+ *
+ */
+int server_settings_msg_received(char *serverSettingsString, snapcastSetting_t* scSet){
+  server_settings_message_t server_settings_message;
+  int result;
+
+  result = server_settings_message_deserialize(
+      &server_settings_message, serverSettingsString);
+  if (result) {
+    ESP_LOGE(TAG,
+             "Failed to read server "
+             "settings: %d",
+             result);
+    return 0; // NEW: ignore broken messages instead of continuing with possibly invalid data
+  } else {
+    // log mute state, buffer, latency
+    ESP_LOGI(TAG, "Buffer length:  %ld",
+             server_settings_message.buffer_ms);
+    ESP_LOGI(TAG, "Latency:        %ld",
+             server_settings_message.latency);
+    ESP_LOGI(TAG, "Mute:           %d",
+             server_settings_message.muted);
+    ESP_LOGI(TAG, "Setting volume: %ld",
+             server_settings_message.volume);
+  }
+
+  // Volume setting using ADF HAL
+  // abstraction
+  if (scSet->muted != server_settings_message.muted) {
+#if SNAPCAST_USE_SOFT_VOL
+    if (server_settings_message.muted) {
+      dsp_processor_set_volome(0.0);
+    } else {
+      dsp_processor_set_volome(
+          (double)server_settings_message.volume / 100);
+    }
+#endif
+    audio_set_mute(server_settings_message.muted);
+  }
+
+  if (scSet->volume != server_settings_message.volume) {
+#if SNAPCAST_USE_SOFT_VOL
+    if (!server_settings_message.muted) {
+      dsp_processor_set_volome(
+          (double)server_settings_message.volume / 100);
+    }
+#else
+    audio_set_volume(server_settings_message.volume);
+#endif
+  }
+
+  scSet->cDacLat_ms = server_settings_message.latency;
+  scSet->buf_ms = server_settings_message.buffer_ms;
+  scSet->muted = server_settings_message.muted;
+  scSet->volume = server_settings_message.volume;
+
+  if (player_send_snapcast_setting(scSet) != pdPASS) {
+    ESP_LOGE(TAG,
+             "Failed to notify sync task. "
+             "Did you init player?");
+
+    return -1; // fatal, this triggers return from http_get_task
+  }
+  return 0;
+}
+
 /**
  *
  */
@@ -559,7 +627,6 @@ static void http_get_task(void *pvParameters) {
   time_sync_data.lastTimeSync = 0;
   time_sync_data.timeSyncMessageTimer = NULL;
   esp_err_t err = 0;
-  server_settings_message_t server_settings_message;
   bool received_codec_header = false;
   mdns_result_t *r;
   codec_type_t codec = NONE;
@@ -2124,60 +2191,9 @@ static void http_get_task(void *pvParameters) {
                           // ESP_LOGI(TAG, "got string: %s",
                           // serverSettingsString);
 
-                          result = server_settings_message_deserialize(
-                              &server_settings_message, serverSettingsString);
-                          if (result) {
-                            ESP_LOGE(TAG,
-                                     "Failed to read server "
-                                     "settings: %d",
-                                     result);
-                          } else {
-                            // log mute state, buffer, latency
-                            ESP_LOGI(TAG, "Buffer length:  %ld",
-                                     server_settings_message.buffer_ms);
-                            ESP_LOGI(TAG, "Latency:        %ld",
-                                     server_settings_message.latency);
-                            ESP_LOGI(TAG, "Mute:           %d",
-                                     server_settings_message.muted);
-                            ESP_LOGI(TAG, "Setting volume: %ld",
-                                     server_settings_message.volume);
-                          }
-
-                          // Volume setting using ADF HAL
-                          // abstraction
-                          if (scSet.muted != server_settings_message.muted) {
-#if SNAPCAST_USE_SOFT_VOL
-                            if (server_settings_message.muted) {
-                              dsp_processor_set_volome(0.0);
-                            } else {
-                              dsp_processor_set_volome(
-                                  (double)server_settings_message.volume / 100);
-                            }
-#endif
-                            audio_set_mute(server_settings_message.muted);
-                          }
-
-                          if (scSet.volume != server_settings_message.volume) {
-#if SNAPCAST_USE_SOFT_VOL
-                            if (!server_settings_message.muted) {
-                              dsp_processor_set_volome(
-                                  (double)server_settings_message.volume / 100);
-                            }
-#else
-                            audio_set_volume(server_settings_message.volume);
-#endif
-                          }
-
-                          scSet.cDacLat_ms = server_settings_message.latency;
-                          scSet.buf_ms = server_settings_message.buffer_ms;
-                          scSet.muted = server_settings_message.muted;
-                          scSet.volume = server_settings_message.volume;
-
-                          if (player_send_snapcast_setting(&scSet) != pdPASS) {
-                            ESP_LOGE(TAG,
-                                     "Failed to notify sync task. "
-                                     "Did you init player?");
-
+                          if (server_settings_msg_received(serverSettingsString, &scSet) != 0){
+                            // TODO: free serverSettingsString
+                            // TODO: is there more that should be freed?
                             return;
                           }
 
