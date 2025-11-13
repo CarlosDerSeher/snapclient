@@ -556,7 +556,6 @@ static void http_get_task(void *pvParameters) {
   int result;
   time_sync_data_t time_sync_data;
   time_message_t time_message_rx = {{0, 0}};
-  client_info_t clientInfo = {0, 0};
   time_sync_data.lastTimeSync = 0;
   time_sync_data.timeSyncMessageTimer = NULL;
   esp_err_t err = 0;
@@ -574,7 +573,6 @@ static void http_get_task(void *pvParameters) {
   char *codecString = NULL;
   char *codecPayload = NULL;
   char *serverSettingsString = NULL;
-  int connected_interface = -1;
   esp_netif_t *netif = NULL;
 
   // create a timer to send time sync messages every x µs
@@ -597,7 +595,6 @@ static void http_get_task(void *pvParameters) {
     {
       esp_timer_stop(time_sync_data.timeSyncMessageTimer);
 
-      connected_interface = -1;
       received_header = false;
       time_sync_data.timeout = FAST_SYNC_LATENCY_BUF;
 
