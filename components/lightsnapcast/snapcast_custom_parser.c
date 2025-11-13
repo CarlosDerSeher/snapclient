@@ -166,6 +166,203 @@ void parse_base_message(snapcast_custom_parser_t *parser,
   }
 }
 
+int parse_sever_settings_message(snapcast_custom_parser_t *parser,
+                             base_message_t* base_message_rx,
+                             char** start,
+                             uint16_t* len,
+                             uint32_t* typedMsgLen,
+                             uint32_t* offset,
+                             char** serverSettingsString,
+                             void* scSet,
+                             server_settings_callback_t callback) {
+  switch (parser->internalState) {
+    case 0: {
+      *typedMsgLen = **start & 0xFF;
+
+      parser->typedMsgCurrentPos++;
+      (*start)++;
+      // currentPos++;
+      (*len)--;
+
+      parser->internalState++;
+
+      if (*len == 0) {
+        break;
+      }
+    }
+
+    case 1: {
+      *typedMsgLen |= (**start & 0xFF) << 8;
+
+      parser->typedMsgCurrentPos++;
+      (*start)++;
+      // currentPos++;
+      (*len)--;
+
+      parser->internalState++;
+
+      if (*len == 0) {
+        break;
+      }
+    }
+
+    case 2: {
+      *typedMsgLen |= (**start & 0xFF) << 16;
+
+      parser->typedMsgCurrentPos++;
+      (*start)++;
+      // currentPos++;
+      (*len)--;
+
+      parser->internalState++;
+
+      if (*len == 0) {
+        break;
+      }
+    }
+
+    case 3: {
+      *typedMsgLen |= (**start & 0xFF) << 24;
+
+      // ESP_LOGI(TAG,"server settings string is %lu"
+      //              " long", *typedMsgLen);
+
+      // now get some memory for server settings
+      // string
+      *serverSettingsString = malloc(*typedMsgLen + 1);
+      if (*serverSettingsString == NULL) {
+        ESP_LOGE(TAG,
+                 "couldn't get memory for "
+                 "server settings string");
+      }
+
+      parser->typedMsgCurrentPos++;
+      (*start)++;
+      // currentPos++;
+      (*len)--;
+
+      parser->internalState++;
+
+      *offset = 0;
+
+      if (*len == 0) {
+        break;
+      }
+    }
+
+    case 4: {
+      size_t tmpSize =
+          base_message_rx->size - parser->typedMsgCurrentPos;
+
+      if (*len > 0) {
+        if (tmpSize < *len) {
+          if (*serverSettingsString) {
+            memcpy(&(*serverSettingsString)[*offset], *start,
+                   tmpSize);
+          }
+          *offset += tmpSize;
+
+          *start += tmpSize;
+          // currentPos += tmpSize;  // will be
+          //  incremented by 1
+          //  later so -1 here
+          parser->typedMsgCurrentPos += tmpSize;
+          *len -= tmpSize;
+        } else {
+          if (*serverSettingsString) {
+            memcpy(&(*serverSettingsString)[*offset], *start, *len);
+          }
+          *offset += *len;
+
+          *start += *len;
+          // currentPos += *len;  // will be incremented
+          //  by 1 later so -1
+          //  here
+          parser->typedMsgCurrentPos += *len;
+          *len = 0;
+        }
+      }
+
+      if (parser->typedMsgCurrentPos >= base_message_rx->size) {
+        if (*serverSettingsString) {
+          // ESP_LOGI(TAG, "done server settings %lu/%lu",
+          //								*offset,
+          //								*typedMsgLen);
+
+          // NULL terminate string
+          (*serverSettingsString)[*typedMsgLen] = 0;
+
+          // ESP_LOGI(TAG, "got string: %s",
+          // *serverSettingsString);
+
+          if (callback(*serverSettingsString, scSet) != 0){
+            // TODO: free serverSettingsString
+            // TODO: is there more that should be freed?
+            return -1;
+          }
+
+          free(*serverSettingsString);
+          *serverSettingsString = NULL;
+        }
+
+        parser->state = BASE_MESSAGE_STATE;
+        parser->internalState = 0;
+
+        parser->typedMsgCurrentPos = 0;
+      }
+
+      break;
+    }
+
+    default: {
+      ESP_LOGE(TAG,
+               "server settings decoder "
+               "shouldn't get here");
+
+      break;
+    }
+  }
+  return 0;
+}
+
+
+//// Leftover from moved code, still needed?
+//                case SNAPCAST_MESSAGE_STREAM_TAGS: {
+//                  size_t tmpSize = base_message_rx.size -
+//                  parser.typedMsgCurrentPos;
+//
+//                  if (tmpSize < len) {
+//                    start += tmpSize;
+//                    // currentPos += tmpSize;
+//                    parser.typedMsgCurrentPos += tmpSize;
+//                    len -= tmpSize;
+//                  } else {
+//                    start += len;
+//                    // currentPos += len;
+//
+//                    parser.typedMsgCurrentPos += len;
+//                    len = 0;
+//                  }
+//
+//                  if (typedMsgCurrentPos >=
+//                  base_message_rx.size) {
+//                    // ESP_LOGI(TAG,
+//                    // "done stream tags with length %d %d
+//                    %d",
+//                    // base_message_rx.size, currentPos,
+//                    // tmpSize);
+//
+//                    parser.typedMsgCurrentPos = 0;
+//                    // currentPos = 0;
+//
+//                    parser.state = BASE_MESSAGE_STATE;
+//                    parser.internalState = 0;
+//                  }
+//
+//                  break;
+//                }
+
+
 void parse_time_message(snapcast_custom_parser_t* parser,
                        base_message_t* base_message_rx,
                        time_message_t* time_message_rx,

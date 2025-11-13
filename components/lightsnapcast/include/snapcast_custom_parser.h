@@ -18,9 +18,22 @@ typedef void (*time_sync_callback_t)(base_message_t *base_message_rx,
                                     void *time_sync_data,
                                     bool received_codec_header);
 
+typedef int (*server_settings_callback_t)(char* serverSettingsString, void* scSet);
+
 void parse_base_message(snapcast_custom_parser_t *parser,
                         base_message_t *base_message_rx, const char *start,
                         int64_t *now);
+
+
+int parse_sever_settings_message(snapcast_custom_parser_t *parser,
+                             base_message_t* base_message_rx,
+                             char** start,
+                             uint16_t* len,
+                             uint32_t* typedMsgLen,
+                             uint32_t* offset,
+                             char** serverSettingsString,
+                             void* scSet,
+                             server_settings_callback_t callback);
 
 void parse_time_message(snapcast_custom_parser_t* parser,
                         base_message_t* base_message_rx,
