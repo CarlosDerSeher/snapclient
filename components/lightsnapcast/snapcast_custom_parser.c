@@ -2,6 +2,8 @@
 
 #include "esp_timer.h"
 
+static const char *TAG = "SNAPCAST_CUSTOM_PARSER";
+
 void parse_base_message(snapcast_custom_parser_t *parser,
                         base_message_t *base_message_rx, const char *start,
                         int64_t *now) {
