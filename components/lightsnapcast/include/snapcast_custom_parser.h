@@ -12,8 +12,23 @@ typedef struct {
   size_t typedMsgCurrentPos;
 } snapcast_custom_parser_t;
 
+// Callback function type for time sync message completion
+typedef void (*time_sync_callback_t)(base_message_t *base_message_rx,
+                                    time_message_t *time_message_rx,
+                                    void *time_sync_data,
+                                    bool received_codec_header);
+
 void parse_base_message(snapcast_custom_parser_t *parser,
                         base_message_t *base_message_rx, const char *start,
                         int64_t *now);
+
+void parse_time_message(snapcast_custom_parser_t* parser,
+                        base_message_t* base_message_rx,
+                        time_message_t* time_message_rx,
+                        char** start,
+                        uint16_t* len,
+                        void* time_sync_data,
+                        bool received_codec_header,
+                        time_sync_callback_t callback);
 
 #endif  // __SNAPCAST_CUSTOM_PARSER_H__

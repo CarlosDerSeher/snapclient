@@ -1,5 +1,6 @@
 #include "snapcast_custom_parser.h"
 
+#include "esp_log.h"
 #include "esp_timer.h"
 
 static const char *TAG = "SNAPCAST_CUSTOM_PARSER";
@@ -162,5 +163,166 @@ void parse_base_message(snapcast_custom_parser_t *parser,
 
       parser->state = TYPED_MESSAGE_STATE;
       break;
+  }
+}
+
+void parse_time_message(snapcast_custom_parser_t* parser,
+                       base_message_t* base_message_rx,
+                       time_message_t* time_message_rx,
+                       char** start,
+                       uint16_t* len,
+                       void* time_sync_data,
+                       bool received_codec_header,
+                       time_sync_callback_t callback) {
+  switch (parser->internalState) {
+    case 0: {
+      time_message_rx->latency.sec = **start;
+
+      parser->typedMsgCurrentPos++;
+      (*start)++;
+      // currentPos++;
+      (*len)--;
+
+      parser->internalState++;
+
+      if (*len == 0) {
+        break;
+      }
+    }
+
+    case 1: {
+      time_message_rx->latency.sec |= (int32_t)**start << 8;
+
+      parser->typedMsgCurrentPos++;
+      (*start)++;
+      // currentPos++;
+      (*len)--;
+
+      parser->internalState++;
+
+      if (*len == 0) {
+        break;
+      }
+    }
+
+    case 2: {
+      time_message_rx->latency.sec |= (int32_t)**start << 16;
+
+      parser->typedMsgCurrentPos++;
+      (*start)++;
+      // currentPos++;
+      (*len)--;
+
+      parser->internalState++;
+
+      if (*len == 0) {
+        break;
+      }
+    }
+
+    case 3: {
+      time_message_rx->latency.sec |= (int32_t)**start << 24;
+
+      parser->typedMsgCurrentPos++;
+      (*start)++;
+      // currentPos++;
+      (*len)--;
+
+      parser->internalState++;
+
+      if (*len == 0) {
+        break;
+      }
+    }
+
+    case 4: {
+      time_message_rx->latency.usec = **start;
+
+      parser->typedMsgCurrentPos++;
+      (*start)++;
+      // currentPos++;
+      (*len)--;
+
+      parser->internalState++;
+
+      if (*len == 0) {
+        break;
+      }
+    }
+
+    case 5: {
+      time_message_rx->latency.usec |= (int32_t)**start << 8;
+
+      parser->typedMsgCurrentPos++;
+      (*start)++;
+      // currentPos++;
+      (*len)--;
+
+      parser->internalState++;
+
+      if (*len == 0) {
+        break;
+      }
+    }
+
+    case 6: {
+      time_message_rx->latency.usec |= (int32_t)**start << 16;
+
+      parser->typedMsgCurrentPos++;
+      (*start)++;
+      // currentPos++;
+      (*len)--;
+
+      parser->internalState++;
+
+      if (*len == 0) {
+        break;
+      }
+    }
+
+    case 7: {
+      time_message_rx->latency.usec |= (int32_t)**start << 24;
+
+      parser->typedMsgCurrentPos++;
+      (*start)++;
+      // currentPos++;
+      (*len)--;
+      if (parser->typedMsgCurrentPos >= base_message_rx->size) {
+        // ESP_LOGI(TAG, "done time message");
+
+        parser->typedMsgCurrentPos = 0;
+
+        parser->state = BASE_MESSAGE_STATE;
+        parser->internalState = 0;
+
+        if (callback) {
+          callback(base_message_rx, time_message_rx, time_sync_data,
+                   received_codec_header);
+        }
+
+      } else {
+        ESP_LOGE(TAG,
+                 "error time message, this "
+                 "shouldn't happen! %d %ld",
+                 parser->typedMsgCurrentPos, base_message_rx->size);
+
+        parser->typedMsgCurrentPos = 0;
+
+        parser->state = BASE_MESSAGE_STATE;
+        parser->internalState = 0;
+      }
+
+      break;
+    }
+
+    default: {
+      ESP_LOGE(TAG,
+               "time message decoder shouldn't "
+               "get here %d %ld %ld",
+               parser->typedMsgCurrentPos, base_message_rx->size,
+               parser->internalState);
+
+      break;
+    }
   }
 }
