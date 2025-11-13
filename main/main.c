@@ -2132,7 +2132,7 @@ static void http_get_task(void *pvParameters) {
                                      "settings: %d",
                                      result);
                           } else {
-                            // log mute parser.state, buffer, latency
+                            // log mute state, buffer, latency
                             ESP_LOGI(TAG, "Buffer length:  %ld",
                                      server_settings_message.buffer_ms);
                             ESP_LOGI(TAG, "Latency:        %ld",
