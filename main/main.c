@@ -241,6 +241,90 @@ typedef struct {
 /**
  *
  */
+void time_sync_msg_received(base_message_t *base_message_rx,
+                            time_message_t *time_message_rx,
+                            time_sync_data_t *time_sync_data,
+                            bool received_header) {
+  int64_t tmpDiffToServer, trx, tdif, ttx, diff;
+  trx =
+      (int64_t)base_message_rx->received.sec * 1000000LL +
+      (int64_t)base_message_rx->received.usec;
+  ttx = (int64_t)base_message_rx->sent.sec * 1000000LL +
+        (int64_t)base_message_rx->sent.usec;
+  tdif = trx - ttx;
+  trx = (int64_t)time_message_rx->latency.sec * 1000000LL +
+        (int64_t)time_message_rx->latency.usec;
+  tmpDiffToServer = (trx - tdif) / 2;
+
+  // clear diffBuffer if last update is
+  // older than a minute
+  diff = time_sync_data->now - time_sync_data->lastTimeSync;
+  if (diff > 60000000LL) {
+    ESP_LOGW(TAG,
+             "Last time sync older "
+             "than a minute. "
+             "Clearing time buffer");
+
+    reset_latency_buffer();
+
+    time_sync_data->timeout = FAST_SYNC_LATENCY_BUF;
+
+    esp_timer_stop(time_sync_data->timeSyncMessageTimer);
+    if (received_header == true) {
+      if (!esp_timer_is_active(time_sync_data->timeSyncMessageTimer)) {
+        esp_timer_start_periodic(time_sync_data->timeSyncMessageTimer,
+                                 time_sync_data->timeout);
+      }
+    }
+  }
+
+  player_latency_insert(tmpDiffToServer);
+
+  // ESP_LOGI(TAG, "Current latency:%lld:",
+  // tmpDiffToServer);
+
+  // store current time
+  time_sync_data->lastTimeSync = time_sync_data->now;
+
+  if (received_header == true) {
+    if (!esp_timer_is_active(time_sync_data->timeSyncMessageTimer)) {
+      esp_timer_start_periodic(time_sync_data->timeSyncMessageTimer,
+                               time_sync_data->timeout);
+    }
+
+    bool is_full = false;
+    latency_buffer_full(&is_full, portMAX_DELAY);
+    if ((is_full == true) &&
+        (time_sync_data->timeout < NORMAL_SYNC_LATENCY_BUF)) {
+      time_sync_data->timeout = NORMAL_SYNC_LATENCY_BUF;
+
+      ESP_LOGI(TAG, "latency buffer full");
+
+      if (esp_timer_is_active(time_sync_data->timeSyncMessageTimer)) {
+        esp_timer_stop(time_sync_data->timeSyncMessageTimer);
+      }
+
+      esp_timer_start_periodic(time_sync_data->timeSyncMessageTimer,
+                               time_sync_data->timeout);
+    } else if ((is_full == false) &&
+               (time_sync_data->timeout > FAST_SYNC_LATENCY_BUF)) {
+      time_sync_data->timeout = FAST_SYNC_LATENCY_BUF;
+
+      ESP_LOGI(TAG, "latency buffer not full");
+
+      if (esp_timer_is_active(time_sync_data->timeSyncMessageTimer)) {
+        esp_timer_stop(time_sync_data->timeSyncMessageTimer);
+      }
+
+      esp_timer_start_periodic(time_sync_data->timeSyncMessageTimer,
+                               time_sync_data->timeout);
+    }
+  }
+}
+
+/**
+ *
+ */
 static FLAC__StreamDecoderReadStatus read_callback(
     const FLAC__StreamDecoder *decoder, FLAC__byte buffer[], size_t *bytes,
     void *client_data) {
@@ -2282,84 +2366,10 @@ static void http_get_task(void *pvParameters) {
                         parser.state = BASE_MESSAGE_STATE;
                         parser.internalState = 0;
 
-                        // convert to callback:
-                        int64_t tmpDiffToServer, trx, tdif, ttx;
-                        trx =
-                            (int64_t)base_message_rx.received.sec * 1000000LL +
-                            (int64_t)base_message_rx.received.usec;
-                        ttx = (int64_t)base_message_rx.sent.sec * 1000000LL +
-                              (int64_t)base_message_rx.sent.usec;
-                        tdif = trx - ttx;
-                        trx = (int64_t)time_message_rx.latency.sec * 1000000LL +
-                              (int64_t)time_message_rx.latency.usec;
-                        tmpDiffToServer = (trx - tdif) / 2;
+                        time_sync_msg_received(
+                            &base_message_rx, &time_message_rx, &time_sync_data,
+                            received_header);
 
-                        int64_t diff;
-
-                        // clear diffBuffer if last update is
-                        // older than a minute
-                        diff = time_sync_data.now - time_sync_data.lastTimeSync;
-                        if (diff > 60000000LL) {
-                          ESP_LOGW(TAG,
-                                   "Last time sync older "
-                                   "than a minute. "
-                                   "Clearing time buffer");
-
-                          reset_latency_buffer();
-
-                          time_sync_data.timeout = FAST_SYNC_LATENCY_BUF;
-
-                          esp_timer_stop(time_sync_data.timeSyncMessageTimer);
-                          if (received_header == true) {
-                            if (!esp_timer_is_active(time_sync_data.timeSyncMessageTimer)) {
-                              esp_timer_start_periodic(time_sync_data.timeSyncMessageTimer,
-                                                       time_sync_data.timeout);
-                            }
-                          }
-                        }
-
-                        player_latency_insert(tmpDiffToServer);
-
-                        // ESP_LOGI(TAG, "Current latency:%lld:",
-                        // tmpDiffToServer);
-
-                        // store current time
-                        time_sync_data.lastTimeSync = time_sync_data.now;
-
-                        if (received_header == true) {
-                          if (!esp_timer_is_active(time_sync_data.timeSyncMessageTimer)) {
-                            esp_timer_start_periodic(time_sync_data.timeSyncMessageTimer,
-                                                     time_sync_data.timeout);
-                          }
-
-                          bool is_full = false;
-                          latency_buffer_full(&is_full, portMAX_DELAY);
-                          if ((is_full == true) &&
-                              (time_sync_data.timeout < NORMAL_SYNC_LATENCY_BUF)) {
-                            time_sync_data.timeout = NORMAL_SYNC_LATENCY_BUF;
-
-                            ESP_LOGI(TAG, "latency buffer full");
-
-                            if (esp_timer_is_active(time_sync_data.timeSyncMessageTimer)) {
-                              esp_timer_stop(time_sync_data.timeSyncMessageTimer);
-                            }
-
-                            esp_timer_start_periodic(time_sync_data.timeSyncMessageTimer,
-                                                     time_sync_data.timeout);
-                          } else if ((is_full == false) &&
-                                     (time_sync_data.timeout > FAST_SYNC_LATENCY_BUF)) {
-                            time_sync_data.timeout = FAST_SYNC_LATENCY_BUF;
-
-                            ESP_LOGI(TAG, "latency buffer not full");
-
-                            if (esp_timer_is_active(time_sync_data.timeSyncMessageTimer)) {
-                              esp_timer_stop(time_sync_data.timeSyncMessageTimer);
-                            }
-
-                            esp_timer_start_periodic(time_sync_data.timeSyncMessageTimer,
-                                                     time_sync_data.timeout);
-                          }
-                        }
                       } else {
                         ESP_LOGE(TAG,
                                  "error time message, this "
