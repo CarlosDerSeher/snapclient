@@ -244,7 +244,7 @@ typedef struct {
 void time_sync_msg_received(base_message_t *base_message_rx,
                             time_message_t *time_message_rx,
                             time_sync_data_t *time_sync_data,
-                            bool received_header) {
+                            bool received_codec_header) {
   int64_t tmpDiffToServer, trx, tdif, ttx, diff;
   trx =
       (int64_t)base_message_rx->received.sec * 1000000LL +
@@ -270,7 +270,7 @@ void time_sync_msg_received(base_message_t *base_message_rx,
     time_sync_data->timeout = FAST_SYNC_LATENCY_BUF;
 
     esp_timer_stop(time_sync_data->timeSyncMessageTimer);
-    if (received_header == true) {
+    if (received_codec_header == true) {
       if (!esp_timer_is_active(time_sync_data->timeSyncMessageTimer)) {
         esp_timer_start_periodic(time_sync_data->timeSyncMessageTimer,
                                  time_sync_data->timeout);
@@ -286,7 +286,7 @@ void time_sync_msg_received(base_message_t *base_message_rx,
   // store current time
   time_sync_data->lastTimeSync = time_sync_data->now;
 
-  if (received_header == true) {
+  if (received_codec_header == true) {
     if (!esp_timer_is_active(time_sync_data->timeSyncMessageTimer)) {
       esp_timer_start_periodic(time_sync_data->timeSyncMessageTimer,
                                time_sync_data->timeout);
@@ -560,7 +560,7 @@ static void http_get_task(void *pvParameters) {
   time_sync_data.timeSyncMessageTimer = NULL;
   esp_err_t err = 0;
   server_settings_message_t server_settings_message;
-  bool received_header = false;
+  bool received_codec_header = false;
   mdns_result_t *r;
   codec_type_t codec = NONE;
   snapcastSetting_t scSet;
@@ -595,7 +595,7 @@ static void http_get_task(void *pvParameters) {
     {
       esp_timer_stop(time_sync_data.timeSyncMessageTimer);
 
-      received_header = false;
+      received_codec_header = false;
       time_sync_data.timeout = FAST_SYNC_LATENCY_BUF;
 
       xSemaphoreTake(idCounterSemaphoreHandle, portMAX_DELAY);
@@ -1217,7 +1217,7 @@ static void http_get_task(void *pvParameters) {
                         tmp_size = len;
                       }
 
-                      if (received_header == true) {
+                      if (received_codec_header == true) {
                         switch (codec) {
                           case OPUS:
                           case FLAC: {
@@ -1306,7 +1306,7 @@ static void http_get_task(void *pvParameters) {
                       len -= tmp_size;
 
                       if (parser.typedMsgCurrentPos >= base_message_rx.size) {
-                        if (received_header == true) {
+                        if (received_codec_header == true) {
                           switch (codec) {
                             case OPUS: {
                               int frame_size = -1;
@@ -1619,7 +1619,7 @@ static void http_get_task(void *pvParameters) {
                 case SNAPCAST_MESSAGE_CODEC_HEADER: {
                   switch (parser.internalState) {
                     case 0: {
-                      received_header = false;
+                      received_codec_header = false;
 
                       typedMsgLen = *start & 0xFF;
 
@@ -1980,7 +1980,7 @@ static void http_get_task(void *pvParameters) {
                         parser.state = BASE_MESSAGE_STATE;
                         parser.internalState = 0;
 
-                        received_header = true;
+                        received_codec_header = true;
                         esp_timer_stop(time_sync_data.timeSyncMessageTimer);
                         if (!esp_timer_is_active(time_sync_data.timeSyncMessageTimer)) {
                           esp_timer_start_periodic(time_sync_data.timeSyncMessageTimer,
@@ -2365,7 +2365,7 @@ static void http_get_task(void *pvParameters) {
 
                         time_sync_msg_received(
                             &base_message_rx, &time_message_rx, &time_sync_data,
-                            received_header);
+                            received_codec_header);
 
                       } else {
                         ESP_LOGE(TAG,
