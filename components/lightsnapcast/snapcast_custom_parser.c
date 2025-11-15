@@ -801,3 +801,23 @@ void parse_time_message(snapcast_custom_parser_t* parser,
     }
   }
 }
+
+void parse_unknown_message(snapcast_custom_parser_t* parser,
+                           base_message_t* base_message_rx,
+                           char** start,
+                           uint16_t* len) {
+  parser->typedMsgCurrentPos++;
+  (*start)++;
+  // currentPos++;
+  (*len)--;
+
+  if (parser->typedMsgCurrentPos >= base_message_rx->size) {
+    ESP_LOGI(TAG, "done unknown typed message %d",
+             base_message_rx->type);
+
+    parser->state = BASE_MESSAGE_STATE;
+    parser->internalState = 0;
+
+    parser->typedMsgCurrentPos = 0;
+  }
+}

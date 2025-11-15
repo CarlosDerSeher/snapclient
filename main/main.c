@@ -1850,21 +1850,7 @@ static void http_get_task(void *pvParameters) {
                 }
 
                 default: {
-                  parser.typedMsgCurrentPos++;
-                  start++;
-                  // currentPos++;
-                  len--;
-
-                  if (parser.typedMsgCurrentPos >= base_message_rx.size) {
-                    ESP_LOGI(TAG, "done unknown typed message %d",
-                             base_message_rx.type);
-
-                    parser.state = BASE_MESSAGE_STATE;
-                    parser.internalState = 0;
-
-                    parser.typedMsgCurrentPos = 0;
-                  }
-
+                  parse_unknown_message(&parser, &base_message_rx, &start, &len);
                   break;
                 }
               }

@@ -64,4 +64,9 @@ void parse_time_message(snapcast_custom_parser_t* parser,
                         bool received_codec_header,
                         time_sync_callback_t callback);
 
+void parse_unknown_message(snapcast_custom_parser_t* parser,
+                           base_message_t* base_message_rx,
+                           char** start,
+                           uint16_t* len);
+
 #endif  // __SNAPCAST_CUSTOM_PARSER_H__
