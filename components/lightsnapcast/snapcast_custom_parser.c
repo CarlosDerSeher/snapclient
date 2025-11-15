@@ -166,6 +166,284 @@ void parse_base_message(snapcast_custom_parser_t *parser,
   }
 }
 
+int parse_codec_header_message(snapcast_custom_parser_t* parser,
+                              char** start,
+                              uint16_t* len,
+                              uint32_t* typedMsgLen,
+                              uint32_t* offset,
+                              bool* received_codec_header,
+                              char** codecString,
+                              codec_type_t* codec,
+                              char** codecPayload,
+                              snapcastSetting_t* scSet,
+                              void* time_sync_data,
+                              codec_header_callback_t callback) {
+switch (parser->internalState) {
+    case 0: {
+      *received_codec_header = false;
+
+      *typedMsgLen = **start & 0xFF;
+
+      parser->typedMsgCurrentPos++;
+      (*start)++;
+      // currentPos++;
+      (*len)--;
+
+      parser->internalState++;
+
+      if (*len == 0) {
+        break;
+      }
+    }
+
+    case 1: {
+      *typedMsgLen |= (**start & 0xFF) << 8;
+
+      parser->typedMsgCurrentPos++;
+      (*start)++;
+      // currentPos++;
+      (*len)--;
+
+      parser->internalState++;
+
+      if (*len == 0) {
+        break;
+      }
+    }
+
+    case 2: {
+      *typedMsgLen |= (**start & 0xFF) << 16;
+
+      parser->typedMsgCurrentPos++;
+      (*start)++;
+      // currentPos++;
+      (*len)--;
+
+      parser->internalState++;
+
+      if (*len == 0) {
+        break;
+      }
+    }
+
+    case 3: {
+      *typedMsgLen |= (**start & 0xFF) << 24;
+
+      if (*codecString) {
+        free(*codecString);
+        *codecString = NULL;
+      }
+
+      *codecString =
+          malloc(*typedMsgLen + 1);  // allocate memory for
+                                     // codec string
+      if (*codecString == NULL) {
+        ESP_LOGE(TAG,
+                 "couldn't get memory "
+                 "for codec string");
+
+        return -1;
+      }
+
+      *offset = 0;
+      // ESP_LOGI(TAG,
+      // "codec header string is %d long",
+      // *typedMsgLen);
+
+      parser->typedMsgCurrentPos++;
+      (*start)++;
+      // currentPos++;
+      (*len)--;
+
+      parser->internalState++;
+
+      if (*len == 0) {
+        break;
+      }
+    }
+
+    case 4: {
+      if (*len >= *typedMsgLen) {
+        memcpy(&(*codecString)[*offset], *start, *typedMsgLen);
+
+        *offset += *typedMsgLen;
+
+        parser->typedMsgCurrentPos += *typedMsgLen;
+        *start += *typedMsgLen;
+        // currentPos += *typedMsgLen;
+        *len -= *typedMsgLen;
+      } else {
+        memcpy(&(*codecString)[*offset], *start, *typedMsgLen);
+
+        *offset += *len;
+
+        parser->typedMsgCurrentPos += *len;
+        *start += *len;
+        // currentPos += *len;
+        *len -= *len;
+      }
+
+      if (*offset == *typedMsgLen) {
+        // NULL terminate string
+        (*codecString)[*typedMsgLen] = 0;
+
+        // ESP_LOGI (TAG, "got codec string: %s", tmp);
+
+        if (strcmp(*codecString, "opus") == 0) {
+          *codec = OPUS;
+        } else if (strcmp(*codecString, "flac") == 0) {
+          *codec = FLAC;
+        } else if (strcmp(*codecString, "pcm") == 0) {
+          *codec = PCM;
+        } else {
+          *codec = NONE;
+
+          ESP_LOGI(TAG, "Codec : %s not supported",
+                   *codecString);
+          ESP_LOGI(TAG,
+                   "Change encoder codec to "
+                   "opus, flac or pcm in "
+                   "/etc/snapserver.conf on "
+                   "server");
+
+          return -1;
+        }
+
+        free(*codecString);
+        *codecString = NULL;
+
+        parser->internalState++;
+      }
+
+      if (*len == 0) {
+        break;
+      }
+    }
+
+    case 5: {
+      *typedMsgLen = **start & 0xFF;
+
+      parser->typedMsgCurrentPos++;
+      (*start)++;
+      // currentPos++;
+      (*len)--;
+
+      parser->internalState++;
+
+      if (*len == 0) {
+        break;
+      }
+    }
+
+    case 6: {
+      *typedMsgLen |= (**start & 0xFF) << 8;
+
+      parser->typedMsgCurrentPos++;
+      (*start)++;
+      // currentPos++;
+      (*len)--;
+
+      parser->internalState++;
+
+      if (*len == 0) {
+        break;
+      }
+    }
+
+    case 7: {
+      *typedMsgLen |= (**start & 0xFF) << 16;
+
+      parser->typedMsgCurrentPos++;
+      (*start)++;
+      // currentPos++;
+      (*len)--;
+
+      parser->internalState++;
+
+      if (*len == 0) {
+        break;
+      }
+    }
+
+    case 8: {
+      *typedMsgLen |= (**start & 0xFF) << 24;
+
+      if (*codecPayload) {
+        free(*codecPayload);
+        *codecPayload = NULL;
+      }
+
+      *codecPayload = malloc(*typedMsgLen);  // allocate memory
+                                           // for codec payload
+      if (*codecPayload == NULL) {
+        ESP_LOGE(TAG,
+                 "couldn't get memory "
+                 "for codec payload");
+
+        return -1;
+      }
+
+      *offset = 0;
+
+      parser->typedMsgCurrentPos++;
+      (*start)++;
+      // currentPos++;
+      (*len)--;
+
+      parser->internalState++;
+
+      if (*len == 0) {
+        break;
+      }
+    }
+
+    case 9: {
+      if (*len >= *typedMsgLen) {
+        memcpy(&(*codecPayload)[*offset], *start, *typedMsgLen);
+
+        *offset += *typedMsgLen;
+
+        parser->typedMsgCurrentPos += *typedMsgLen;
+        *start += *typedMsgLen;
+        // currentPos += *typedMsgLen;
+        *len -= *typedMsgLen;
+      } else {
+        memcpy(&(*codecPayload)[*offset], *start, *len);
+
+        *offset += *len;
+
+        parser->typedMsgCurrentPos += *len;
+        *start += *len;
+        // currentPos += *len;
+        *len -= *len;
+      }
+
+      if (*offset == *typedMsgLen) {
+        // Handle codec header payload
+        if (callback(codecPayload, *typedMsgLen, *codec,
+                                  scSet, time_sync_data) != 0) {
+          return -1;
+        }
+        parser->state = BASE_MESSAGE_STATE;
+        parser->internalState = 0;
+
+        *received_codec_header = true;
+      }
+
+      break;
+    }
+
+    default: {
+      ESP_LOGE(TAG,
+               "codec header decoder "
+               "shouldn't get here");
+
+      break;
+    }
+  }
+  return 0;
+}
+
 int parse_sever_settings_message(snapcast_custom_parser_t *parser,
                              base_message_t* base_message_rx,
                              char** start,
