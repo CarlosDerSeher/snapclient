@@ -560,6 +560,7 @@ int server_settings_msg_received(char *serverSettingsString, snapcastSetting_t* 
              "settings: %d",
              result);
     return 0; // NEW: ignore broken messages instead of continuing with possibly invalid data
+              // TODO: reset http connection instead
   } else {
     // log mute state, buffer, latency
     ESP_LOGI(TAG, "Buffer length:  %ld",
