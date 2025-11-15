@@ -750,6 +750,301 @@ int codec_header_received(
   return 0;
 }
 
+
+
+/**
+ *
+ */
+int handle_chunk_message(codec_type_t codec, snapcastSetting_t* scSet,
+                         pcm_chunk_message_t** pcmData, wire_chunk_message_t* wire_chnk) {
+  switch (codec) {
+    case OPUS: {
+      int frame_size = -1;
+      int samples_per_frame;
+      opus_int16 *audio = NULL;
+
+      samples_per_frame =
+          opus_packet_get_samples_per_frame(
+              decoderChunk.inData, scSet->sr);
+      if (samples_per_frame < 0) {
+        ESP_LOGE(TAG,
+                 "couldn't get samples per frame count "
+                 "of packet");
+      }
+
+      scSet->chkInFrames = samples_per_frame;
+
+      // ESP_LOGW(TAG, "%d, %llu, %llu",
+      // samples_per_frame, 1000000ULL *
+      // samples_per_frame / scSet->sr,
+      // 1000000ULL *
+      // wire_chnk->timestamp.sec +
+      // wire_chnk->timestamp.usec);
+
+      // ESP_LOGW(TAG, "got OPUS decoded chunk size: %ld
+      // " "frames from encoded chunk with size %d,
+      // allocated audio buffer %d", scSet->chkInFrames,
+      // wire_chnk->size, samples_per_frame);
+
+      size_t bytes;
+      do {
+        bytes = samples_per_frame *
+                (scSet->ch * scSet->bits >> 3);
+
+        while ((audio = (opus_int16 *)realloc(
+                    audio, bytes)) == NULL) {
+          ESP_LOGE(TAG,
+                   "couldn't realloc memory for OPUS "
+                   "audio %d",
+                   bytes);
+
+          vTaskDelay(pdMS_TO_TICKS(1));
+        }
+
+        frame_size = opus_decode(
+            opusDecoder, decoderChunk.inData,
+            decoderChunk.bytes, (opus_int16 *)audio,
+            samples_per_frame, 0);
+
+        samples_per_frame <<= 1;
+      } while (frame_size < 0);
+
+      free(decoderChunk.inData);
+      decoderChunk.inData = NULL;
+
+      pcm_chunk_message_t *new_pcmChunk = NULL;
+
+      // ESP_LOGW(TAG, "OPUS decode: %d", frame_size);
+
+      if (allocate_pcm_chunk_memory(&new_pcmChunk,
+                                    bytes) < 0) {
+        *pcmData = NULL;
+      } else {
+        new_pcmChunk->timestamp = wire_chnk->timestamp;
+
+        if (new_pcmChunk->fragment->payload) {
+          volatile uint32_t *sample;
+          uint32_t tmpData;
+          uint32_t cnt = 0;
+
+          for (int i = 0; i < bytes; i += 4) {
+            sample = (volatile uint32_t *)(&(
+                new_pcmChunk->fragment->payload[i]));
+            tmpData = (((uint32_t)audio[cnt] << 16) &
+                       0xFFFF0000) |
+                      (((uint32_t)audio[cnt + 1] << 0) &
+                       0x0000FFFF);
+            *sample = (volatile uint32_t)tmpData;
+
+            cnt += 2;
+          }
+        }
+
+        free(audio);
+        audio = NULL;
+
+#if CONFIG_USE_DSP_PROCESSOR
+        if (new_pcmChunk->fragment->payload) {
+          dsp_processor_worker((void *)new_pcmChunk,
+                               (void *)scSet);
+        }
+#endif
+
+        insert_pcm_chunk(new_pcmChunk);
+      }
+
+      if (player_send_snapcast_setting(scSet) !=
+          pdPASS) {
+        ESP_LOGE(TAG,
+                 "Failed to notify "
+                 "sync task about "
+                 "codec. Did you "
+                 "init player?");
+
+        return -1;
+      }
+
+      break;
+    }
+
+    case FLAC: {
+      isCachedChunk = true;
+      cachedBlocks = 0;
+
+      while (decoderChunk.bytes > 0) {
+        if (FLAC__stream_decoder_process_single(
+                flacDecoder) == 0) {
+          ESP_LOGE(
+              TAG,
+              "%s: FLAC__stream_decoder_process_single "
+              "failed",
+              __func__);
+
+          // TODO: should insert some abort condition?
+          vTaskDelay(pdMS_TO_TICKS(10));
+        }
+      }
+
+      // alternating chunk sizes need time stamp repair
+      if ((cachedBlocks > 0) && (scSet->sr != 0)) {
+        uint64_t diffUs =
+            1000000ULL * cachedBlocks / scSet->sr;
+
+        uint64_t timestamp =
+            1000000ULL * wire_chnk->timestamp.sec +
+            wire_chnk->timestamp.usec;
+
+        timestamp = timestamp - diffUs;
+
+        wire_chnk->timestamp.sec =
+            timestamp / 1000000ULL;
+        wire_chnk->timestamp.usec =
+            timestamp % 1000000ULL;
+      }
+
+      pcm_chunk_message_t *new_pcmChunk;
+      int32_t ret = allocate_pcm_chunk_memory(
+          &new_pcmChunk, pcmChunk.bytes);
+
+      scSet->chkInFrames =
+          FLAC__stream_decoder_get_blocksize(
+              flacDecoder);
+
+      // ESP_LOGE (TAG, "block size: %ld",
+      // scSet->chkInFrames * scSet->bits / 8 * scSet->ch);
+      // ESP_LOGI(TAG, "new_pcmChunk with size %ld",
+      // new_pcmChunk->totalSize);
+
+      if (ret == 0) {
+        pcm_chunk_fragment_t *fragment =
+            new_pcmChunk->fragment;
+        uint32_t fragmentCnt = 0;
+
+        if (fragment->payload != NULL) {
+          uint32_t frames =
+              pcmChunk.bytes /
+              (scSet->ch * (scSet->bits / 8));
+
+          for (int i = 0; i < frames; i++) {
+            // TODO: for now fragmented payload is not
+            // supported and the whole chunk is expected
+            // to be in the first fragment
+            uint32_t tmpData;
+            memcpy(&tmpData,
+                   &pcmChunk.outData[fragmentCnt],
+                   (scSet->ch * (scSet->bits / 8)));
+
+            if (fragment != NULL) {
+              volatile uint32_t *test =
+                  (volatile uint32_t *)(&(
+                      fragment->payload[fragmentCnt]));
+              *test = (volatile uint32_t)tmpData;
+            }
+
+            fragmentCnt +=
+                (scSet->ch * (scSet->bits / 8));
+            if (fragmentCnt >= fragment->size) {
+              fragmentCnt = 0;
+
+              fragment = fragment->nextFragment;
+            }
+          }
+        }
+
+        new_pcmChunk->timestamp = wire_chnk->timestamp;
+
+#if CONFIG_USE_DSP_PROCESSOR
+        if (new_pcmChunk->fragment->payload) {
+          dsp_processor_worker((void *)new_pcmChunk,
+                               (void *)scSet);
+        }
+
+#endif
+
+        insert_pcm_chunk(new_pcmChunk);
+      }
+
+      free(pcmChunk.outData);
+      pcmChunk.outData = NULL;
+      pcmChunk.bytes = 0;
+
+      if (player_send_snapcast_setting(scSet) !=
+          pdPASS) {
+        ESP_LOGE(TAG,
+                 "Failed to "
+                 "notify "
+                 "sync task "
+                 "about "
+                 "codec. Did you "
+                 "init player?");
+
+        return -1;
+      }
+
+      break;
+    }
+
+    case PCM: {
+      size_t decodedSize = wire_chnk->size;
+
+      // ESP_LOGW(TAG, "got PCM chunk,"
+      //               "typedMsgCurrentPos %d",
+      //               parser.typedMsgCurrentPos);
+
+      if (*pcmData) {
+        (*pcmData)->timestamp = wire_chnk->timestamp;
+      }
+
+      scSet->chkInFrames =
+          decodedSize /
+          ((size_t)scSet->ch * (size_t)(scSet->bits / 8));
+
+      // ESP_LOGW(TAG,
+      //          "got PCM decoded chunk size: %ld
+      //          frames", scSet->chkInFrames);
+
+      if (player_send_snapcast_setting(scSet) !=
+          pdPASS) {
+        ESP_LOGE(TAG,
+                 "Failed to notify "
+                 "sync task about "
+                 "codec. Did you "
+                 "init player?");
+
+        return -1;
+      }
+
+#if CONFIG_USE_DSP_PROCESSOR
+      if ((*pcmData) && ((*pcmData)->fragment->payload)) {
+        dsp_processor_worker((void *)(*pcmData),
+                             (void *)scSet);
+      }
+#endif
+      if (*pcmData) {
+        insert_pcm_chunk(*pcmData);
+      }
+
+      *pcmData = NULL;
+      free(decoderChunk.inData);
+      decoderChunk.inData = NULL;
+
+      break;
+    }
+
+    default: {
+      ESP_LOGE(TAG,
+               "Decoder (2) not "
+               "supported");
+
+      return -1;
+
+      break;
+    }
+  }
+  return 0;
+}
+
+
 /**
  *
  */
@@ -1512,291 +1807,8 @@ static void http_get_task(void *pvParameters) {
 
                       if (parser.typedMsgCurrentPos >= base_message_rx.size) {
                         if (received_codec_header == true) {
-                          switch (codec) {
-                            case OPUS: {
-                              int frame_size = -1;
-                              int samples_per_frame;
-                              opus_int16 *audio = NULL;
-
-                              samples_per_frame =
-                                  opus_packet_get_samples_per_frame(
-                                      decoderChunk.inData, scSet.sr);
-                              if (samples_per_frame < 0) {
-                                ESP_LOGE(TAG,
-                                         "couldn't get samples per frame count "
-                                         "of packet");
-                              }
-
-                              scSet.chkInFrames = samples_per_frame;
-
-                              // ESP_LOGW(TAG, "%d, %llu, %llu",
-                              // samples_per_frame, 1000000ULL *
-                              // samples_per_frame / scSet.sr,
-                              // 1000000ULL *
-                              // wire_chnk.timestamp.sec +
-                              // wire_chnk.timestamp.usec);
-
-                              // ESP_LOGW(TAG, "got OPUS decoded chunk size: %ld
-                              // " "frames from encoded chunk with size %d,
-                              // allocated audio buffer %d", scSet.chkInFrames,
-                              // wire_chnk.size, samples_per_frame);
-
-                              size_t bytes;
-                              do {
-                                bytes = samples_per_frame *
-                                        (scSet.ch * scSet.bits >> 3);
-
-                                while ((audio = (opus_int16 *)realloc(
-                                            audio, bytes)) == NULL) {
-                                  ESP_LOGE(TAG,
-                                           "couldn't realloc memory for OPUS "
-                                           "audio %d",
-                                           bytes);
-
-                                  vTaskDelay(pdMS_TO_TICKS(1));
-                                }
-
-                                frame_size = opus_decode(
-                                    opusDecoder, decoderChunk.inData,
-                                    decoderChunk.bytes, (opus_int16 *)audio,
-                                    samples_per_frame, 0);
-
-                                samples_per_frame <<= 1;
-                              } while (frame_size < 0);
-
-                              free(decoderChunk.inData);
-                              decoderChunk.inData = NULL;
-
-                              pcm_chunk_message_t *new_pcmChunk = NULL;
-
-                              // ESP_LOGW(TAG, "OPUS decode: %d", frame_size);
-
-                              if (allocate_pcm_chunk_memory(&new_pcmChunk,
-                                                            bytes) < 0) {
-                                pcmData = NULL;
-                              } else {
-                                new_pcmChunk->timestamp = wire_chnk.timestamp;
-
-                                if (new_pcmChunk->fragment->payload) {
-                                  volatile uint32_t *sample;
-                                  uint32_t tmpData;
-                                  uint32_t cnt = 0;
-
-                                  for (int i = 0; i < bytes; i += 4) {
-                                    sample = (volatile uint32_t *)(&(
-                                        new_pcmChunk->fragment->payload[i]));
-                                    tmpData = (((uint32_t)audio[cnt] << 16) &
-                                               0xFFFF0000) |
-                                              (((uint32_t)audio[cnt + 1] << 0) &
-                                               0x0000FFFF);
-                                    *sample = (volatile uint32_t)tmpData;
-
-                                    cnt += 2;
-                                  }
-                                }
-
-                                free(audio);
-                                audio = NULL;
-
-#if CONFIG_USE_DSP_PROCESSOR
-                                if (new_pcmChunk->fragment->payload) {
-                                  dsp_processor_worker((void *)new_pcmChunk,
-                                                       (void *)&scSet);
-                                }
-#endif
-
-                                insert_pcm_chunk(new_pcmChunk);
-                              }
-
-                              if (player_send_snapcast_setting(&scSet) !=
-                                  pdPASS) {
-                                ESP_LOGE(TAG,
-                                         "Failed to notify "
-                                         "sync task about "
-                                         "codec. Did you "
-                                         "init player?");
-
-                                return;
-                              }
-
-                              break;
-                            }
-
-                            case FLAC: {
-                              isCachedChunk = true;
-                              cachedBlocks = 0;
-
-                              while (decoderChunk.bytes > 0) {
-                                if (FLAC__stream_decoder_process_single(
-                                        flacDecoder) == 0) {
-                                  ESP_LOGE(
-                                      TAG,
-                                      "%s: FLAC__stream_decoder_process_single "
-                                      "failed",
-                                      __func__);
-
-                                  // TODO: should insert some abort condition?
-                                  vTaskDelay(pdMS_TO_TICKS(10));
-                                }
-                              }
-
-                              // alternating chunk sizes need time stamp repair
-                              if ((cachedBlocks > 0) && (scSet.sr != 0)) {
-                                uint64_t diffUs =
-                                    1000000ULL * cachedBlocks / scSet.sr;
-
-                                uint64_t timestamp =
-                                    1000000ULL * wire_chnk.timestamp.sec +
-                                    wire_chnk.timestamp.usec;
-
-                                timestamp = timestamp - diffUs;
-
-                                wire_chnk.timestamp.sec =
-                                    timestamp / 1000000ULL;
-                                wire_chnk.timestamp.usec =
-                                    timestamp % 1000000ULL;
-                              }
-
-                              pcm_chunk_message_t *new_pcmChunk;
-                              int32_t ret = allocate_pcm_chunk_memory(
-                                  &new_pcmChunk, pcmChunk.bytes);
-
-                              scSet.chkInFrames =
-                                  FLAC__stream_decoder_get_blocksize(
-                                      flacDecoder);
-
-                              // ESP_LOGE (TAG, "block size: %ld",
-                              // scSet.chkInFrames * scSet.bits / 8 * scSet.ch);
-                              // ESP_LOGI(TAG, "new_pcmChunk with size %ld",
-                              // new_pcmChunk->totalSize);
-
-                              if (ret == 0) {
-                                pcm_chunk_fragment_t *fragment =
-                                    new_pcmChunk->fragment;
-                                uint32_t fragmentCnt = 0;
-
-                                if (fragment->payload != NULL) {
-                                  uint32_t frames =
-                                      pcmChunk.bytes /
-                                      (scSet.ch * (scSet.bits / 8));
-
-                                  for (int i = 0; i < frames; i++) {
-                                    // TODO: for now fragmented payload is not
-                                    // supported and the whole chunk is expected
-                                    // to be in the first fragment
-                                    uint32_t tmpData;
-                                    memcpy(&tmpData,
-                                           &pcmChunk.outData[fragmentCnt],
-                                           (scSet.ch * (scSet.bits / 8)));
-
-                                    if (fragment != NULL) {
-                                      volatile uint32_t *test =
-                                          (volatile uint32_t *)(&(
-                                              fragment->payload[fragmentCnt]));
-                                      *test = (volatile uint32_t)tmpData;
-                                    }
-
-                                    fragmentCnt +=
-                                        (scSet.ch * (scSet.bits / 8));
-                                    if (fragmentCnt >= fragment->size) {
-                                      fragmentCnt = 0;
-
-                                      fragment = fragment->nextFragment;
-                                    }
-                                  }
-                                }
-
-                                new_pcmChunk->timestamp = wire_chnk.timestamp;
-
-#if CONFIG_USE_DSP_PROCESSOR
-                                if (new_pcmChunk->fragment->payload) {
-                                  dsp_processor_worker((void *)new_pcmChunk,
-                                                       (void *)&scSet);
-                                }
-
-#endif
-
-                                insert_pcm_chunk(new_pcmChunk);
-                              }
-
-                              free(pcmChunk.outData);
-                              pcmChunk.outData = NULL;
-                              pcmChunk.bytes = 0;
-
-                              if (player_send_snapcast_setting(&scSet) !=
-                                  pdPASS) {
-                                ESP_LOGE(TAG,
-                                         "Failed to "
-                                         "notify "
-                                         "sync task "
-                                         "about "
-                                         "codec. Did you "
-                                         "init player?");
-
-                                return;
-                              }
-
-                              break;
-                            }
-
-                            case PCM: {
-                              size_t decodedSize = wire_chnk.size;
-
-                              // ESP_LOGW(TAG, "got PCM chunk,"
-                              //               "typedMsgCurrentPos %d",
-                              //               parser.typedMsgCurrentPos);
-
-                              if (pcmData) {
-                                pcmData->timestamp = wire_chnk.timestamp;
-                              }
-
-                              scSet.chkInFrames =
-                                  decodedSize /
-                                  ((size_t)scSet.ch * (size_t)(scSet.bits / 8));
-
-                              // ESP_LOGW(TAG,
-                              //          "got PCM decoded chunk size: %ld
-                              //          frames", scSet.chkInFrames);
-
-                              if (player_send_snapcast_setting(&scSet) !=
-                                  pdPASS) {
-                                ESP_LOGE(TAG,
-                                         "Failed to notify "
-                                         "sync task about "
-                                         "codec. Did you "
-                                         "init player?");
-
-                                return;
-                              }
-
-#if CONFIG_USE_DSP_PROCESSOR
-                              if ((pcmData) && (pcmData->fragment->payload)) {
-                                dsp_processor_worker((void *)pcmData,
-                                                     (void *)&scSet);
-                              }
-#endif
-
-                              if (pcmData) {
-                                insert_pcm_chunk(pcmData);
-                              }
-
-                              pcmData = NULL;
-
-                              free(decoderChunk.inData);
-                              decoderChunk.inData = NULL;
-
-                              break;
-                            }
-
-                            default: {
-                              ESP_LOGE(TAG,
-                                       "Decoder (2) not "
-                                       "supported");
-
-                              return;
-
-                              break;
-                            }
+                          if (handle_chunk_message(codec, &scSet, &pcmData, &wire_chnk) != 0) {
+                            return;
                           }
                         }
 
