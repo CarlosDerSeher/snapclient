@@ -1,0 +1,48 @@
+name: Build ESP32 Snapclient
+
+on:
+  pull_request:
+    branches: [ "**" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:v5.1.1
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        sdkconfig:
+          - sdkconfig_adau1961
+          - sdkconfig_for_esp_snapserver
+          - sdkconfig_lyrat_v4.3
+          - sdkconfig_MAX98357A_ESP32-S2
+          - sdkconfig_PCM5102A
+          - sdkconfig_PCM5102A_Olimex-ESP32-PoE
+          - sdkconfig_PCM5102A_WT32-ETH01
+          - sdkconfig_TAS5805M
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      
+      - name: Copy sdkconfig
+        run: cp ${{ matrix.sdkconfig }} sdkconfig
+      
+      - name: Build project
+        run: |
+          . $IDF_PATH/export.sh
+          idf.py build
+      
+      - name: Build summary
+        if: always()
+        run: |
+          if [ -f build/project_description.json ]; then
+            echo "✅ Build succeeded for ${{ matrix.sdkconfig }}"
+          else
+            echo "❌ Build failed for ${{ matrix.sdkconfig }}"
+            exit 1
+          fi

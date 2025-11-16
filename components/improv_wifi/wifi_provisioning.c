@@ -9,7 +9,6 @@
 
 #include <string.h>
 
-#include "driver/uart.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_wifi.h"
@@ -19,34 +18,42 @@
 #include "improv_wrapper.h"
 #include "wifi_interface.h"
 
-#if CONFIG_IDF_TARGET_ESP32S3 && CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG
+#ifdef CONFIG_ESP_CONSOLE_UART_DEFAULT
+#include "driver/uart.h"
+#endif
+
+#ifdef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED
 #include "driver/usb_serial_jtag.h"
 #endif
 
 #define TAG "IMPROV"
 
+#ifdef CONFIG_ESP_CONSOLE_UART_DEFAULT
 #define RD_BUF_SIZE (UART_FIFO_LEN)
 #define PATTERN_CHR_NUM (3)
+#endif
 
-static TaskHandle_t t_improv_task = NULL;
-
+#ifdef CONFIG_ESP_CONSOLE_UART_DEFAULT
+static TaskHandle_t t_improv_uart_task = NULL;
 static const int uart_buffer_size = 2 * RD_BUF_SIZE;
-static QueueHandle_t uart0_queue;
+static QueueHandle_t uart_queue;
+static uart_port_t uart_num = UART_NUM_0;
+#endif
 
-#if CONFIG_IDF_TARGET_ESP32S3 && CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG
+#ifdef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED
 static TaskHandle_t t_usb_serial_task = NULL;
 #define USB_SERIAL_BUF_SIZE 256
 #endif
 
+#ifdef CONFIG_ESP_CONSOLE_UART_DEFAULT
 void uart_event_handler(void) {
   uart_event_t event;
   uint8_t dtmp[RD_BUF_SIZE];
-  size_t buffered_size;
 
   // Waiting for UART event.
-  if (xQueueReceive(uart0_queue, (void *)&event, (TickType_t)portMAX_DELAY)) {
+  if (xQueueReceive(uart_queue, (void *)&event, (TickType_t)portMAX_DELAY)) {
     bzero(dtmp, RD_BUF_SIZE);
-    // ESP_LOGD(TAG, "uart[%d] event:", UART_NUM_0);
+    // ESP_LOGD(TAG, "uart[%d] event:", uart_num);
     switch (event.type) {
       // Event of UART receving data
       /* We'd better handler data event fast, there would be much more data
@@ -55,7 +62,7 @@ void uart_event_handler(void) {
       case UART_DATA:
         ESP_LOGD(TAG, "[UART DATA]: %d bytes", event.size);
 
-        uart_read_bytes(UART_NUM_0, dtmp, event.size, portMAX_DELAY);
+        uart_read_bytes(uart_num, dtmp, event.size, portMAX_DELAY);
         // ESP_LOGD(TAG, "[DATA EVT]:");
 
         improv_wifi_handle_serial(dtmp, event.size);
@@ -68,8 +75,8 @@ void uart_event_handler(void) {
         // for your application. The ISR has already reset the rx FIFO, As an
         // example, we directly flush the rx buffer here in order to read more
         // data.
-        uart_flush_input(UART_NUM_0);
-        xQueueReset(uart0_queue);
+        uart_flush_input(uart_num);
+        xQueueReset(uart_queue);
         break;
       // Event of UART ring buffer full
       case UART_BUFFER_FULL:
@@ -77,8 +84,8 @@ void uart_event_handler(void) {
         // If buffer full happened, you should consider increasing your buffer
         // size As an example, we directly flush the rx buffer here in order to
         // read more data.
-        uart_flush_input(UART_NUM_0);
-        xQueueReset(uart0_queue);
+        uart_flush_input(uart_num);
+        xQueueReset(uart_queue);
         break;
       // Others
       default:
@@ -88,13 +95,14 @@ void uart_event_handler(void) {
   }
 }
 
-static void improv_task(void *pvParameters) {
+static void improv_uart_task(void *pvParameters) {
   while (1) {
     uart_event_handler();
   }
 }
+#endif
 
-#if CONFIG_IDF_TARGET_ESP32S3 && CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG
+#ifdef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED
 static void usb_serial_improv_task(void *pvParameters) {
   uint8_t buf[USB_SERIAL_BUF_SIZE];
   
@@ -115,12 +123,12 @@ static void usb_serial_improv_task(void *pvParameters) {
 #endif
 
 void uart_write(const unsigned char *txData, int length) {
-#if CONFIG_IDF_TARGET_ESP32S3 && CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG
-  // Write to both UART0 and USB Serial JTAG on ESP32-S3
-  uart_write_bytes(UART_NUM_0, txData, length);
+#ifdef CONFIG_ESP_CONSOLE_UART_DEFAULT
+  uart_write_bytes(uart_num, txData, length);
+#endif
+
+#ifdef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED
   usb_serial_jtag_write_bytes((const char *)txData, length, pdMS_TO_TICKS(100));
-#else
-  uart_write_bytes(UART_NUM_0, txData, length);
 #endif
 }
 
@@ -214,12 +222,8 @@ bool improv_wifi_is_connected(void) {
   wifi_ap_record_t apRec;
 
   if (esp_wifi_sta_get_ap_info(&apRec) == ESP_OK) {
-    //    	printf("connected\n");
-
     return true;
   }
-
-  //    printf("NOT connected\n");
 
   return false;
 }
@@ -272,25 +276,27 @@ void improv_init(void) {
   improv_wifi_setCustomIsConnected(improv_wifi_is_connected);
   improv_wifi_setCustomGetLocalIpCallback(improv_wifi_get_local_ip);
 
-  // Set UART pins(TX: IO4, RX: IO5, RTS: IO18, CTS: IO19)
-  // ESP_ERROR_CHECK(uart_set_pin(UART_NUM_0, 1, 3, -1, -1));
-
+#ifdef CONFIG_ESP_CONSOLE_UART_DEFAULT
+  // Set UART number from config
+  uart_num = CONFIG_ESP_CONSOLE_UART_NUM;
+  
   // Install UART driver using an event queue here
-  esp_err_t ret = uart_driver_install(UART_NUM_0, uart_buffer_size,
-                                      uart_buffer_size, 10, &uart0_queue, 0);
+  ESP_LOGI(TAG, "Installing UART%d driver for Improv", uart_num);
+  esp_err_t ret = uart_driver_install(uart_num, uart_buffer_size,
+                                      uart_buffer_size, 10, &uart_queue, 0);
 
   if (ret != ESP_OK) {
       ESP_LOGE(TAG, "Failed to install UART driver: %s", esp_err_to_name(ret));
-      return;
+  } else {
+    BaseType_t task_ret = xTaskCreatePinnedToCore(&improv_uart_task, "improv_uart", 8 * 1024, NULL, 4,
+                          &t_improv_uart_task, tskNO_AFFINITY);
+    ESP_LOGD(TAG, "UART Improv task created: %d (handle: %p)", task_ret, t_improv_uart_task);
   }
+#endif
 
-  BaseType_t task_ret = xTaskCreatePinnedToCore(&improv_task, "improv", 8 * 1024, NULL, 4,
-                        &t_improv_task, tskNO_AFFINITY);
-  ESP_LOGD(TAG, "Improv task created: %d (handle: %p)", task_ret, t_improv_task);
-
-#if CONFIG_IDF_TARGET_ESP32S3 && CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG
-  // Initialize USB Serial JTAG driver for ESP32-S3
-  ESP_LOGD(TAG, "Initializing USB Serial JTAG for Improv");
+#ifdef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED
+  // Initialize USB Serial JTAG driver
+  ESP_LOGI(TAG, "Initializing USB Serial JTAG for Improv");
   
   usb_serial_jtag_driver_config_t usb_serial_config = {
     .rx_buffer_size = USB_SERIAL_BUF_SIZE * 2,
@@ -312,19 +318,23 @@ void improv_init(void) {
 }
 
 void improv_deinit(void) {
-#if CONFIG_IDF_TARGET_ESP32S3 && CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG
+#ifdef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED
   if (t_usb_serial_task) {
     vTaskDelete(t_usb_serial_task);
     t_usb_serial_task = NULL;
     usb_serial_jtag_driver_uninstall();
+    ESP_LOGI(TAG, "USB Serial JTAG deinitialized");
   }
 #endif
 
-  if (t_improv_task) {
-    vTaskDelete(t_improv_task);
-    uart_driver_delete(UART_NUM_0);
-
-    t_improv_task = NULL;
+#ifdef CONFIG_ESP_CONSOLE_UART_DEFAULT
+  if (t_improv_uart_task) {
+    vTaskDelete(t_improv_uart_task);
+    uart_driver_delete(uart_num);
+    t_improv_uart_task = NULL;
+    ESP_LOGI(TAG, "UART%d deinitialized", uart_num);
   }
+#endif
+
   improv_wifi_destroy();
 }
