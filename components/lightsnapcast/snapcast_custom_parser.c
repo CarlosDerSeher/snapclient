@@ -5,6 +5,12 @@
 
 static const char *TAG = "SNAPCAST_CUSTOM_PARSER";
 
+void parser_reset_state(snapcast_custom_parser_t* parser) {
+  parser->state = BASE_MESSAGE_STATE;
+  parser->internalState = 0;
+  parser->typedMsgCurrentPos = 0;
+}
+
 void parse_base_message(snapcast_custom_parser_t *parser,
                         base_message_t *base_message_rx, const char *start,
                         int64_t *now) {
@@ -136,7 +142,6 @@ void parse_base_message(snapcast_custom_parser_t *parser,
 
     case 25:
       base_message_rx->size |= (*start & 0xFF) << 24;
-      parser->internalState = 0;
 
       *now = esp_timer_get_time();
 
@@ -144,7 +149,6 @@ void parse_base_message(snapcast_custom_parser_t *parser,
       base_message_rx->received.usec =
           *now - base_message_rx->received.sec * 1000000;
 
-      parser->typedMsgCurrentPos = 0;
 
       // ESP_LOGI(TAG, "BM type %d ts %ld.%ld, refers to %u",
       //          base_message_rx->type,
@@ -161,6 +165,7 @@ void parse_base_message(snapcast_custom_parser_t *parser,
       //                          +
       //                          (uint64_t)base_message_rx->received.usec);
 
+      parser_reset_state(parser);
       parser->state = TYPED_MESSAGE_STATE;
       break;
   }
@@ -497,10 +502,7 @@ int parse_wire_chunk_message(snapcast_custom_parser_t* parser,
           }
         }
 
-        parser->state = BASE_MESSAGE_STATE;
-        parser->internalState = 0;
-
-        parser->typedMsgCurrentPos = 0;
+        parser_reset_state(parser);
       }
 
       break;
@@ -775,8 +777,9 @@ switch (parser->internalState) {
                                   scSet, time_sync_data) != 0) {
           return -1;
         }
-        parser->state = BASE_MESSAGE_STATE;
-        parser->internalState = 0;
+        // parser->typedMsgCurrentPos previously wasn't reset here, but this can be changed without different behavior
+        // because the next base message will reset the parser state anyway.
+        parser_reset_state(parser);
 
         *received_codec_header = true;
       }
@@ -934,10 +937,7 @@ int parse_sever_settings_message(snapcast_custom_parser_t *parser,
           *serverSettingsString = NULL;
         }
 
-        parser->state = BASE_MESSAGE_STATE;
-        parser->internalState = 0;
-
-        parser->typedMsgCurrentPos = 0;
+        parser_reset_state(parser);
       }
 
       break;
@@ -1116,15 +1116,10 @@ void parse_time_message(snapcast_custom_parser_t* parser,
       if (parser->typedMsgCurrentPos >= base_message_rx->size) {
         // ESP_LOGI(TAG, "done time message");
 
-        parser->typedMsgCurrentPos = 0;
+        parser_reset_state(parser);
 
-        parser->state = BASE_MESSAGE_STATE;
-        parser->internalState = 0;
-
-        if (callback) {
-          callback(base_message_rx, time_message_rx, time_sync_data,
-                   received_codec_header);
-        }
+        callback(base_message_rx, time_message_rx, time_sync_data,
+                 received_codec_header);
 
       } else {
         ESP_LOGE(TAG,
@@ -1132,10 +1127,8 @@ void parse_time_message(snapcast_custom_parser_t* parser,
                  "shouldn't happen! %d %ld",
                  parser->typedMsgCurrentPos, base_message_rx->size);
 
-        parser->typedMsgCurrentPos = 0;
+        parser_reset_state(parser);
 
-        parser->state = BASE_MESSAGE_STATE;
-        parser->internalState = 0;
       }
 
       break;
@@ -1166,9 +1159,7 @@ void parse_unknown_message(snapcast_custom_parser_t* parser,
     ESP_LOGI(TAG, "done unknown typed message %d",
              base_message_rx->type);
 
-    parser->state = BASE_MESSAGE_STATE;
-    parser->internalState = 0;
+    parser_reset_state(parser);
 
-    parser->typedMsgCurrentPos = 0;
   }
 }

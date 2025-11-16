@@ -43,6 +43,9 @@ typedef int (*codec_header_callback_t)(char** codecPayload,
                                   snapcastSetting_t* scSet,
                                   void* time_sync_data);
 
+
+void parser_reset_state(snapcast_custom_parser_t* parser);
+
 void parse_base_message(snapcast_custom_parser_t *parser,
                         base_message_t *base_message_rx, const char *start,
                         int64_t *now);

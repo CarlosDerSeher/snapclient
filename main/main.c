@@ -1395,10 +1395,7 @@ static void http_get_task(void *pvParameters) {
 
     snapcast_custom_parser_t parser;
 
-    // TODO: init method
-    parser.state = BASE_MESSAGE_STATE;
-    parser.typedMsgCurrentPos = 0;
-    parser.internalState = 0;
+    parser_reset_state(&parser);
 
     //    size_t currentPos = 0;
     uint32_t typedMsgLen = 0;
