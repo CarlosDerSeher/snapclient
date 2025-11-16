@@ -8,11 +8,26 @@
 #define BASE_MESSAGE_STATE 0
 #define TYPED_MESSAGE_STATE 1
 
+typedef struct decoderData_s {
+  uint32_t type;  // should be SNAPCAST_MESSAGE_CODEC_HEADER
+                  // or SNAPCAST_MESSAGE_WIRE_CHUNK
+  uint8_t *inData;
+  tv_t timestamp;
+  uint8_t *outData;
+  uint32_t bytes;
+} decoderData_t;
+
+
 typedef struct {
   uint32_t state;  // BASE_MESSAGE_STATE or TYPED_MESSAGE_STATE
   uint32_t internalState;
   size_t typedMsgCurrentPos;
 } snapcast_custom_parser_t;
+
+typedef int (*wire_chunk_callback_t)(codec_type_t codec,
+                                  void* scSet,
+                                  pcm_chunk_message_t** pcmData,
+                                  wire_chunk_message_t* wire_chnk); 
 
 // Callback function type for time sync message completion
 typedef void (*time_sync_callback_t)(base_message_t *base_message_rx,
@@ -31,6 +46,22 @@ typedef int (*codec_header_callback_t)(char** codecPayload,
 void parse_base_message(snapcast_custom_parser_t *parser,
                         base_message_t *base_message_rx, const char *start,
                         int64_t *now);
+
+int parse_wire_chunk_message(snapcast_custom_parser_t* parser,
+                             base_message_t* base_message_rx,
+                             char** start,
+                             uint16_t* len,
+                             uint32_t* offset,
+                             void* scSet,
+                             bool received_codec_header,
+                             codec_type_t codec,
+                             pcm_chunk_message_t** pcmData,
+                             wire_chunk_message_t* wire_chnk,
+                             uint32_t* payloadOffset,
+                             uint32_t* tmpData,
+                             decoderData_t* decoderChunk,
+                             int32_t* payloadDataShift,
+                             wire_chunk_callback_t callback);
 
 int parse_codec_header_message(snapcast_custom_parser_t* parser,
                               char** start,
