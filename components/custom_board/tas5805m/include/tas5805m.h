@@ -29,115 +29,123 @@
 
 #include "audio_hal.h"
 
+#include "board.h"
 #include "esp_err.h"
 #include "esp_log.h"
-#include "board.h"
 
 #ifdef __cplusplus
-extern "C"
-{
+extern "C" {
 #endif
 
-
-#define I2C_MASTER_FREQ_HZ          400000                     /*!< I2C master clock frequency */
-#define I2C_MASTER_TX_BUF_DISABLE   0                          /*!< I2C master doesn't need buffer */
-#define I2C_MASTER_RX_BUF_DISABLE   0                          /*!< I2C master doesn't need buffer */
-#define I2C_MASTER_TIMEOUT_MS       1000
+#define I2C_MASTER_FREQ_HZ 400000	/*!< I2C master clock frequency */
+#define I2C_MASTER_TX_BUF_DISABLE 0 /*!< I2C master doesn't need buffer */
+#define I2C_MASTER_RX_BUF_DISABLE 0 /*!< I2C master doesn't need buffer */
+#define I2C_MASTER_TIMEOUT_MS 1000
 
 /* Represented in % */
-#define TAS5805M_VOLUME_MIN 0 
-#define TAS5805M_VOLUME_MAX 100 
+#define TAS5805M_VOLUME_MIN 0
+#define TAS5805M_VOLUME_MAX 100
 
 #define TAS5805M_VOLUME_MUTE 255
 /* See here for the original Implementation : audio_hal/driver/tas5805m */
 /* Its not from me it was developed by Espressif */
-/* Volume steps tas5805m_volume[0] => 255 which means mute */ 
-   static const uint8_t tas5805m_volume[]
-      = { 0xff, 0x9f, 0x8f, 0x7f, 0x6f, 0x5f, 0x5c, 0x5a, 0x58, 0x54, 0x50,
-          0x4c, 0x4a, 0x48, 0x44, 0x40, 0x3d, 0x3b, 0x39, 0x37, 0x35 };
+/* Volume steps tas5805m_volume[0] => 255 which means mute */
+static const uint8_t tas5805m_volume[] = {
+	0xff, 0x9f, 0x8f, 0x7f, 0x6f, 0x5f, 0x5c, 0x5a, 0x58, 0x54, 0x50,
+	0x4c, 0x4a, 0x48, 0x44, 0x40, 0x3d, 0x3b, 0x39, 0x37, 0x35};
 
- int8_t currentVolume = 0; // Last Volume gets updated after a change or before a mute 
-  /**
-   * @brief Initialize TAS5805 codec chip
-   *
-   * @param cfg configuration of TAS5805
-   *
-   * @return
-   *     - ESP_OK
-   *     - ESP_FAIL
-   */
-  esp_err_t tas5805m_init ();
+typedef enum {
+	TAS5805M_CTRL_DEEP_SLEEP = 0x00,  // Deep Sleep
+	TAS5805M_CTRL_SLEEP = 0x01,		 // Sleep
+	TAS5805M_CTRL_HI_Z = 0x02,		    // Hi-Z
+	TAS5805M_CTRL_PLAY = 0x03,		    // Play
+	TAS5805M_CTRL_MUTE = 0x08		    // Play
+} TAS5805M_CTRL_STATE;
 
-  /**
-   * @brief Deinitialize TAS5805 codec chip
-   *
-   * @return
-   *     - ESP_OK
-   *     - ESP_FAIL
-   */
-  esp_err_t tas5805m_deinit (void);
+typedef struct {
+	bool is_muted;
+	TAS5805M_CTRL_STATE state;
+} TAS5805_STATE;
 
-  /**
-   * @brief  Set voice volume
-   *
-   * @param volume:  voice volume (0~100)
-   *
-   * @return
-   *     - ESP_OK
-   *     - ESP_FAIL
-   */
-  esp_err_t tas5805m_set_volume (int vol);
+int8_t currentVolume =
+	0; // Last Volume gets updated after a change or before a mute
+/**
+ * @brief Initialize TAS5805 codec chip
+ *
+ * @param cfg configuration of TAS5805
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_FAIL
+ */
+esp_err_t tas5805m_init();
 
-  /**
-   * @brief Get voice volume
-   *
-   * @param[out] *volume:  voice volume (0~100)
-   *
-   * @return
-   *     - ESP_OK
-   *     - ESP_FAIL
-   */
-  esp_err_t tas5805m_get_volume(int *vol);
+/**
+ * @brief Deinitialize TAS5805 codec chip
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_FAIL
+ */
+esp_err_t tas5805m_deinit(void);
 
-  /**
-   * @brief Set TAS5805 mute or not
-   *        Continuously call should have an interval time determined by
-   * tas5805m_set_mute_fade()
-   *
-   * @param enable enable(1) or disable(0)
-   *
-   * @return
-   *     - ESP_FAIL Parameter error
-   *     - ESP_OK   Success
-   */
-  esp_err_t tas5805m_set_mute (bool enable);
+/**
+ * @brief  Set voice volume
+ *
+ * @param volume:  voice volume (0~100)
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_FAIL
+ */
+esp_err_t tas5805m_set_volume(int vol);
 
-  /**
-   * @brief Mute TAS5805M
-   *
-   * @param value  Time for mute with millisecond.
-   * @return
-   *     - ESP_FAIL Parameter error
-   *     - ESP_OK   Success
-   *
-   */
-  
+/**
+ * @brief Get voice volume
+ *
+ * @param[out] *volume:  voice volume (0~100)
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_FAIL
+ */
+esp_err_t tas5805m_get_volume(int *vol);
 
-  /**
-   * @brief Get TAS5805 mute status
-   *
-   *  @return
-   *     - ESP_FAIL Parameter error
-   *     - ESP_OK   Success
-   */
-  esp_err_t tas5805m_get_mute (bool *enabled);
+/**
+ * @brief Set TAS5805 mute or not
+ *        Continuously call should have an interval time determined by
+ * tas5805m_set_mute_fade()
+ *
+ * @param enable enable(1) or disable(0)
+ *
+ * @return
+ *     - ESP_FAIL Parameter error
+ *     - ESP_OK   Success
+ */
+esp_err_t tas5805m_set_mute(bool enable);
 
-  esp_err_t tas5805m_ctrl(audio_hal_codec_mode_t mode,
-                        audio_hal_ctrl_t ctrl_state);
+/**
+ * @brief Set the state of the TAS5805M
+ *
+ * @param state: The state to set
+ *
+ */
+esp_err_t tas5805m_set_state(TAS5805M_CTRL_STATE state);
 
+/**
+ * @brief Get TAS5805 mute status
+ *
+ *  @return
+ *     - ESP_FAIL Parameter error
+ *     - ESP_OK   Success
+ */
+esp_err_t tas5805m_get_mute(bool *enabled);
 
-  esp_err_t tas5805m_config_iface(audio_hal_codec_mode_t mode,
-                               audio_hal_codec_i2s_iface_t *iface);
+esp_err_t tas5805m_ctrl(audio_hal_codec_mode_t mode,
+						audio_hal_ctrl_t ctrl_state);
+
+esp_err_t tas5805m_config_iface(audio_hal_codec_mode_t mode,
+								audio_hal_codec_i2s_iface_t *iface);
 
 #ifdef __cplusplus
 }

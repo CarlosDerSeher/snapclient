@@ -32,8 +32,13 @@
 
 static const char *TAG = "TAS5805M";
 
-/* Default I2C config */
+// State of TAS5805M
+TAS5805_STATE tas5805m_state = {
+    .is_muted = false,
+    .state = TAS5805M_CTRL_PLAY,
+};
 
+/* Default I2C config */
 static i2c_config_t i2c_cfg = {
     .mode = I2C_MODE_MASTER,
     .sda_pullup_en = GPIO_PULLUP_ENABLE,
@@ -73,7 +78,6 @@ void i2c_master_init() {
 /* Helper Functions */
 
 // Reading of TAS5805M-Register
-
 esp_err_t tas5805m_read_byte(uint8_t register_name, uint8_t *data) {
   int ret;
   i2c_cmd_handle_t cmd = i2c_cmd_link_create();
@@ -86,7 +90,7 @@ esp_err_t tas5805m_read_byte(uint8_t register_name, uint8_t *data) {
   i2c_cmd_link_delete(cmd);
 
   if (ret != ESP_OK) {
-    ESP_LOGW(TAG, "I2C ERROR");
+    ESP_LOGW(TAG, "%s: I2C ERROR", __func__);
   }
 
   vTaskDelay(1 / portTICK_PERIOD_MS);
@@ -98,14 +102,14 @@ esp_err_t tas5805m_read_byte(uint8_t register_name, uint8_t *data) {
   ret = i2c_master_cmd_begin(I2C_TAS5805M_MASTER_NUM, cmd,
                              1000 / portTICK_PERIOD_MS);
   i2c_cmd_link_delete(cmd);
-
+  ESP_LOGD(TAG, "%s: Read 0x%02x from register 0x%02x", __func__, *data, register_name);
   return ret;
 }
 
 // Writing of TAS5805M-Register
-
 esp_err_t tas5805m_write_byte(uint8_t register_name, uint8_t value) {
   int ret = 0;
+  ESP_LOGD(TAG, "%s: Writing 0x%02x to register 0x%02x", __func__, value, register_name);
   i2c_cmd_handle_t cmd = i2c_cmd_link_create();
   i2c_master_start(cmd);
   i2c_master_write_byte(cmd, TAS5805M_ADDRESS << 1 | WRITE_BIT, ACK_CHECK_EN);
@@ -118,7 +122,7 @@ esp_err_t tas5805m_write_byte(uint8_t register_name, uint8_t value) {
 
   // Check if ret is OK
   if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Fehler bei der I2C-Übertragung: %s", esp_err_to_name(ret));
+    ESP_LOGE(TAG, "%s: Error communicating over I2C: %s", __func__, esp_err_to_name(ret));
   }
 
   i2c_cmd_link_delete(cmd);
@@ -127,8 +131,8 @@ esp_err_t tas5805m_write_byte(uint8_t register_name, uint8_t value) {
 }
 
 // Inits the TAS5805M change Settings in Menuconfig to enable Bridge-Mode
-
 esp_err_t tas5805m_init() {
+  ESP_LOGD(TAG, "%s: Initializing TAS5805M", __func__);
   int ret = 0;
   // Init the I2C-Driver
   i2c_master_init();
@@ -140,7 +144,7 @@ esp_err_t tas5805m_init() {
   io_conf.pin_bit_mask = TAS5805M_GPIO_PDN_MASK;
   io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
   io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
-  ESP_LOGW(TAG, "Power down pin: %d", TAS5805M_GPIO_PDN);
+  ESP_LOGI(TAG, "%s: Triggering power down pin: %d", __func__, TAS5805M_GPIO_PDN);
   gpio_config(&io_conf);
   gpio_set_level(TAS5805M_GPIO_PDN, 0);
   vTaskDelay(10 / portTICK_PERIOD_MS);
@@ -149,26 +153,26 @@ esp_err_t tas5805m_init() {
 
   /* TAS5805M.Begin()*/
 
-  ESP_LOGW(TAG, "Setting to HI Z");
+  ESP_LOGW(TAG, "%s: Setting to HI Z", __func__);
 
-  ESP_ERROR_CHECK(tas5805m_write_byte(TAS5805M_DEVICE_CTRL_2_REGISTER, 0x02));
+  ESP_ERROR_CHECK(tas5805m_set_state(TAS5805M_CTRL_HI_Z));
   vTaskDelay(10 / portTICK_PERIOD_MS);
   if (ret != ESP_OK) {
-    ESP_LOGW(TAG, "TAS5805M_DEVICE_CTRL_2_REGISTER, 0x02 FAILED!!!");
+    ESP_LOGW(TAG, "%s: Set DAC state failed", __func__);
     return ret;
   }
 
-  ESP_LOGW(TAG, "Setting to PLAY");
+  ESP_LOGW(TAG, "%s: Setting to PLAY", __func__);
 
-  ret = tas5805m_write_byte(TAS5805M_DEVICE_CTRL_2_REGISTER, 0x03);
+  ESP_ERROR_CHECK(tas5805m_set_state(TAS5805M_CTRL_PLAY));
   if (ret != ESP_OK) {
-    ESP_LOGW(TAG, "TAS5805M_DEVICE_CTRL_2_REGISTER, 0x03 FAILED!!");
+    ESP_LOGW(TAG, "%s: Set DAC state failed", __func__);
     return ret;
   }
 
   // Check if Bridge-Mode is enabled
 #if defined(CONFIG_DAC_BRIDGE_MODE_MONO) || defined(CONFIG_DAC_BRIDGE_MODE_LEFT) || defined(CONFIG_DAC_BRIDGE_MODE_RIGHT)
-  ESP_LOGV(TAG, "Setting Bridge-Mode");
+  ESP_LOGD(TAG, "%s: Setting Bridge-Mode", __func__);
 
   // enable bridge mode
   ret = tas5805m_write_byte(TAS5805M_DEVICE_CTRL_1_REGISTER, 0x04);
@@ -179,7 +183,7 @@ esp_err_t tas5805m_init() {
   ret |= tas5805m_write_byte(0x0, 0x29);
 
   #if defined(CONFIG_DAC_BRIDGE_MODE_MONO)
-  ESP_LOGI(TAG, "Defining Bridge-Mode to Mono");
+  ESP_LOGI(TAG, "%s: Defining Bridge-Mode to Mono", __func__);
   // Left mixer input to left ouput (-6 dB)
   ret |= tas5805m_write_byte(0x18, 0x00);
   ret |= tas5805m_write_byte(0x19, 0x40);
@@ -193,7 +197,7 @@ esp_err_t tas5805m_init() {
   ret |= tas5805m_write_byte(0x1f, 0xe7);
 
   #elif defined(CONFIG_DAC_BRIDGE_MODE_LEFT)
-  ESP_LOGI(TAG, "Defining Bridge-Mode to Left");
+  ESP_LOGI(TAG, "%s: Defining Bridge-Mode to Left", __func__);
   // Left mixer input to left ouput (0 dB)
   ret |= tas5805m_write_byte(0x18, 0x00);
   ret |= tas5805m_write_byte(0x19, 0x80);
@@ -207,7 +211,7 @@ esp_err_t tas5805m_init() {
   ret |= tas5805m_write_byte(0x1f, 0x00);
 
   #elif defined(CONFIG_DAC_BRIDGE_MODE_RIGHT)
-  ESP_LOGI(TAG, "Defining Bridge-Mode to Right");
+  ESP_LOGI(TAG, "%s: Defining Bridge-Mode to Right", __func__);
   // Left mixer input to left ouput (-110 dB)
   ret |= tas5805m_write_byte(0x18, 0x00);
   ret |= tas5805m_write_byte(0x19, 0x00);
@@ -240,7 +244,7 @@ esp_err_t tas5805m_init() {
   ret |= tas5805m_write_byte(0x7f, 0x0);
 
   if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Setting Bridge-Mode failed");
+    ESP_LOGE(TAG, "%s: Setting Bridge-Mode failed", __func__);
     return ret;
   }
 #endif
@@ -248,9 +252,17 @@ esp_err_t tas5805m_init() {
   return ret;
 }
 
-// Setting the Volume
+// Setting the DAC State of TAS5805M
+esp_err_t tas5805m_set_state(TAS5805M_CTRL_STATE state)
+{
+  ESP_LOGD(TAG, "%s: Setting state to %d", __func__, state);
+  tas5805m_state.state = state;
+  return tas5805m_write_byte(TAS5805M_DEVICE_CTRL_2_REGISTER, state);
+}
 
+// Setting the Volume
 esp_err_t tas5805m_set_volume(int vol) {
+  ESP_LOGD(TAG, "%s: Setting volume to %d", __func__, vol);
   int vol_idx = 0;  // Temp-Variable
 
   /* Checking if Volume is bigger or smaller than the max values */
@@ -279,39 +291,26 @@ esp_err_t tas5805m_get_volume(int *vol) {
   }
   /* Updating the global volume Variable */
   currentVolume = i;
-  ESP_LOGI(TAG, "Volume is %d", i * 5);
+  ESP_LOGD(TAG, "%s: Getting volume: %d", __func__, i * 5);
   *vol = 5 * i;  // Converting it to percent
   return ret;
 }
 
 esp_err_t tas5805m_deinit(void) {
-  // TODO
+  gpio_set_level(TAS5805M_GPIO_PDN, 0);
   return ESP_OK;
 }
 
 esp_err_t tas5805m_set_mute(bool enable) {
-  if (enable == true) {
-    // Set the Volume to 255 to enable the MUTE
-    return tas5805m_write_byte(TAS5805M_DIG_VOL_CTRL_REGISTER,
-                               TAS5805M_VOLUME_MUTE);
-  } else {
-    return tas5805m_write_byte(
-        TAS5805M_DIG_VOL_CTRL_REGISTER,
-        tas5805m_volume[currentVolume]);  // Restore Volume to its old value
-  }
-  return ESP_OK;
+  ESP_LOGD(TAG, "%s: Setting mute to %d", __func__, enable);
+  tas5805m_state.is_muted = enable;
+  return tas5805m_set_state(enable ? TAS5805M_CTRL_MUTE : TAS5805M_CTRL_PLAY);
 }
 
-esp_err_t tas5805m_get_mute(bool *enabled) {
-  int currentVolume;
-  if (tas5805m_get_volume(&currentVolume) != ESP_OK) {
-    ESP_LOGW(TAG, "Cant get volume in get-Mute-Function");
-  }
-  if (currentVolume == TAS5805M_VOLUME_MUTE) {
-    *enabled = true;
-  } else {
-    *enabled = false;
-  }
+esp_err_t tas5805m_get_mute(bool *enabled)
+{
+  ESP_LOGD(TAG, "%s: Getting mute: %d", __func__, tas5805m_state.is_muted);
+  *enabled = tas5805m_state.is_muted;
   return ESP_OK;
 }
 
