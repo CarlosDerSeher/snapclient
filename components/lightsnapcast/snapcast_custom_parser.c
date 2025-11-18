@@ -173,21 +173,19 @@ void parse_base_message(snapcast_custom_parser_t *parser,
 
 
 
-int parse_wire_chunk_message(snapcast_custom_parser_t* parser,
-                             base_message_t* base_message_rx,
-                             char** start,
-                             uint16_t* len,
-                             uint32_t* offset,
-                             void* scSet,
-                             bool received_codec_header,
-                             codec_type_t codec,
-                             pcm_chunk_message_t** pcmData,
-                             wire_chunk_message_t* wire_chnk,
-                             uint32_t* payloadOffset,
-                             uint32_t* tmpData,
-                             decoderData_t* decoderChunk,
-                             int32_t* payloadDataShift,
-                             wire_chunk_callback_t callback) {
+parser_return_state_t parse_wire_chunk_message(snapcast_custom_parser_t* parser,
+                                               base_message_t* base_message_rx,
+                                               char** start,
+                                               uint16_t* len,
+                                               uint32_t* offset,
+                                               bool received_codec_header,
+                                               codec_type_t codec,
+                                               pcm_chunk_message_t** pcmData,
+                                               wire_chunk_message_t* wire_chnk,
+                                               uint32_t* payloadOffset,
+                                               uint32_t* tmpData,
+                                               decoderData_t* decoderChunk,
+                                               int32_t* payloadDataShift) {
   switch (parser->internalState) {
     case 0: {
       wire_chnk->timestamp.sec = **start & 0xFF;
@@ -483,7 +481,7 @@ int parse_wire_chunk_message(snapcast_custom_parser_t* parser,
           default: {
             ESP_LOGE(TAG, "Decoder (1) not supported");
 
-            return -1;
+            return PARSER_CRITICAL_ERROR;
 
             break;
           }
@@ -497,9 +495,8 @@ int parse_wire_chunk_message(snapcast_custom_parser_t* parser,
 
       if (parser->typedMsgCurrentPos >= base_message_rx->size) {
         if (received_codec_header == true) {
-          if (callback(codec, scSet, pcmData, wire_chnk) != 0) {
-            return -1;
-          }
+          parser_reset_state(parser);
+          return PARSER_COMPLETE;
         }
 
         parser_reset_state(parser);
@@ -516,21 +513,18 @@ int parse_wire_chunk_message(snapcast_custom_parser_t* parser,
       break;
     }
   }
-  return 0;
+  return PARSER_INCOMPLETE;
 }
 
-int parse_codec_header_message(snapcast_custom_parser_t* parser,
-                              char** start,
-                              uint16_t* len,
-                              uint32_t* typedMsgLen,
-                              uint32_t* offset,
-                              bool* received_codec_header,
-                              char** codecString,
-                              codec_type_t* codec,
-                              char** codecPayload,
-                              snapcastSetting_t* scSet,
-                              void* time_sync_data,
-                              codec_header_callback_t callback) {
+parser_return_state_t parse_codec_header_message(snapcast_custom_parser_t* parser,
+                                                 char** start,
+                                                 uint16_t* len,
+                                                 uint32_t* typedMsgLen,
+                                                 uint32_t* offset,
+                                                 bool* received_codec_header,
+                                                 char** codecString,
+                                                 codec_type_t* codec,
+                                                 char** codecPayload) {
 switch (parser->internalState) {
     case 0: {
       *received_codec_header = false;
@@ -595,7 +589,7 @@ switch (parser->internalState) {
                  "couldn't get memory "
                  "for codec string");
 
-        return -1;
+        return PARSER_CRITICAL_ERROR;
       }
 
       *offset = 0;
@@ -659,7 +653,7 @@ switch (parser->internalState) {
                    "/etc/snapserver.conf on "
                    "server");
 
-          return -1;
+          return PARSER_CRITICAL_ERROR;
         }
 
         free(*codecString);
@@ -733,7 +727,7 @@ switch (parser->internalState) {
                  "couldn't get memory "
                  "for codec payload");
 
-        return -1;
+        return PARSER_CRITICAL_ERROR;
       }
 
       *offset = 0;
@@ -772,16 +766,14 @@ switch (parser->internalState) {
       }
 
       if (*offset == *typedMsgLen) {
-        // Handle codec header payload
-        if (callback(codecPayload, *typedMsgLen, *codec,
-                                  scSet, time_sync_data) != 0) {
-          return -1;
-        }
+        *received_codec_header = true;
+
         // parser->typedMsgCurrentPos previously wasn't reset here, but this can be changed without different behavior
         // because the next base message will reset the parser state anyway.
         parser_reset_state(parser);
 
-        *received_codec_header = true;
+        // Handle codec header payload
+        return PARSER_COMPLETE;
       }
 
       break;
@@ -795,18 +787,16 @@ switch (parser->internalState) {
       break;
     }
   }
-  return 0;
+  return PARSER_INCOMPLETE;
 }
 
-int parse_sever_settings_message(snapcast_custom_parser_t *parser,
-                             base_message_t* base_message_rx,
-                             char** start,
-                             uint16_t* len,
-                             uint32_t* typedMsgLen,
-                             uint32_t* offset,
-                             char** serverSettingsString,
-                             void* scSet,
-                             server_settings_callback_t callback) {
+parser_return_state_t parse_sever_settings_message(snapcast_custom_parser_t *parser,
+                                                   base_message_t* base_message_rx,
+                                                   char** start,
+                                                   uint16_t* len,
+                                                   uint32_t* typedMsgLen,
+                                                   uint32_t* offset,
+                                                   char** serverSettingsString) {
   switch (parser->internalState) {
     case 0: {
       *typedMsgLen = **start & 0xFF;
@@ -927,14 +917,9 @@ int parse_sever_settings_message(snapcast_custom_parser_t *parser,
           // ESP_LOGI(TAG, "got string: %s",
           // *serverSettingsString);
 
-          if (callback(*serverSettingsString, scSet) != 0){
-            // TODO: free serverSettingsString
-            // TODO: is there more that should be freed?
-            return -1;
-          }
+          parser_reset_state(parser);
+          return PARSER_COMPLETE; // do callback
 
-          free(*serverSettingsString);
-          *serverSettingsString = NULL;
         }
 
         parser_reset_state(parser);
@@ -951,7 +936,7 @@ int parse_sever_settings_message(snapcast_custom_parser_t *parser,
       break;
     }
   }
-  return 0;
+  return PARSER_INCOMPLETE;
 }
 
 
@@ -992,14 +977,10 @@ int parse_sever_settings_message(snapcast_custom_parser_t *parser,
 //                }
 
 
-void parse_time_message(snapcast_custom_parser_t* parser,
-                       base_message_t* base_message_rx,
-                       time_message_t* time_message_rx,
-                       char** start,
-                       uint16_t* len,
-                       void* time_sync_data,
-                       bool received_codec_header,
-                       time_sync_callback_t callback) {
+parser_return_state_t parse_time_message(snapcast_custom_parser_t* parser,
+                                         base_message_t* base_message_rx,
+                                         time_message_t* time_message_rx,
+                                         char** start, uint16_t* len) {
   switch (parser->internalState) {
     case 0: {
       time_message_rx->latency.sec = **start;
@@ -1118,8 +1099,7 @@ void parse_time_message(snapcast_custom_parser_t* parser,
 
         parser_reset_state(parser);
 
-        callback(base_message_rx, time_message_rx, time_sync_data,
-                 received_codec_header);
+        return PARSER_COMPLETE; // do callback
 
       } else {
         ESP_LOGE(TAG,
@@ -1144,6 +1124,7 @@ void parse_time_message(snapcast_custom_parser_t* parser,
       break;
     }
   }
+  return PARSER_INCOMPLETE; // no callback
 }
 
 void parse_unknown_message(snapcast_custom_parser_t* parser,

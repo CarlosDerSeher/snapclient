@@ -24,6 +24,12 @@ typedef struct {
   size_t typedMsgCurrentPos;
 } snapcast_custom_parser_t;
 
+typedef enum {
+  PARSER_COMPLETE = 0,
+  PARSER_INCOMPLETE,
+  PARSER_CRITICAL_ERROR,
+} parser_return_state_t;
+
 typedef int (*wire_chunk_callback_t)(codec_type_t codec,
                                   void* scSet,
                                   pcm_chunk_message_t** pcmData,
@@ -50,53 +56,44 @@ void parse_base_message(snapcast_custom_parser_t *parser,
                         base_message_t *base_message_rx, const char *start,
                         int64_t *now);
 
-int parse_wire_chunk_message(snapcast_custom_parser_t* parser,
-                             base_message_t* base_message_rx,
-                             char** start,
-                             uint16_t* len,
-                             uint32_t* offset,
-                             void* scSet,
-                             bool received_codec_header,
-                             codec_type_t codec,
-                             pcm_chunk_message_t** pcmData,
-                             wire_chunk_message_t* wire_chnk,
-                             uint32_t* payloadOffset,
-                             uint32_t* tmpData,
-                             decoderData_t* decoderChunk,
-                             int32_t* payloadDataShift,
-                             wire_chunk_callback_t callback);
+parser_return_state_t parse_wire_chunk_message(snapcast_custom_parser_t* parser,
+                                               base_message_t* base_message_rx,
+                                               char** start,
+                                               uint16_t* len,
+                                               uint32_t* offset,
+                                               bool received_codec_header,
+                                               codec_type_t codec,
+                                               pcm_chunk_message_t** pcmData,
+                                               wire_chunk_message_t* wire_chnk,
+                                               uint32_t* payloadOffset,
+                                               uint32_t* tmpData,
+                                               decoderData_t* decoderChunk,
+                                               int32_t* payloadDataShift);
 
-int parse_codec_header_message(snapcast_custom_parser_t* parser,
-                              char** start,
-                              uint16_t* len,
-                              uint32_t* typedMsgLen,
-                              uint32_t* offset,
-                              bool* received_codec_header,
-                              char** codecString,
-                              codec_type_t* codec,
-                              char** codecPayload,
-                              snapcastSetting_t* scSet,
-                              void* time_sync_data,
-                              codec_header_callback_t callback);
+parser_return_state_t parse_codec_header_message(snapcast_custom_parser_t* parser,
+                                                 char** start,
+                                                 uint16_t* len,
+                                                 uint32_t* typedMsgLen,
+                                                 uint32_t* offset,
+                                                 bool* received_codec_header,
+                                                 char** codecString,
+                                                 codec_type_t* codec,
+                                                 char** codecPayload);
 
-int parse_sever_settings_message(snapcast_custom_parser_t *parser,
-                             base_message_t* base_message_rx,
-                             char** start,
-                             uint16_t* len,
-                             uint32_t* typedMsgLen,
-                             uint32_t* offset,
-                             char** serverSettingsString,
-                             void* scSet,
-                             server_settings_callback_t callback);
+parser_return_state_t parse_sever_settings_message(snapcast_custom_parser_t *parser,
+                                                   base_message_t* base_message_rx,
+                                                   char** start,
+                                                   uint16_t* len,
+                                                   uint32_t* typedMsgLen,
+                                                   uint32_t* offset,
+                                                   char** serverSettingsString);
 
-void parse_time_message(snapcast_custom_parser_t* parser,
-                        base_message_t* base_message_rx,
-                        time_message_t* time_message_rx,
-                        char** start,
-                        uint16_t* len,
-                        void* time_sync_data,
-                        bool received_codec_header,
-                        time_sync_callback_t callback);
+
+parser_return_state_t parse_time_message(snapcast_custom_parser_t* parser,
+                                         base_message_t* base_message_rx,
+                                         time_message_t* time_message_rx,
+                                         char** start, uint16_t* len);
+
 
 void parse_unknown_message(snapcast_custom_parser_t* parser,
                            base_message_t* base_message_rx,

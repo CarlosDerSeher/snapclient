@@ -1484,39 +1484,65 @@ static void http_get_task(void *pvParameters) {
             case TYPED_MESSAGE_STATE: {
               switch (base_message_rx.type) {
                 case SNAPCAST_MESSAGE_WIRE_CHUNK: {
-                  if (parse_wire_chunk_message(&parser, &base_message_rx, &start, &len, &offset, &scSet, received_codec_header,
-                                               codec, &pcmData, &wire_chnk, &payloadOffset, &tmpData, &decoderChunk, &payloadDataShift,
-                                               (wire_chunk_callback_t)handle_chunk_message) != 0){
-                    return;
+                  switch (parse_wire_chunk_message(&parser, &base_message_rx, &start, &len, &offset, received_codec_header,
+                                               codec, &pcmData, &wire_chnk, &payloadOffset, &tmpData, &decoderChunk, &payloadDataShift)) {
+                    case PARSER_COMPLETE: {
+                      if (handle_chunk_message(codec, &scSet, &pcmData, &wire_chnk) != 0) {
+                        return;
+                      }
+                      break;
+                    }
+                    case PARSER_CRITICAL_ERROR: {
+                      return;
+                    }
+                    case PARSER_INCOMPLETE: {
+                      // need more data
+                      break;
+                    }
                   }
                   break;
                 }
 
                 case SNAPCAST_MESSAGE_CODEC_HEADER: {
-                  if (parse_codec_header_message(&parser, &start, &len, &typedMsgLen, &offset, &received_codec_header,
-                                                 &codecString, &codec, &codecPayload, &scSet, &time_sync_data,
-                                                 (codec_header_callback_t)codec_header_received) != 0){
-                    return;
+                  switch (parse_codec_header_message(&parser, &start, &len, &typedMsgLen, &offset, &received_codec_header,
+                                                     &codecString, &codec, &codecPayload)) {
+                    case PARSER_COMPLETE: {
+                      if (codec_header_received(&codecPayload, typedMsgLen, codec, &scSet, &time_sync_data) != 0) {
+                        return;
+                      }
+                      break;
+                    }
+                    case PARSER_CRITICAL_ERROR: {
+                      return;
+                    }
+                    case PARSER_INCOMPLETE: {
+                      // need more data
+                      break;
+                    }
                   }
                   break;
                 }
 
                 case SNAPCAST_MESSAGE_SERVER_SETTINGS: {
                   if (parse_sever_settings_message(&parser, &base_message_rx,
-                                                  &start, &len, &typedMsgLen, &offset,
-                                                  &serverSettingsString,
-                                                  &scSet, (server_settings_callback_t)server_settings_msg_received) != 0) {
-                    return;
+                                                       &start, &len, &typedMsgLen, &offset,
+                                                       &serverSettingsString) == PARSER_COMPLETE) {
+                    if (server_settings_msg_received(serverSettingsString, &scSet) != 0){
+                      //free?
+                      return;
+                    }
+                    free(serverSettingsString);
+                    serverSettingsString = NULL;
+                    // No need to check for error here, they do not occur in parse_sever_settings_message
                   }
                   break;
                 }
 
                 case SNAPCAST_MESSAGE_TIME: {
-
-                  parse_time_message(&parser, &base_message_rx,
-                                     &time_message_rx, &start, &len,
-                                     &time_sync_data, received_codec_header,
-                                     (time_sync_callback_t)time_sync_msg_received);
+                  if (parse_time_message(&parser, &base_message_rx, &time_message_rx, &start, &len) == PARSER_COMPLETE){ 
+                    time_sync_msg_received(&base_message_rx, &time_message_rx, &time_sync_data, received_codec_header);
+                  }
+                  // No need to check for error here, they do not occur in parse_time_message or time_sync_msg_received
                   break;
                 }
 
