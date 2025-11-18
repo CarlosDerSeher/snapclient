@@ -1471,12 +1471,30 @@ static void http_get_task(void *pvParameters) {
           switch (parser.state) {
             // decode base message
             case BASE_MESSAGE_STATE: {
-              parse_base_message(&parser, &base_message_rx, start, &time_sync_data.now);
+              if (parse_base_message(&parser, &base_message_rx, start) == PARSER_COMPLETE) {
+                time_sync_data.now = esp_timer_get_time();
 
-              // currentPos++;++;
+                base_message_rx.received.sec = time_sync_data.now / 1000000;
+                base_message_rx.received.usec = time_sync_data.now - base_message_rx.received.sec * 1000000;
+
+                // ESP_LOGI(TAG, "BM type %d ts %ld.%ld, refers to %u",
+                //          base_message_rx.type,
+                //          base_message_rx.received.sec,
+                //          base_message_rx.received.usec,
+                //          base_message_rx.refersTo);
+
+                // ESP_LOGI(TAG,"%u, %ld.%ld", base_message_rx.type,
+                //                   base_message_rx.received.sec,
+                //                   base_message_rx.received.usec);
+                // ESP_LOGI(TAG,"%u, %llu", base_message_rx.type,
+                //		                      1000000ULL *
+                //                          (uint64_t)base_message_rx.received.sec
+                //                          +
+                //                          (uint64_t)base_message_rx.received.usec);
+              }
               len--;
               start++;
-
+              // No need to check for error here, they do not occur in parse_base_message
               break;
             }
 

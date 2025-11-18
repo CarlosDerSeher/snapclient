@@ -52,9 +52,8 @@ typedef int (*codec_header_callback_t)(char** codecPayload,
 
 void parser_reset_state(snapcast_custom_parser_t* parser);
 
-void parse_base_message(snapcast_custom_parser_t *parser,
-                        base_message_t *base_message_rx, const char *start,
-                        int64_t *now);
+parser_return_state_t parse_base_message(snapcast_custom_parser_t *parser,
+                                         base_message_t *base_message_rx, const char *start);
 
 parser_return_state_t parse_wire_chunk_message(snapcast_custom_parser_t* parser,
                                                base_message_t* base_message_rx,

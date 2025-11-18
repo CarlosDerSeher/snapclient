@@ -11,9 +11,8 @@ void parser_reset_state(snapcast_custom_parser_t* parser) {
   parser->typedMsgCurrentPos = 0;
 }
 
-void parse_base_message(snapcast_custom_parser_t *parser,
-                        base_message_t *base_message_rx, const char *start,
-                        int64_t *now) {
+parser_return_state_t parse_base_message(snapcast_custom_parser_t *parser,
+                                         base_message_t *base_message_rx, const char *start) {
   switch (parser->internalState) {
     case 0:
       base_message_rx->type = *start & 0xFF;
@@ -142,33 +141,11 @@ void parse_base_message(snapcast_custom_parser_t *parser,
 
     case 25:
       base_message_rx->size |= (*start & 0xFF) << 24;
-
-      *now = esp_timer_get_time();
-
-      base_message_rx->received.sec = *now / 1000000;
-      base_message_rx->received.usec =
-          *now - base_message_rx->received.sec * 1000000;
-
-
-      // ESP_LOGI(TAG, "BM type %d ts %ld.%ld, refers to %u",
-      //          base_message_rx->type,
-      //          base_message_rx->received.sec,
-      //          base_message_rx->received.usec,
-      //          base_message_rx->refersTo);
-
-      // ESP_LOGI(TAG,"%u, %ld.%ld", base_message_rx->type,
-      //                   base_message_rx->received.sec,
-      //                   base_message_rx->received.usec);
-      // ESP_LOGI(TAG,"%u, %llu", base_message_rx->type,
-      //		                      1000000ULL *
-      //                          (uint64_t)base_message_rx->received.sec
-      //                          +
-      //                          (uint64_t)base_message_rx->received.usec);
-
       parser_reset_state(parser);
       parser->state = TYPED_MESSAGE_STATE;
-      break;
+      return PARSER_COMPLETE;
   }
+  return PARSER_INCOMPLETE;
 }
 
 
