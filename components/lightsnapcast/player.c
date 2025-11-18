@@ -8,6 +8,7 @@
 
 #include "driver/i2s_common.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/portmacro.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
@@ -181,12 +182,12 @@ static esp_err_t player_setup_i2s(snapcastSetting_t *setting) {
   }
 
 #if USE_SAMPLE_INSERTION
-  i2sDmaBufCnt = 22;
+  i2sDmaBufCnt = 3;
   // OPUS has a minimum frame size of 120
   // with DMA buffer set to this value sync algorithm
   // works for all decoders. We set it to 100 so
   // there will be free space for sample stuffing in each round
-  i2sDmaBufMaxLen = 100;
+  i2sDmaBufMaxLen = 1024;
 #else
   int fi2s_clk;
   const int __dmaBufMaxLen = 1024;
@@ -1596,6 +1597,7 @@ static void player_task(void *pvParameters) {
   
               if ((dir_insert_sample > 0) && (size >= sampleSizeInBytes)) {
                 size -= sampleSizeInBytes;
+                dir_insert_sample = 0;
               }
               
               i2s_channel_write(tx_chan, p_payload, size, &written, portMAX_DELAY);
@@ -1610,11 +1612,11 @@ static void player_task(void *pvParameters) {
                   ESP_LOGE(TAG, "i2s_playback_task:  I2S write error %d", 1);
                 }
                 else {
+                  samples_written += (written / framesToBytes);
+                  dir_insert_sample = 0;
                   chunkStart += (1000000ll * (written / framesToBytes) / scSet.sr);
                 } 
               }
-              
-              dir_insert_sample = 0;
               
               if (size == 0) {
                 if (fragment->nextFragment != NULL) {
@@ -1764,22 +1766,24 @@ static void player_task(void *pvParameters) {
         if (server_now(&serverNow, &diff2Server) >= 0) {
           {
             int64_t now_us = esp_timer_get_time();
+            // actually played out samples
+            int64_t samples_played = samples_written - i2sDmaBufCnt * i2sDmaBufMaxLen;
+            #if 0
             // actually played out samples estimate based on clock
-            double samples_played_est = (now_us - playback_start_time_us) * ((float)scSet.sr / 1e6);
-            int64_t target_play_local_us = chunkStart - diff2Server + buf_us - outputBufferDacTime_us;
+            //double samples_played_est = (now_us - playback_start_time_us) * ((float)scSet.sr / 1e6);
             // samples expected to have played
             double samples_expected = (target_play_local_us - playback_start_time_us) * ((float)scSet.sr / 1e6);
-            // actually played out samples
-            uint64_t samples_played = samples_written - i2sDmaBufCnt * i2sDmaBufMaxLen;
+            double error_samples = samples_expected - samples_played;
+            ESP_LOGI(TAG, "%0.2lf", error_samples);
+            #endif
+            
+            // expected play out based on timestamp
+            int64_t target_play_local_us = chunkStart - diff2Server + buf_us - outputBufferDacTime_us;
             // Ideal playout time based on local audio clock                    
-            int64_t actual_play_local_us = playback_start_time_us + (int64_t)((samples_played_est * 1e6) / scSet.sr);
-            
-            double error_samples = samples_expected - samples_played_est;                    
+            int64_t actual_play_local_us = playback_start_time_us + (int64_t)((samples_played * 1000000ll) / (int64_t)scSet.sr);
             int64_t error_us = actual_play_local_us - target_play_local_us;
-            
-            //ESP_LOGI(TAG, "%0.2lf, %lld, %llu/%llu", error_samples, error_us, (uint64_t)samples_played_est, samples_played);
-//            ESP_LOGI(TAG, "%0.2lf, %lld", error_samples, error_us);
-            
+            // ESP_LOGI(TAG, "%lld", error_us);
+
             age = error_us;
           }
           
@@ -1861,7 +1865,7 @@ static void player_task(void *pvParameters) {
             adjust_apll(dir);
           }
 #endif
-           ESP_LOGI(TAG, "%d, %lldus, %lldus, %lldus, q:%d, %lld, %lld", dir,
+           ESP_LOGD(TAG, "%d, %lldus, %lldus, %lldus, q:%d, %lld, %lld", dir,
                    age, shortMedian, miniMedian,
                    uxQueueMessagesWaiting(pcmChkQHdl), insertedSamplesCounter,
                    chunkDuration_us);
