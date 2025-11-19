@@ -1,7 +1,6 @@
 #include "snapcast_custom_parser.h"
 
 #include "esp_log.h"
-#include "esp_timer.h"
 
 static const char *TAG = "SNAPCAST_CUSTOM_PARSER";
 
