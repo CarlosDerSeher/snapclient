@@ -6,7 +6,7 @@
         {
             "label": "Start Docker Container for Build",
             "type": "shell",
-            "command": "docker run --rm -it -v .:/project -w /project -v /dev:/dev --privileged espressif/idf:v5.1.1",
+            "command": "docker run --rm -it -v ${workspaceFolder}:${workspaceFolder} -w ${workspaceFolder} -v /dev:/dev --privileged espressif/idf:v5.1.1",
             "problemMatcher": []
         },
         {
