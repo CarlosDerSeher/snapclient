@@ -324,18 +324,15 @@ esp_err_t tas5805m_ctrl(audio_hal_codec_mode_t mode,
                         audio_hal_ctrl_t ctrl_state) {
   esp_err_t ret;
   if (ctrl_state == AUDIO_HAL_CTRL_STOP) {
-    // set deepsleep
     ESP_LOGI(TAG, "%s: Setting to DEEP_SLEEP", __func__);
     ret = tas5805m_set_state(TAS5805M_CTRL_DEEP_SLEEP);
-    //ret = tas5805m_write_byte(TAS5805M_DEVICE_CTRL_2_REGISTER,
-    //                            TAS5805M_CTRL_DEEP_SLEEP + 0x08*mute);
     
   } else {
     ESP_LOGI(TAG, "%s: Setting to HI_Z", __func__);
     ret = tas5805m_set_state(TAS5805M_CTRL_HI_Z);
     vTaskDelay(1 / portTICK_PERIOD_MS);
     ESP_LOGI(TAG, "%s: Setting to PLAY", __func__);
-    ret |= tas5805m_set_state(TAS5805M_CTRL_PLAY);
+    ret |= tas5805m_set_state(tas5805m_state.mute ?  TAS5805M_CTRL_MUTE : TAS5805M_CTRL_PLAY);
   }
   
   return ret;
