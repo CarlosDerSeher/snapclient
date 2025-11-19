@@ -42,14 +42,11 @@ extern "C" {
 #define I2C_MASTER_RX_BUF_DISABLE 0 /*!< I2C master doesn't need buffer */
 #define I2C_MASTER_TIMEOUT_MS 1000
 
-#define TAS5805M_VOLUME_MUTE    0xff // (-103.5 dB - actual mute)
-#define TAS5805M_VOLUME_MIN 	0xa8 // (   -60 dB - save value representing barely hearable volume)
-#define TAS5805M_VOLUME_MAX     0x30 // (     0 dB - maximum volume that guarantees no distortion )
-/*
-// TODO: make it available for user configuration
-#define TAS5805M_REG_VOLUME_MAX     0x00 // (+24 dB - maximum volume that DAC can do)
-*/
+/* Represented in % */
+#define TAS5805M_VOLUME_MIN 0
+#define TAS5805M_VOLUME_MAX 100
 
+#define TAS5805M_VOLUME_MUTE 255
 /* See here for the original Implementation : audio_hal/driver/tas5805m */
 /* Its not from me it was developed by Espressif */
 /* Volume steps tas5805m_volume[0] => 255 which means mute */
@@ -57,19 +54,17 @@ static const uint8_t tas5805m_volume[] = {
 	0xff, 0x9f, 0x8f, 0x7f, 0x6f, 0x5f, 0x5c, 0x5a, 0x58, 0x54, 0x50,
 	0x4c, 0x4a, 0x48, 0x44, 0x40, 0x3d, 0x3b, 0x39, 0x37, 0x35};
 
-
 typedef enum {
 	TAS5805M_CTRL_DEEP_SLEEP = 	0x00,	 					// Deep Sleep
 	TAS5805M_CTRL_SLEEP 	= 0x01,		 					// Sleep
 	TAS5805M_CTRL_HI_Z 		= 0x02,		 					// Hi-Z
 	TAS5805M_CTRL_PLAY 		= 0x03,			 				// Play
-	TAS5805M_CTRL_MUTE 		= 0x08,  					 	// Mute Flag
-															// Mute, but driver in PLAY state
-	TAS5805M_CTRL_PLAY_MUTE = TAS5805M_CTRL_MUTE | TAS5805M_CTRL_PLAY
+	TAS5805M_CTRL_MUTE 		= 0x08 | TAS5805M_CTRL_PLAY 	// Mute + Play
 } TAS5805M_CTRL_STATE;
 
 typedef struct {
-	int8_t volume;
+	bool mute;
+  int8_t volume;
 	TAS5805M_CTRL_STATE state;
 } TAS5805_STATE;
 
@@ -129,23 +124,6 @@ esp_err_t tas5805m_get_volume(int *vol);
 esp_err_t tas5805m_set_mute(bool enable);
 
 /**
- * @brief Get TAS5805 mute status
- *
- *  @return
- *     - ESP_FAIL Parameter error
- *     - ESP_OK   Success
- */
-esp_err_t tas5805m_get_mute(bool *enabled);
-
-/**
- * @brief Get cached TAS5805 state
- *
- * @param[out] out_state pointer to TAS5805_STATE to receive cached values
- * @return ESP_OK or error
- */
-esp_err_t tas5805m_get_state(TAS5805_STATE *out_state);
-
-/**
  * @brief Set the state of the TAS5805M
  *
  * @param state: The state to set
@@ -154,26 +132,17 @@ esp_err_t tas5805m_get_state(TAS5805_STATE *out_state);
 esp_err_t tas5805m_set_state(TAS5805M_CTRL_STATE state);
 
 /**
- * @brief  Control the TAS5805 codec chip
+ * @brief Get TAS5805 mute status
  *
- * @param mode: codec mode
- * @param ctrl_state: control state
- *
- * @return
- *     - ESP_OK
- *     - ESP_FAIL
- */	
+ *  @return
+ *     - ESP_FAIL Parameter error
+ *     - ESP_OK   Success
+ */
+esp_err_t tas5805m_get_mute(bool *enabled);
+
 esp_err_t tas5805m_ctrl(audio_hal_codec_mode_t mode,
 						audio_hal_ctrl_t ctrl_state);
 
-/**
- * @brief  Configure the I2S interface of TAS5805 codec chip
- * @param mode: codec mode
- * @param iface: I2S interface configuration		
- * @return
- *    - ESP_OK
- * 	- ESP_FAIL
- */	
 esp_err_t tas5805m_config_iface(audio_hal_codec_mode_t mode,
 								audio_hal_codec_i2s_iface_t *iface);
 
