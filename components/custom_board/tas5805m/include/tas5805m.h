@@ -42,15 +42,14 @@ extern "C" {
 #define I2C_MASTER_RX_BUF_DISABLE 0 /*!< I2C master doesn't need buffer */
 #define I2C_MASTER_TIMEOUT_MS 1000
 
-/* Represented in % */
-#define TAS5805M_REG_VOLUME_MIN 	0xff
-#define TAS5805M_REG_VOLUME_MAX     0x30 // (  0 dB - maximum volume that guarantees no distortion )
+#define TAS5805M_VOLUME_MUTE    0xff // (-103.5 dB - actual mute)
+#define TAS5805M_VOLUME_MIN 	0xa8 // (   -60 dB - save value representing barely hearable volume)
+#define TAS5805M_VOLUME_MAX     0x30 // (     0 dB - maximum volume that guarantees no distortion )
 /*
 // TODO: make it available for user configuration
 #define TAS5805M_REG_VOLUME_MAX     0x00 // (+24 dB - maximum volume that DAC can do)
 */
 
-#define TAS5805M_VOLUME_MUTE 255
 /* See here for the original Implementation : audio_hal/driver/tas5805m */
 /* Its not from me it was developed by Espressif */
 /* Volume steps tas5805m_volume[0] => 255 which means mute */
