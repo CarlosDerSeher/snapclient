@@ -22,6 +22,7 @@
 
 #if ENABLE_WIFI_PROVISIONING
 #include "wifi_provisioning.h"
+#include "freertos/task.h"
 #endif
 
 static const char *TAG = "WIFI_IF";
@@ -61,6 +62,20 @@ static void event_handler(void *arg, esp_event_base_t event_base, int event_id,
   }
 }
 
+#if ENABLE_WIFI_PROVISIONING
+/*
+ * Short-lived task to deinitialize Improv provisioning after a delay.
+ * Defined at file scope because C does not support nested functions.
+ */
+static void improv_deinit_task(void *pv) {
+  (void)pv;
+  vTaskDelay(pdMS_TO_TICKS(500));
+  ESP_LOGI(TAG, "Deinitiating improv provisioning");
+  improv_deinit();
+  vTaskDelete(NULL);
+}
+#endif
+
 /** Event handler for IP_EVENT_ETH_GOT_IP */
 static void got_ip_event_handler(void *arg, esp_event_base_t event_base,
                                  int32_t event_id, void *event_data) {
@@ -85,6 +100,14 @@ static void got_ip_event_handler(void *arg, esp_event_base_t event_base,
   ESP_LOGI(TAG, "~~~~~~~~~~~");
 
   s_retry_num = 0;
+
+#if ENABLE_WIFI_PROVISIONING
+  BaseType_t r = xTaskCreate(improv_deinit_task, "improv_deinit", 2048,
+                             NULL, tskIDLE_PRIORITY + 1, NULL);
+  if (r != pdPASS) {
+    ESP_LOGW(TAG, "failed to create improv_deinit task");
+  }
+#endif
 }
 
 static void lost_ip_event_handler(void *arg, esp_event_base_t event_base,

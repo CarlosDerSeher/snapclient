@@ -4,19 +4,24 @@
  *  Created on: Apr 28, 2024
  *      Author: karl
  */
-
-#include "wifi_provisioning.h"
-
+#include <stdlib.h>
 #include <string.h>
 
+#include "driver/uart.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
+#include "freertos/projdefs.h"
 #include "freertos/task.h"
 #include "improv_wrapper.h"
+#include "network_interface.h"
 #include "wifi_interface.h"
+
+#include "wifi_provisioning.h"
+
+#define TAG "IMPROV"
 
 #ifdef CONFIG_ESP_CONSOLE_UART_DEFAULT
 #include "driver/uart.h"
@@ -60,11 +65,8 @@ void uart_event_handler(void) {
       events than other types of events. If we take too much time on data event,
       the queue might be full. */
       case UART_DATA:
-        ESP_LOGD(TAG, "[UART DATA]: %d bytes", event.size);
-
+        //ESP_LOGD(TAG, "uart data: %d bytes", event.size);
         uart_read_bytes(uart_num, dtmp, event.size, portMAX_DELAY);
-        // ESP_LOGD(TAG, "[DATA EVT]:");
-
         improv_wifi_handle_serial(dtmp, event.size);
         break;
       // Event of HW FIFO overflow detected
@@ -86,6 +88,8 @@ void uart_event_handler(void) {
         // read more data.
         uart_flush_input(uart_num);
         xQueueReset(uart_queue);
+        break;
+      case UART_BREAK:
         break;
       // Others
       default:
@@ -138,7 +142,7 @@ void improv_wifi_scan(unsigned char *scanResponse, int bufLen,
   wifi_ap_record_t ap_info[16];
 
   memset(ap_info, 0, sizeof(ap_info));
-
+  ESP_LOGD(TAG, "Starting WiFi scan for improv");
   if (esp_wifi_scan_start(NULL, true) == ESP_ERR_WIFI_STATE) {
     wifi_ap_record_t ap_info_tmp;
 
@@ -231,18 +235,31 @@ bool improv_wifi_is_connected(void) {
 void improv_wifi_get_local_ip(uint8_t *address) {
   esp_netif_ip_info_t ip_info;
 
-  // TODO: find a better way to do this
-  do {
-    esp_netif_get_ip_info(get_current_netif(), &ip_info);
-    vTaskDelay(pdMS_TO_TICKS(200));
-  } while (ip_info.ip.addr == 0);
+  /* Wait a short time for an IP to become available. Improv frequently asks
+     for the local IP during onboarding; when called too early we should
+     wait briefly rather than returning 0.0.0.0 immediately. */
+  const TickType_t timeout = pdMS_TO_TICKS(2000); /* 2s */
+  TickType_t start = xTaskGetTickCount();
 
-  address[0] = ip_info.ip.addr >> 0;
-  address[1] = ip_info.ip.addr >> 8;
-  address[2] = ip_info.ip.addr >> 16;
-  address[3] = ip_info.ip.addr >> 24;
+  while (network_if_get_ip(&ip_info) == false) {
+    if ((xTaskGetTickCount() - start) > timeout) {
+      ESP_LOGW(TAG, "%s: no valid IP available after timeout", __func__);
+      /* return all-zero address (caller should handle this) */
+      address[0] = 0;
+      address[1] = 0;
+      address[2] = 0;
+      address[3] = 0;
+      return;
+    }
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
 
-  ESP_LOGD(TAG, "%d.%d.%d.%d", address[0], address[1], address[2], address[3]);
+  address[0] = (uint8_t)(ip_info.ip.addr & 0xFF);
+  address[1] = (uint8_t)((ip_info.ip.addr >> 8) & 0xFF);
+  address[2] = (uint8_t)((ip_info.ip.addr >> 16) & 0xFF);
+  address[3] = (uint8_t)((ip_info.ip.addr >> 24) & 0xFF);
+
+  ESP_LOGI(TAG, "%d.%d.%d.%d", address[0], address[1], address[2], address[3]);
 }
 
 void improv_init(void) {
@@ -286,7 +303,7 @@ void improv_init(void) {
                                       uart_buffer_size, 10, &uart_queue, 0);
 
   if (ret != ESP_OK) {
-      ESP_LOGE(TAG, "Failed to install UART driver: %s", esp_err_to_name(ret));
+    ESP_LOGE(TAG, "Failed to install UART driver: %s", esp_err_to_name(ret));
   } else {
     BaseType_t task_ret = xTaskCreatePinnedToCore(&improv_uart_task, "improv_uart", 8 * 1024, NULL, 4,
                           &t_improv_uart_task, tskNO_AFFINITY);
@@ -306,7 +323,6 @@ void improv_init(void) {
   esp_err_t usb_ret = usb_serial_jtag_driver_install(&usb_serial_config);
   if (usb_ret == ESP_OK) {
     ESP_LOGD(TAG, "USB Serial JTAG driver installed successfully");
-    
     // Create USB Serial task
     BaseType_t usb_task_ret = xTaskCreatePinnedToCore(&usb_serial_improv_task, "usb_improv", 
                               8 * 1024, NULL, 4, &t_usb_serial_task, tskNO_AFFINITY);
