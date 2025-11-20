@@ -274,44 +274,41 @@ esp_err_t tas5805m_set_state(TAS5805M_CTRL_STATE state)
 // Setting the Volume
 esp_err_t tas5805m_set_volume(int vol) {
   ESP_LOGD(TAG, "%s: Setting volume to %d", __func__, vol);
-  int vol_idx = 0;  // Temp-Variable
-  
-  /* Checking if Volume is bigger or smaller than the max values */
-  if (vol < TAS5805M_VOLUME_MIN) {
-    vol = TAS5805M_VOLUME_MIN;
-  }
-  if (vol > TAS5805M_VOLUME_MAX) {
-    vol = TAS5805M_VOLUME_MAX;
-  }
-  /* Mapping the Values from 0-100 to 254-0 */
-  vol_idx = vol / 5;
+  /* Clamp input percent to [0..100] */
+  if (vol < 0) vol = 0;
+  if (vol > 100) vol = 100;
+
+  /* Map linear percent (0..100) to register range (TAS5805M_REG_VOLUME_MIN..TAS5805M_REG_VOLUME_MAX)
+   * Note: on this device register values decrease with increasing volume (e.g. 0xff = mute, 0x30 = max)
+   * We'll compute: reg = reg_min + round((reg_max - reg_min) * vol / 100)
+   */
+  int32_t reg_min = (int32_t)TAS5805M_REG_VOLUME_MIN;
+  int32_t reg_max = (int32_t)TAS5805M_REG_VOLUME_MAX;
+  int32_t diff = reg_max - reg_min; /* may be negative */
+  int32_t numer = diff * vol;
+  /* integer rounding toward nearest */
+  int32_t adj = (numer >= 0) ? (numer + 50) / 100 : (numer - 50) / 100;
+  uint8_t reg_val = (uint8_t)(reg_min + adj);
+
   /* Writing the Volume to the Register*/
-  esp_err_t ret = tas5805m_write_byte(TAS5805M_DIG_VOL_CTRL_REGISTER,
-                             tas5805m_volume[vol_idx]);
+  esp_err_t ret = tas5805m_write_byte(TAS5805M_DIG_VOL_CTRL_REGISTER, reg_val);
   if (ret == ESP_OK) {
-    /* Update cached volume only if write succeeded */
-    tas5805m_state.volume = vol_idx;
+    tas5805m_state.volume = vol;
   } else {
-    ESP_LOGW(TAG, "%s: Failed to write volume (idx %d): %s", __func__, vol_idx, esp_err_to_name(ret));
+    ESP_LOGW(TAG, "%s: Failed to write volume (reg 0x%02x): %s", __func__, reg_val, esp_err_to_name(ret));
   }
   return ret;
 }
 
 // Getting the Volume
 esp_err_t tas5805m_get_volume(int *vol) {
-  esp_err_t ret = ESP_OK;
-  uint8_t rxbuf = 0;
-  ret = tas5805m_read_byte(TAS5805M_DIG_VOL_CTRL_REGISTER, &rxbuf);
-  int i;
-  for (i = 0; i < sizeof(tas5805m_volume); i++) {
-    if (rxbuf >= tas5805m_volume[i]) break;
+  if (vol == NULL) {
+    return ESP_ERR_INVALID_ARG;
   }
-  
-  /* Updating the global volume Variable */
-  tas5805m_state.volume = i;
-  ESP_LOGD(TAG, "%s: Getting volume: %d", __func__, i * 5);
-  *vol = 5 * i;  // Converting it to percent
-  return ret;
+
+  *vol = tas5805m_state.volume;
+  ESP_LOGD(TAG, "%s: Getting volume (cached): %d", __func__, *vol);
+  return ESP_OK;
 }
 
 // Deinit the TAS5805M
