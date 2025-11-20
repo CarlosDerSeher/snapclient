@@ -1,0 +1,39 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Start Docker Container for Build",
+            "type": "shell",
+            "command": "docker run --rm -it -v ${workspaceFolder}:${workspaceFolder} -w ${workspaceFolder} -v /dev:/dev --privileged espressif/idf:v5.1.1",
+            "problemMatcher": []
+        },
+        {
+            "label": "Build, Flash and Monitor (Docker)",
+            "type": "shell",
+            "command": "docker run --rm -it -v ${workspaceFolder}:${workspaceFolder} -w ${workspaceFolder} -v /dev:/dev --privileged espressif/idf:v5.1.1 /bin/bash -c '. $IDF_PATH/export.sh && idf.py build flash monitor'",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": {
+                "owner": "cpp",
+                "fileLocation": ["absolute"],
+                "pattern": {
+                    "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5
+                }
+            }
+        }
+    ]
+}
