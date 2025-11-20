@@ -59,12 +59,11 @@ typedef enum {
 	TAS5805M_CTRL_SLEEP 	= 0x01,		 					// Sleep
 	TAS5805M_CTRL_HI_Z 		= 0x02,		 					// Hi-Z
 	TAS5805M_CTRL_PLAY 		= 0x03,			 				// Play
-	TAS5805M_CTRL_MUTE 		= 0x08 | TAS5805M_CTRL_PLAY 	// Mute + Play
+	TAS5805M_CTRL_MUTE 		= 0x08  					 	// Mute Flag
 } TAS5805M_CTRL_STATE;
 
 typedef struct {
-	bool mute;
-  int8_t volume;
+	int8_t volume;
 	TAS5805M_CTRL_STATE state;
 } TAS5805_STATE;
 
@@ -124,14 +123,6 @@ esp_err_t tas5805m_get_volume(int *vol);
 esp_err_t tas5805m_set_mute(bool enable);
 
 /**
- * @brief Set the state of the TAS5805M
- *
- * @param state: The state to set
- *
- */
-esp_err_t tas5805m_set_state(TAS5805M_CTRL_STATE state);
-
-/**
  * @brief Get TAS5805 mute status
  *
  *  @return
@@ -140,9 +131,43 @@ esp_err_t tas5805m_set_state(TAS5805M_CTRL_STATE state);
  */
 esp_err_t tas5805m_get_mute(bool *enabled);
 
+/**
+ * @brief Get cached TAS5805 state
+ *
+ * @param[out] out_state pointer to TAS5805_STATE to receive cached values
+ * @return ESP_OK or error
+ */
+esp_err_t tas5805m_get_state(TAS5805_STATE *out_state);
+
+/**
+ * @brief Set the state of the TAS5805M
+ *
+ * @param state: The state to set
+ *
+ */
+esp_err_t tas5805m_set_state(TAS5805M_CTRL_STATE state);
+
+/**
+ * @brief  Control the TAS5805 codec chip
+ *
+ * @param mode: codec mode
+ * @param ctrl_state: control state
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_FAIL
+ */	
 esp_err_t tas5805m_ctrl(audio_hal_codec_mode_t mode,
 						audio_hal_ctrl_t ctrl_state);
 
+/**
+ * @brief  Configure the I2S interface of TAS5805 codec chip
+ * @param mode: codec mode
+ * @param iface: I2S interface configuration		
+ * @return
+ *    - ESP_OK
+ * 	- ESP_FAIL
+ */	
 esp_err_t tas5805m_config_iface(audio_hal_codec_mode_t mode,
 								audio_hal_codec_i2s_iface_t *iface);
 
