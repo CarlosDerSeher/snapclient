@@ -278,17 +278,25 @@ esp_err_t tas5805m_set_volume(int vol) {
   if (vol < 0) vol = 0;
   if (vol > 100) vol = 100;
 
-  /* Map linear percent (0..100) to register range (TAS5805M_REG_VOLUME_MIN..TAS5805M_REG_VOLUME_MAX)
-   * Note: on this device register values decrease with increasing volume (e.g. 0xff = mute, 0x30 = max)
-   * We'll compute: reg = reg_min + round((reg_max - reg_min) * vol / 100)
-   */
-  int32_t reg_min = (int32_t)TAS5805M_REG_VOLUME_MIN;
-  int32_t reg_max = (int32_t)TAS5805M_REG_VOLUME_MAX;
-  int32_t diff = reg_max - reg_min; /* may be negative */
-  int32_t numer = diff * vol;
-  /* integer rounding toward nearest */
-  int32_t adj = (numer >= 0) ? (numer + 50) / 100 : (numer - 50) / 100;
-  uint8_t reg_val = (uint8_t)(reg_min + adj);
+    /* If percent is zero, map to the explicit MUTE register value regardless of reg_min
+     * Otherwise map linearly between register min and max. This preserves behaviour when
+     * TAS5805M_VOLUME_MIN isn't 0xff while ensuring vol==0 always mutes.
+     */
+    uint8_t reg_val = 0;
+    if (vol == 0) {
+      reg_val = (uint8_t)TAS5805M_VOLUME_MUTE;
+    } else {
+      /* Map linear percent (1..100) to register range (TAS5805M_VOLUME_MIN..TAS5805M_VOLUME_MAX)
+       * Note: register ordering may be descending (higher register = quieter). Formula handles that.
+       */
+      int32_t reg_min = (int32_t)TAS5805M_VOLUME_MIN;
+      int32_t reg_max = (int32_t)TAS5805M_VOLUME_MAX;
+      int32_t diff = reg_max - reg_min; /* may be negative */
+      int32_t numer = diff * vol;
+      /* integer rounding toward nearest */
+      int32_t adj = (numer >= 0) ? (numer + 50) / 100 : (numer - 50) / 100;
+      reg_val = (uint8_t)(reg_min + adj);
+    }
 
   /* Writing the Volume to the Register*/
   esp_err_t ret = tas5805m_write_byte(TAS5805M_DIG_VOL_CTRL_REGISTER, reg_val);
