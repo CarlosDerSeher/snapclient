@@ -43,8 +43,12 @@ extern "C" {
 #define I2C_MASTER_TIMEOUT_MS 1000
 
 /* Represented in % */
-#define TAS5805M_VOLUME_MIN 0
-#define TAS5805M_VOLUME_MAX 100
+#define TAS5805M_REG_VOLUME_MIN 	0xff
+#define TAS5805M_REG_VOLUME_MAX     0x30 // (  0 dB - maximum volume that guarantees no distortion )
+/*
+// TODO: make it available for user configuration
+#define TAS5805M_REG_VOLUME_MAX     0x00 // (+24 dB - maximum volume that DAC can do)
+*/
 
 #define TAS5805M_VOLUME_MUTE 255
 /* See here for the original Implementation : audio_hal/driver/tas5805m */
@@ -53,6 +57,7 @@ extern "C" {
 static const uint8_t tas5805m_volume[] = {
 	0xff, 0x9f, 0x8f, 0x7f, 0x6f, 0x5f, 0x5c, 0x5a, 0x58, 0x54, 0x50,
 	0x4c, 0x4a, 0x48, 0x44, 0x40, 0x3d, 0x3b, 0x39, 0x37, 0x35};
+
 
 typedef enum {
 	TAS5805M_CTRL_DEEP_SLEEP = 	0x00,	 					// Deep Sleep
