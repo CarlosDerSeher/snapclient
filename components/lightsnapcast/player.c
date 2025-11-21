@@ -1576,7 +1576,7 @@ static void player_task(void *pvParameters) {
           #if 1
           do {
               size_t framesToBytes = (scSet.ch + (scSet.bits >> 3));
-  #if USE_SAMPLE_INSERTION
+#if USE_SAMPLE_INSERTION
               uint32_t sampleSizeInBytes =
                   framesToBytes * INSERT_SAMPLES;
   
@@ -1584,14 +1584,15 @@ static void player_task(void *pvParameters) {
                 size -= sampleSizeInBytes;
                 dir_insert_sample = 0;
               }
-              
+#endif             
               i2s_channel_write(tx_chan, p_payload, size, &written, portMAX_DELAY);
               
               samples_written += (written / framesToBytes);
               size -= written;
               p_payload += written;
               chunkStart += (1000000ll * (written / framesToBytes) / scSet.sr); 
-              
+
+#if USE_SAMPLE_INSERTION
               if (dir_insert_sample < 0) {
                 if (i2s_channel_write(tx_chan, p_payload - sampleSizeInBytes, sampleSizeInBytes, &written, portMAX_DELAY) != ESP_OK) {
                   ESP_LOGE(TAG, "i2s_playback_task:  I2S write error %d", 1);
@@ -1602,7 +1603,7 @@ static void player_task(void *pvParameters) {
                   chunkStart += (1000000ll * (written / framesToBytes) / scSet.sr);
                 } 
               }
-              
+#endif
               if (size == 0) {
                 if (fragment->nextFragment != NULL) {
                   fragment = fragment->nextFragment;
@@ -1620,9 +1621,7 @@ static void player_task(void *pvParameters) {
               }
             } while (1);
             
-            outputBufferDacTime_us = 1000000ULL * i2sDmaBufMaxLen * i2sDmaBufCnt / scSet.sr;
-#endif
-          
+            outputBufferDacTime_us = 1000000ULL * i2sDmaBufMaxLen * i2sDmaBufCnt / scSet.sr; 
           #else
           do {
             written = 0;
