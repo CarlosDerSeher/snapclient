@@ -19,9 +19,36 @@
 #include "freertos/semphr.h"
 #include "network_interface.h"
 #include "nvs_flash.h"
+#include "sdkconfig.h"
 
 #if ENABLE_WIFI_PROVISIONING
 #include "wifi_provisioning.h"
+#endif
+
+#if defined(CONFIG_WIFI_AUTH_WEP)
+  #define WIFI_MIN_AUTHTYPE WIFI_AUTH_WEP
+#elif defined(CONFIG_WIFI_AUTH_WPA_PSK)
+  #define WIFI_MIN_AUTHTYPE WIFI_AUTH_WPA_PSK
+#elif defined(CONFIG_WIFI_AUTH_WPA2_PSK)
+  #define WIFI_MIN_AUTHTYPE WIFI_AUTH_WPA2_PSK
+#elif defined(CONFIG_WIFI_AUTH_WPA_WPA2_PSK)
+  #define WIFI_MIN_AUTHTYPE WIFI_AUTH_WPA_WPA2_PSK
+#elif defined(CONFIG_WIFI_AUTH_ENTERPRISE)
+  #define WIFI_MIN_AUTHTYPE WIFI_AUTH_ENTERPRISE
+#elif defined(CONFIG_WIFI_AUTH_WPA2_ENTERPRISE)
+  #define WIFI_MIN_AUTHTYPE WIFI_AUTH_WPA2_ENTERPRISE
+#elif defined(CONFIG_WIFI_AUTH_WPA3_PSK)
+  #define WIFI_MIN_AUTHTYPE WIFI_AUTH_WPA3_PSK
+#elif defined(CONFIG_WIFI_AUTH_WPA2_WPA3_PSK)
+  #define WIFI_MIN_AUTHTYPE _WIFI_AUTH_WPA2_WPA3_PSK
+#elif defined(CONFIG_WIFI_AUTH_WAPI_PSK)
+  #define WIFI_MIN_AUTHTYPE WIFI_AUTH_WAPI_PSK
+#elif defined(CONFIG_WIFI_AUTH_OWE)
+  #define WIFI_MIN_AUTHTYPE WIFI_AUTH_OWE
+#elif defined(CONFIG_WIFI_AUTH_WPA3_ENT_192)
+  #define WIFI_MIN_AUTHTYPE WIFI_AUTH_WPA3_ENT_192
+#else
+  #define WIFI_MIN_AUTHTYPE WIFI_AUTH_WPA_WPA2_PSK
 #endif
 
 static const char *TAG = "WIFI_IF";
@@ -177,7 +204,7 @@ void wifi_start(void) {
               .ssid = WIFI_SSID,
               .password = WIFI_PASSWORD,
               .sort_method = WIFI_CONNECT_AP_BY_SIGNAL,
-              .threshold.authmode = WIFI_AUTH_WPA2_WPA3_PSK,
+              .threshold.authmode = WIFI_MIN_AUTHTYPE,
               .pmf_cfg = {.capable = true, .required = false},
           },
   };
