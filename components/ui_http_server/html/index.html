@@ -1,113 +1,349 @@
-<!DOCTYPE HTML><html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-	<!-- define meta data -->
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<!-- define the style CSS of your page -->
-	<style>
-		html {font-family: Arial; display: inline-block; text-align: center;}
-		h1 {font-size: 2.9rem;}
-		h2 {font-size: 2.1rem;}
-		p {font-size: 1.9rem;}
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP32 Snapclient DSP Control</title>
+  <style>
+    'use strict';
+    
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 20px auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
 
-		.slider {
-				writing-mode: bt-lr; /* IE */
-				-webkit-appearance: slider-vertical; /* Chromium */
-				margin: 14px;
-				width: 15px;
-				height: 200px;
-				border-radius: 5px;
-				background: #39a6de;
-				outline: none;
-				-webkit-transition: .2s;
-				transition: opacity .2s;
-			}
-		.slider::-webkit-slider-thumb 	{
-							-webkit-appearance: none;
-							appearance: none;
-							width: 25px;
-							height: 25px;
-							border-radius: 12px;
-							background: #f74d4d;
-							cursor: pointer;
-						}
-		.slider::-moz-range-thumb 	{
-							width: 25px;
-							height: 25px;
-							border-radius: 12px;
-							background: #F74D4D;
-							cursor: pointer;
-						}
-	</style>
+    h1 {
+      color: #333;
+      text-align: center;
+    }
+
+    .flow-selector {
+      margin: 20px 0;
+      padding: 15px;
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .flow-selector label {
+      font-weight: bold;
+      margin-right: 10px;
+    }
+
+    .flow-selector select {
+      padding: 8px 12px;
+      font-size: 16px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+    }
+
+    .parameters-container {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .parameter-control {
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .parameter-control label {
+      display: block;
+      font-weight: bold;
+      margin-bottom: 10px;
+      color: #333;
+    }
+
+    .parameter-control .param-info {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .parameter-control .param-name {
+      font-size: 16px;
+    }
+
+    .parameter-control .param-value {
+      font-size: 18px;
+      color: #007bff;
+      font-weight: bold;
+    }
+
+    .parameter-control input[type="range"] {
+      width: 100%;
+      height: 8px;
+      border-radius: 4px;
+      background: #ddd;
+      outline: none;
+      -webkit-appearance: none;
+    }
+
+    .parameter-control input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #007bff;
+      cursor: pointer;
+    }
+
+    .parameter-control input[type="range"]::-moz-range-thumb {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #007bff;
+      cursor: pointer;
+    }
+
+    .parameter-control .range-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #666;
+      margin-top: 5px;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+    }
+
+    .error {
+      background-color: #f8d7da;
+      color: #721c24;
+      padding: 15px;
+      border-radius: 4px;
+      margin: 20px 0;
+    }
+
+    .flow-description {
+      font-size: 14px;
+      color: #666;
+      margin-top: 5px;
+      font-style: italic;
+    }
+
+    .no-parameters {
+      text-align: center;
+      padding: 20px;
+      color: #666;
+      font-style: italic;
+    }
+  </style>
 </head>
 <body>
-	<!-- Displays the range of the slider from -6 to 6 in steps of 0.1 -->
+  <h1>ESP32 Snapclient DSP Control</h1>
+  
+  <div id="app">
+    <div class="loading">Loading DSP capabilities...</div>
+  </div>
 
-	<div class="headline_container">
-		<h1>DSP processor filter configuration</h1>
-	</div>
+  <script>
+    'use strict';
 
-	<div class="body_container" style="max-width: 500px; margin:0px auto; padding-bottom: 30px;">
-		<div class="range_container">
-			<div class="range_1_container" style="float:left; margin:10px">
-			    <div class="sliders_labels">
-			        <label for="BaseGainSlider">Base</label>
-			    </div>
+    // Get backend URL from query parameter (e.g., ?backend=http://192.168.1.100)
+    // This allows testing the UI locally while communicating with the actual device
+    function getBackendURL() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const backend = urlParams.get('backend');
+      if (backend) {
+        console.log('Using backend:', backend);
+        return backend;
+      }
+      // Default: use relative URLs (same server)
+      return '';
+    }
 
-			    <div class="sliders_control">
-			        <input id="BaseGainSlider" type="range" orient="vertical" onchange="sendUpdateSlider()" oninput="updateSlider('baseSliderValue', this.value)" min="-6.00" max="6.00" value="0.00" step="0.01" class="slider">
-			    </div>
+    const BACKEND_URL = getBackendURL();
 
-			    <div class="slider_value" style="width: 100px;">
-			    	<span id="baseSliderValue">0.00</span> dB
-			    </div>
-			</div>
+    let capabilities = null;
+    let currentFlow = null;
 
-			<div class="range_2_container" style="float:left; margin:10px">
-			    <div class="sliders_labels">
-			        <label for="MidGainSlider"">Mids</label>
-			    </div>
+    // Fetch DSP capabilities from the device
+    async function loadCapabilities() {
+      try {
+        const response = await fetch(BACKEND_URL + '/capabilities');
+        if (!response.ok) {
+          throw new Error('Failed to fetch capabilities');
+        }
+        capabilities = await response.json();
+        currentFlow = capabilities.current_flow;
+        renderUI();
+      } catch (error) {
+        console.error('Error loading capabilities:', error);
+        document.getElementById('app').innerHTML = 
+          '<div class="error">Error loading DSP capabilities. Please refresh the page.</div>';
+      }
+    }
 
-			    <div class="sliders_control">
-			        <input id="MidGainSlider" type="range" orient="vertical" onchange="sendUpdateSlider()" oninput="updateSlider('midsSliderValue', this.value)" min="-6.00" max="6.00" value="0.00" step="0.01" class="slider">
-			    </div>
+    // Get current parameter value from device
+    async function getCurrentValue(paramKey) {
+      try {
+        const response = await fetch(BACKEND_URL + `/get?param=${paramKey}`);
+        if (!response.ok) {
+          return null;
+        }
+        const value = await response.text();
+        return parseFloat(value);
+      } catch (error) {
+        console.error(`Error fetching ${paramKey}:`, error);
+        return null;
+      }
+    }
 
-			    <div class="slider_value" style="width: 100px;">
-			    	<span id="midsSliderValue">0.00</span> dB
-			    </div>
-			</div>
+    // Send parameter update to device
+    async function updateParameter(paramKey, value) {
+      try {
+        const response = await fetch(BACKEND_URL + `/post?param=${paramKey}&value=${Math.round(value)}`, {
+          method: 'POST'
+        });
+        if (!response.ok) {
+          console.error('Failed to update parameter');
+        }
+      } catch (error) {
+        console.error('Error updating parameter:', error);
+      }
+    }
 
-			<div class="range_3_container" style="float:left; margin:10px">
-			    <div class="sliders_labels">
-			        <label for="heightsGainSlider">Heights</label>
-			    </div>
+    // Render the complete UI based on capabilities
+    async function renderUI() {
+      const app = document.getElementById('app');
+      
+      // Create flow selector
+      let html = '<div class="flow-selector">';
+      html += '<label for="flow-select">DSP Mode:</label>';
+      html += '<select id="flow-select" onchange="handleFlowChange(this.value)">';
+      
+      for (const flow of capabilities.flows) {
+        const selected = flow.id === currentFlow ? 'selected' : '';
+        html += `<option value="${flow.id}" ${selected}>${flow.name}</option>`;
+      }
+      
+      html += '</select>';
+      
+      // Add flow description
+      const selectedFlow = capabilities.flows.find(f => f.id === currentFlow);
+      if (selectedFlow && selectedFlow.description) {
+        html += `<div class="flow-description">${selectedFlow.description}</div>`;
+      }
+      
+      html += '</div>';
 
-			    <div class="sliders_control">
-			        <input id="heightsGainSlider" type="range" orient="vertical" onchange="sendUpdateSlider()" oninput="updateSlider('heightsSliderValue', this.value)" min="-6.00" max="6.00" value="0.00" step="0.01" class="slider">
-			    </div>
+      // Create parameters container
+      html += '<div class="parameters-container" id="parameters"></div>';
+      
+      app.innerHTML = html;
 
-			    <div class="slider_value" style="width: 100px;">
-			    	<span id="heightsSliderValue">0.00</span> dB
-			    </div>
-			</div>
-		</div>
+      // Render parameters for current flow
+      await renderParameters();
+    }
 
-	<script>
-		function sendUpdateSlider() {
-			var gain_1 = document.getElementById('BaseGainSlider').value;
-			var gain_2 = document.getElementById('MidGainSlider').value;
-			var gain_3 = document.getElementById('heightsGainSlider').value;
+    // Render parameters for the currently selected flow
+    async function renderParameters() {
+      const container = document.getElementById('parameters');
+      const selectedFlow = capabilities.flows.find(f => f.id === currentFlow);
+      
+      if (!selectedFlow || selectedFlow.parameters.length === 0) {
+        container.innerHTML = '<div class="no-parameters">This mode has no adjustable parameters.</div>';
+        return;
+      }
 
-			console.log(gain_1 + ", " + gain_2 + ", " + gain_3);
-			console.log("/post?gain_1=" + gain_1 + "&gain_2= " + gain_2 + "&gain_3=" + gain_3	);
-			var httpRequest = new XMLHttpRequest();
-			httpRequest.open("POST", "/post?gain_1=" + gain_1 + "&gain_2= " + gain_2 + "&gain_3=" + gain_3, true);
-			httpRequest.send();
-		}
+      container.innerHTML = '';
 
-		function updateSlider(id, val) {
-			var output = document.getElementById(id);
-			output.innerHTML = val;
-		}
-	</script>
+      // Create controls for each parameter
+      for (const param of selectedFlow.parameters) {
+        const currentValue = await getCurrentValue(param.key);
+        const value = currentValue !== null ? currentValue : param.default;
+        
+        const controlDiv = document.createElement('div');
+        controlDiv.className = 'parameter-control';
+        
+        let html = '<div class="param-info">';
+        html += `<span class="param-name">${param.name}</span>`;
+        html += `<span class="param-value" id="${param.key}-value">${value.toFixed(1)} ${param.unit}</span>`;
+        html += '</div>';
+        
+        if (param.ui_control === 'slider') {
+          const step = param.step || 1;
+          html += `<input type="range" 
+                    id="${param.key}" 
+                    min="${param.min}" 
+                    max="${param.max}" 
+                    step="${step}" 
+                    value="${value}"
+                    oninput="handleParameterChange('${param.key}', this.value, '${param.unit}')"
+                    aria-label="${param.name}">`;
+          html += '<div class="range-labels">';
+          html += `<span>${param.min} ${param.unit}</span>`;
+          html += `<span>${param.max} ${param.unit}</span>`;
+          html += '</div>';
+        }
+        
+        controlDiv.innerHTML = html;
+        container.appendChild(controlDiv);
+      }
+    }
+
+    // Handle parameter value changes
+    function handleParameterChange(paramKey, value, unit) {
+      const valueSpan = document.getElementById(`${paramKey}-value`);
+      if (valueSpan) {
+        valueSpan.textContent = `${parseFloat(value).toFixed(1)} ${unit}`;
+      }
+      updateParameter(paramKey, value);
+    }
+
+    // Handle DSP flow changes
+    async function handleFlowChange(newFlowId) {
+      currentFlow = newFlowId;
+      
+      // Update flow description
+      const selectedFlow = capabilities.flows.find(f => f.id === newFlowId);
+      const flowSelector = document.querySelector('.flow-selector');
+      const existingDesc = flowSelector.querySelector('.flow-description');
+      
+      if (existingDesc) {
+        existingDesc.remove();
+      }
+      
+      if (selectedFlow && selectedFlow.description) {
+        const descDiv = document.createElement('div');
+        descDiv.className = 'flow-description';
+        descDiv.textContent = selectedFlow.description;
+        flowSelector.appendChild(descDiv);
+      }
+
+      // Map flow ID to enum value
+      const flowEnumMap = {
+        'dspfStereo': 0,
+        'dspfBiamp': 1,
+        'dspf2DOT1': 2,
+        'dspfFunkyHonda': 3,
+        'dspfBassBoost': 4,
+        'dspfEQBassTreble': 5
+      };
+      
+      const flowValue = flowEnumMap[newFlowId];
+      if (flowValue !== undefined) {
+        await updateParameter('dspFlow', flowValue);
+      }
+      
+      // Re-render parameters for new flow
+      await renderParameters();
+    }
+
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', loadCapabilities);
+  </script>
 </body>
 </html>
