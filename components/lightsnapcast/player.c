@@ -43,18 +43,6 @@ static const char *TAG = "PLAYER";
 #define INSERT_SAMPLES \
   1  //!< currently only allowed to be 1 or sync algorithm will break
 
-// define and declare sync state 
-typedef struct {
-    float drift_threshold_us;     // e.g. 500 us
-    float sample_period_us;       // 1e6 / Fs
-} sync_state_t;
-
-static sync_state_t syncs = {
-    .drift_threshold_us = 500.0f,
-    .sample_period_us = (1000000.0f / 48000.0f)
-};
-
-
 const uint32_t SHORT_OFFSET = 128;
 const uint32_t MINI_OFFSET = 64;
 
@@ -291,9 +279,6 @@ static esp_err_t player_setup_i2s(snapcastSetting_t *setting) {
   };
 
   ESP_ERROR_CHECK(i2s_channel_init_std_mode(tx_chan, &tx_std_cfg));
-  
-  syncs.drift_threshold_us = SHORT_OFFSET;
-  syncs.sample_period_us = 1.0e6 / (float)sr;  
 
   // my_i2s_channel_enable(tx_chan);
 
