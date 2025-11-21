@@ -16,7 +16,6 @@
 #include "freertos/projdefs.h"
 #include "freertos/task.h"
 #include "improv_wrapper.h"
-#include "network_interface.h"
 #include "wifi_interface.h"
 
 #include "wifi_provisioning.h"
@@ -241,7 +240,7 @@ void improv_wifi_get_local_ip(uint8_t *address) {
   const TickType_t timeout = pdMS_TO_TICKS(2000); /* 2s */
   TickType_t start = xTaskGetTickCount();
 
-  while (network_if_get_ip(&ip_info) == false) {
+  while (wifi_get_ip(&ip_info) == false) {
     if ((xTaskGetTickCount() - start) > timeout) {
       ESP_LOGW(TAG, "%s: no valid IP available after timeout", __func__);
       /* return all-zero address (caller should handle this) */
