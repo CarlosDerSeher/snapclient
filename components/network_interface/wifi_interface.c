@@ -23,6 +23,18 @@
 
 #if ENABLE_WIFI_PROVISIONING
 #include "wifi_provisioning.h"
+#include "freertos/task.h"
+#endif
+
+/* Configurable delay (ms) before deinitializing improv provisioning after
+  startup. Default is 3 minutes. Can be overridden by defining
+  IMPROV_DEINIT_DELAY_MS or via a sdkconfig CONFIG_IMPROV_DEINIT_DELAY_MS. */
+#ifndef IMPROV_DEINIT_DELAY_MS
+#ifdef CONFIG_IMPROV_DEINIT_DELAY_MS
+#define IMPROV_DEINIT_DELAY_MS CONFIG_IMPROV_DEINIT_DELAY_MS
+#else
+#define IMPROV_DEINIT_DELAY_MS 3*60000
+#endif
 #endif
 
 #if defined(CONFIG_WIFI_AUTH_WEP)
@@ -87,6 +99,21 @@ static void event_handler(void *arg, esp_event_base_t event_base, int event_id,
     ESP_LOGV(TAG, "connect to the AP fail");
   }
 }
+
+#if ENABLE_WIFI_PROVISIONING
+/*
+ * Short-lived task to deinitialize Improv provisioning after a delay.
+ * Defined at file scope because C does not support nested functions.
+ */
+static void improv_deinit_task(void *pv) {
+  (void)pv;
+  vTaskDelay(pdMS_TO_TICKS(IMPROV_DEINIT_DELAY_MS));
+  ESP_LOGI(TAG, "Deinitiating improv provisioning (after %u ms)",
+           (unsigned)IMPROV_DEINIT_DELAY_MS);
+  improv_deinit();
+  vTaskDelete(NULL);
+}
+#endif
 
 /** Event handler for IP_EVENT_ETH_GOT_IP */
 static void got_ip_event_handler(void *arg, esp_event_base_t event_base,
@@ -197,6 +224,20 @@ void wifi_start(void) {
   ESP_LOGI(TAG, "Starting provisioning");
 
   improv_init();
+#if ENABLE_WIFI_PROVISIONING
+  /* Start a short-lived task that will deinit improv after a configurable
+     delay from startup. This ensures we deinit even if we never connect. */
+  static bool improv_deinit_task_created = false;
+  if (!improv_deinit_task_created) {
+    BaseType_t r = xTaskCreate(improv_deinit_task, "improv_deinit", 4096,
+                               NULL, tskIDLE_PRIORITY + 1, NULL);
+    if (r != pdPASS) {
+      ESP_LOGW(TAG, "failed to create improv_deinit task");
+    } else {
+      improv_deinit_task_created = true;
+    }
+  }
+#endif
 #else
   wifi_config_t wifi_config = {
       .sta =
