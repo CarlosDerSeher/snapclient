@@ -1035,6 +1035,56 @@ int handle_chunk_message(codec_type_t codec, snapcastSetting_t* scSet,
 }
 
 
+int receive_data(int* rc2, struct netbuf** firstNetBuf, bool isMuted, esp_netif_t* netif) {
+  while (1) {
+    *rc2 = netconn_recv(lwipNetconn, firstNetBuf);
+    if (*rc2 != ERR_OK) {
+      ESP_LOGE(TAG, "netconn err %d", *rc2);
+      if (*rc2 == ERR_CONN) {
+        netconn_close(lwipNetconn);
+
+        // restart and try to reconnect
+        return -1;
+      }
+
+      if (*firstNetBuf != NULL) {
+        netbuf_delete(*firstNetBuf);
+
+        *firstNetBuf = NULL;
+      }
+      continue;
+    }
+    break;
+  }
+
+#if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
+    CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
+  if (isMuted) {
+    esp_netif_t *eth_netif =
+        network_get_netif_from_desc(NETWORK_INTERFACE_DESC_ETH);
+
+    if (netif != eth_netif) {
+      bool ethUp = network_is_netif_up(eth_netif);
+
+      if (ethUp) {
+        netconn_close(lwipNetconn);
+
+        if (*firstNetBuf != NULL) {
+          netbuf_delete(*firstNetBuf);
+
+          *firstNetBuf = NULL;
+        }
+
+        // restart and try to reconnect using preferred interface ETH
+        return -1;
+      }
+    }
+  }
+#endif
+  return 0;
+}
+
+
 int process_data(
     snapcast_custom_parser_t* parser,
     base_message_t* base_message_rx,
@@ -1522,48 +1572,10 @@ static void http_get_task(void *pvParameters) {
     firstNetBuf = NULL;
 
     while (1) {
-      rc2 = netconn_recv(lwipNetconn, &firstNetBuf);
-      if (rc2 != ERR_OK) {
-        ESP_LOGE(TAG, "netconn err %d", rc2);
-        if (rc2 == ERR_CONN) {
-          netconn_close(lwipNetconn);
 
-          // restart and try to reconnect
-          break;
-        }
-
-        if (firstNetBuf != NULL) {
-          netbuf_delete(firstNetBuf);
-
-          firstNetBuf = NULL;
-        }
-        continue;
+      if (receive_data(&rc2, &firstNetBuf, scSet.muted, netif) != 0) {
+        break; // restart connection
       }
-
-#if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
-    CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
-      if (scSet.muted) {
-        esp_netif_t *eth_netif =
-            network_get_netif_from_desc(NETWORK_INTERFACE_DESC_ETH);
-
-        if (netif != eth_netif) {
-          bool ethUp = network_is_netif_up(eth_netif);
-
-          if (ethUp) {
-            netconn_close(lwipNetconn);
-
-            if (firstNetBuf != NULL) {
-              netbuf_delete(firstNetBuf);
-
-              firstNetBuf = NULL;
-            }
-
-            // restart and try to reconnect using preferred interface ETH
-            break;
-          }
-        }
-      }
-#endif
 
       // now parse the data
       netbuf_first(firstNetBuf);
@@ -1609,7 +1621,6 @@ static void http_get_task(void *pvParameters) {
     }
   }
 }
-
 
 
 /**
