@@ -23,6 +23,7 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "hostname_manager.h"
 
 static const char *TAG = "UI_HTTP";
 
@@ -146,6 +147,31 @@ static esp_err_t Text2Html(httpd_req_t *req, char *filename) {
 }
 
 /**
+ * Simple URL decode function
+ * Decodes %XX hex sequences and + as space
+ */
+static void url_decode(char *dst, const char *src, size_t dst_size) {
+  size_t dst_idx = 0;
+  size_t src_idx = 0;
+  
+  while (src[src_idx] != '\0' && dst_idx < dst_size - 1) {
+    if (src[src_idx] == '%' && src[src_idx + 1] != '\0' && src[src_idx + 2] != '\0') {
+      // Decode %XX
+      char hex[3] = {src[src_idx + 1], src[src_idx + 2], '\0'};
+      dst[dst_idx++] = (char)strtol(hex, NULL, 16);
+      src_idx += 3;
+    } else if (src[src_idx] == '+') {
+      // Convert + to space
+      dst[dst_idx++] = ' ';
+      src_idx++;
+    } else {
+      dst[dst_idx++] = src[src_idx++];
+    }
+  }
+  dst[dst_idx] = '\0';
+}
+
+/**
  * Find key value in parameter string
  */
 static int find_key_value(char *key, char *parameter, char *value) {
@@ -209,7 +235,7 @@ static esp_err_t root_post_handler(httpd_req_t *req) {
   URL_t urlBuf;
   int ret = -1;
   char param[16] = {0};
-  char valstr[32] = {0};
+  char valstr[64] = {0};  // Increased size for hostname
 
   set_cors_headers(req);
 
@@ -217,6 +243,25 @@ static esp_err_t root_post_handler(httpd_req_t *req) {
 
   if (find_key_value("param=", (char *)req->uri, param) &&
       find_key_value("value=", (char *)req->uri, valstr)) {
+    
+    // Special handling for hostname (string parameter)
+    if (strcmp(param, "hostname") == 0) {
+      // URL decode the hostname value
+      char decoded_hostname[64] = {0};
+      url_decode(decoded_hostname, valstr, sizeof(decoded_hostname));
+      
+      ESP_LOGI(TAG, "%s: Setting hostname to: %s", __func__, decoded_hostname);
+      
+      if (hostname_set(decoded_hostname) == ESP_OK) {
+        httpd_resp_set_status(req, "200 OK");
+        httpd_resp_sendstr(req, "ok");
+      } else {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_sendstr(req, "Invalid hostname");
+      }
+      return ESP_OK;
+    }
+    
     // Parse integer value; strtol skips leading whitespace
     long v = strtol(valstr, NULL, 10);
     urlBuf.int_value = (int32_t)v;
@@ -256,6 +301,21 @@ static esp_err_t get_param_handler(httpd_req_t *req) {
   set_cors_headers(req);
   
   if (find_key_value("param=", (char *)req->uri, param)) {
+    // Special handling for hostname (string parameter)
+    if (strcmp(param, "hostname") == 0) {
+      char hostname[64] = {0};
+      if (hostname_get(hostname, sizeof(hostname)) == ESP_OK) {
+        httpd_resp_set_status(req, "200 OK");
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_sendstr(req, hostname);
+        ESP_LOGD(TAG, "%s: hostname=%s", __func__, hostname);
+      } else {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_sendstr(req, "error");
+      }
+      return ESP_OK;
+    }
+    
 #if CONFIG_USE_DSP_PROCESSOR
     // Get current flow from DSP processor
     dspFlows_t current_flow = dsp_processor_get_current_flow();
@@ -365,6 +425,76 @@ static esp_err_t favicon_get_handler(httpd_req_t *req) {
   httpd_resp_set_status(req, "404 Not Found");
   httpd_resp_set_type(req, "text/plain");
   httpd_resp_sendstr(req, "No favicon available");
+  return ESP_OK;
+}
+
+/*
+ * Static file handler
+ * Serves files from SPIFFS /html directory
+ */
+static esp_err_t static_file_handler(httpd_req_t *req) {
+  ESP_LOGD(TAG, "%s: uri=%s", __func__, req->uri);
+  
+  set_cors_headers(req);
+  
+  // Build file path - use smaller buffer to save stack space
+  char filepath[128];
+  // Check URI length to prevent truncation
+  if (strlen(req->uri) > sizeof(filepath) - 6) {  // 6 = strlen("/html") + 1
+    ESP_LOGW(TAG, "%s: URI too long: %s", __func__, req->uri);
+    httpd_resp_set_status(req, "414 URI Too Long");
+    httpd_resp_sendstr(req, "URI too long");
+    return ESP_OK;
+  }
+  snprintf(filepath, sizeof(filepath), "/html%s", req->uri);
+  
+  // Determine content type based on file extension
+  const char *content_type = "text/plain";
+  if (strstr(req->uri, ".html")) {
+    content_type = "text/html";
+  } else if (strstr(req->uri, ".css")) {
+    content_type = "text/css";
+  } else if (strstr(req->uri, ".js")) {
+    content_type = "application/javascript";
+  } else if (strstr(req->uri, ".json")) {
+    content_type = "application/json";
+  } else if (strstr(req->uri, ".png")) {
+    content_type = "image/png";
+  } else if (strstr(req->uri, ".jpg") || strstr(req->uri, ".jpeg")) {
+    content_type = "image/jpeg";
+  } else if (strstr(req->uri, ".ico")) {
+    content_type = "image/x-icon";
+  }
+  
+  // Try to open the file
+  FILE *file = fopen(filepath, "r");
+  if (!file) {
+    ESP_LOGW(TAG, "%s: Failed to open file: %s", __func__, filepath);
+    httpd_resp_set_status(req, "404 Not Found");
+    httpd_resp_sendstr(req, "File not found");
+    return ESP_OK;
+  }
+  
+  // Set content type
+  httpd_resp_set_type(req, content_type);
+  
+  // Send file contents in chunks - use smaller buffer to save stack space
+  char buffer[256];
+  size_t read_bytes;
+  while ((read_bytes = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+    if (httpd_resp_send_chunk(req, buffer, read_bytes) != ESP_OK) {
+      fclose(file);
+      ESP_LOGE(TAG, "%s: Failed to send file chunk", __func__);
+      return ESP_FAIL;
+    }
+  }
+  
+  fclose(file);
+  
+  // Send empty chunk to signal completion
+  httpd_resp_send_chunk(req, NULL, 0);
+  
+  ESP_LOGD(TAG, "%s: Successfully sent file: %s", __func__, filepath);
   return ESP_OK;
 }
 
@@ -480,11 +610,11 @@ esp_err_t start_server(const char *base_path, int port) {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = port;
   config.max_open_sockets = 7;  // Increased from 2 to handle concurrent requests better
+  config.max_uri_handlers = 16;  // Increased from default (8) to accommodate all handlers
   config.lru_purge_enable = true;  // Enable LRU socket purging
 
-  /* Don't use wildcard matching - it doesn't work well with query strings
-   * Instead, the HTTP server will strip query strings before matching */
-  // config.uri_match_fn = httpd_uri_match_wildcard;
+  /* Enable wildcard URI matching for static file handler */
+  config.uri_match_fn = httpd_uri_match_wildcard;
 
   ESP_LOGI(TAG, "%s: Starting HTTP Server on port: '%d'", __func__, config.server_port);
   if (httpd_start(&server, &config) != ESP_OK) {
@@ -540,6 +670,17 @@ esp_err_t start_server(const char *base_path, int port) {
       .uri = "/capabilities", .method = HTTP_OPTIONS, .handler = options_handler,
   };
   httpd_register_uri_handler(server, &_options_capabilities_handler);
+
+  /* URI handler for static files (catch-all, must be last) */
+  httpd_uri_t _static_file_handler = {
+      .uri = "/*", .method = HTTP_GET, .handler = static_file_handler,
+  };
+  esp_err_t ret = httpd_register_uri_handler(server, &_static_file_handler);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "%s: Failed to register static file handler: %s", __func__, esp_err_to_name(ret));
+  } else {
+    ESP_LOGI(TAG, "%s: Static file handler registered for /*", __func__);
+  }
 
   return ESP_OK;
 }
@@ -737,6 +878,7 @@ void init_http_server_task(void) {
     taskHandle = NULL;
   }
 
-  xTaskCreatePinnedToCore(http_server_task, "HTTP", 512 * 5, NULL, 2,
+  // Increased stack size from 512*5 to 512*8 (4KB) to accommodate static file handler
+  xTaskCreatePinnedToCore(http_server_task, "HTTP", 512 * 8, NULL, 2,
                           &taskHandle, tskNO_AFFINITY);
 }
