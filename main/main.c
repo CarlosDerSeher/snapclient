@@ -1034,13 +1034,12 @@ int handle_chunk_message(codec_type_t codec, snapcastSetting_t* scSet,
   return 0;
 }
 
-
-int receive_data(int* rc2, struct netbuf** firstNetBuf, bool isMuted, esp_netif_t* netif) {
+int receive_data(struct netbuf** firstNetBuf, bool isMuted, esp_netif_t* netif) {
   while (1) {
-    *rc2 = netconn_recv(lwipNetconn, firstNetBuf);
-    if (*rc2 != ERR_OK) {
-      ESP_LOGE(TAG, "netconn err %d", *rc2);
-      if (*rc2 == ERR_CONN) {
+    int rc2 = netconn_recv(lwipNetconn, firstNetBuf);
+    if (rc2 != ERR_OK) {
+      ESP_LOGE(TAG, "netconn err %d", rc2);
+      if (rc2 == ERR_CONN) {
         netconn_close(lwipNetconn);
 
         // restart and try to reconnect
@@ -1601,7 +1600,7 @@ static void http_get_task(void *pvParameters) {
 
     while (1) {
 
-      if (receive_data(&rc2, &firstNetBuf, scSet.muted, netif) != 0) {
+      if (receive_data(&firstNetBuf, scSet.muted, netif) != 0) {
         break; // restart connection
       }
 
