@@ -1,4 +1,3 @@
-
 #include <stdint.h>
 #include <string.h>
 
@@ -1036,6 +1035,122 @@ int handle_chunk_message(codec_type_t codec, snapcastSetting_t* scSet,
 }
 
 
+int process_data(
+    snapcast_custom_parser_t* parser,
+    base_message_t* base_message_rx,
+    time_sync_data_t* time_sync_data,
+    time_message_t* time_message_rx,
+    bool* received_codec_header,
+    codec_type_t* codec,
+    snapcastSetting_t* scSet,
+    pcm_chunk_message_t** pcmData,
+    wire_chunk_message_t* wire_chnk,
+    uint32_t* offset,
+    uint32_t* payloadOffset,
+    uint32_t* tmpData,
+    decoderData_t* decoderChunk,
+    int32_t* payloadDataShift,
+    uint32_t* typedMsgLen,
+    char** serverSettingsString,
+    char** codecString,
+    char** codecPayload,
+    char** start,
+    uint16_t* len
+){
+  switch (parser->state) {
+    // decode base message
+    case BASE_MESSAGE_STATE: {
+      if (parse_base_message(parser, base_message_rx, *start) == PARSER_COMPLETE) {
+        time_sync_data->now = esp_timer_get_time();
+
+        base_message_rx->received.sec = time_sync_data->now / 1000000;
+        base_message_rx->received.usec = time_sync_data->now - base_message_rx->received.sec * 1000000;
+      }
+      (*len)--;
+      (*start)++;
+      break;
+    }
+
+    // decode typed message
+    case TYPED_MESSAGE_STATE: {
+      switch (base_message_rx->type) {
+        case SNAPCAST_MESSAGE_WIRE_CHUNK: {
+          switch (parse_wire_chunk_message(parser, base_message_rx, start, len, offset, *received_codec_header,
+                                       *codec, pcmData, wire_chnk, payloadOffset, tmpData, decoderChunk, payloadDataShift)) {
+            case PARSER_COMPLETE: {
+              if (handle_chunk_message(*codec, scSet, pcmData, wire_chnk) != 0) {
+                return -1;
+              }
+              break;
+            }
+            case PARSER_CRITICAL_ERROR: {
+              return -1;
+            }
+            case PARSER_INCOMPLETE: {
+              // need more data
+              return 0;
+            }
+          }
+          break;
+        }
+
+        case SNAPCAST_MESSAGE_CODEC_HEADER: {
+          switch (parse_codec_header_message(parser, start, len, typedMsgLen, offset, received_codec_header,
+                                             codecString, codec, codecPayload)) {
+            case PARSER_COMPLETE: {
+              if (codec_header_received(codecPayload, *typedMsgLen, *codec, scSet, time_sync_data) != 0) {
+                return -1;
+              }
+              break;
+            }
+            case PARSER_CRITICAL_ERROR: {
+              return -1;
+            }
+            case PARSER_INCOMPLETE: {
+              // need more data
+              break;
+            }
+          }
+          break;
+        }
+
+        case SNAPCAST_MESSAGE_SERVER_SETTINGS: {
+          if (parse_sever_settings_message(parser, base_message_rx,
+                                               start, len, typedMsgLen, offset,
+                                               serverSettingsString) == PARSER_COMPLETE) {
+            if (server_settings_msg_received(*serverSettingsString, scSet) != 0){
+              return -1;
+            }
+            free(*serverSettingsString);
+            *serverSettingsString = NULL;
+          }
+          break;
+        }
+
+        case SNAPCAST_MESSAGE_TIME: {
+          if (parse_time_message(parser, base_message_rx, time_message_rx, start, len) == PARSER_COMPLETE){ 
+            time_sync_msg_received(base_message_rx, time_message_rx, time_sync_data, *received_codec_header);
+          }
+          break;
+        }
+
+        default: {
+          parse_unknown_message(parser, base_message_rx, start, len);
+          break;
+        }
+      }
+
+      break;
+    }
+
+    default: {
+      break;
+    }
+  }
+  return 0;
+}
+
+
 /**
  *
  */
@@ -1467,115 +1582,13 @@ static void http_get_task(void *pvParameters) {
 
         while (len > 0) {
           rc1 = ERR_OK;  // probably not necessary
-
-          switch (parser.state) {
-            // decode base message
-            case BASE_MESSAGE_STATE: {
-              if (parse_base_message(&parser, &base_message_rx, start) == PARSER_COMPLETE) {
-                time_sync_data.now = esp_timer_get_time();
-
-                base_message_rx.received.sec = time_sync_data.now / 1000000;
-                base_message_rx.received.usec = time_sync_data.now - base_message_rx.received.sec * 1000000;
-
-                // ESP_LOGI(TAG, "BM type %d ts %ld.%ld, refers to %u",
-                //          base_message_rx.type,
-                //          base_message_rx.received.sec,
-                //          base_message_rx.received.usec,
-                //          base_message_rx.refersTo);
-
-                // ESP_LOGI(TAG,"%u, %ld.%ld", base_message_rx.type,
-                //                   base_message_rx.received.sec,
-                //                   base_message_rx.received.usec);
-                // ESP_LOGI(TAG,"%u, %llu", base_message_rx.type,
-                //		                      1000000ULL *
-                //                          (uint64_t)base_message_rx.received.sec
-                //                          +
-                //                          (uint64_t)base_message_rx.received.usec);
-              }
-              len--;
-              start++;
-              // No need to check for error here, they do not occur in parse_base_message
-              break;
-            }
-
-            // decode typed message
-            case TYPED_MESSAGE_STATE: {
-              switch (base_message_rx.type) {
-                case SNAPCAST_MESSAGE_WIRE_CHUNK: {
-                  switch (parse_wire_chunk_message(&parser, &base_message_rx, &start, &len, &offset, received_codec_header,
-                                               codec, &pcmData, &wire_chnk, &payloadOffset, &tmpData, &decoderChunk, &payloadDataShift)) {
-                    case PARSER_COMPLETE: {
-                      if (handle_chunk_message(codec, &scSet, &pcmData, &wire_chnk) != 0) {
-                        return;
-                      }
-                      break;
-                    }
-                    case PARSER_CRITICAL_ERROR: {
-                      return;
-                    }
-                    case PARSER_INCOMPLETE: {
-                      // need more data
-                      break;
-                    }
-                  }
-                  break;
-                }
-
-                case SNAPCAST_MESSAGE_CODEC_HEADER: {
-                  switch (parse_codec_header_message(&parser, &start, &len, &typedMsgLen, &offset, &received_codec_header,
-                                                     &codecString, &codec, &codecPayload)) {
-                    case PARSER_COMPLETE: {
-                      if (codec_header_received(&codecPayload, typedMsgLen, codec, &scSet, &time_sync_data) != 0) {
-                        return;
-                      }
-                      break;
-                    }
-                    case PARSER_CRITICAL_ERROR: {
-                      return;
-                    }
-                    case PARSER_INCOMPLETE: {
-                      // need more data
-                      break;
-                    }
-                  }
-                  break;
-                }
-
-                case SNAPCAST_MESSAGE_SERVER_SETTINGS: {
-                  if (parse_sever_settings_message(&parser, &base_message_rx,
-                                                       &start, &len, &typedMsgLen, &offset,
-                                                       &serverSettingsString) == PARSER_COMPLETE) {
-                    if (server_settings_msg_received(serverSettingsString, &scSet) != 0){
-                      //free?
-                      return;
-                    }
-                    free(serverSettingsString);
-                    serverSettingsString = NULL;
-                    // No need to check for error here, they do not occur in parse_sever_settings_message
-                  }
-                  break;
-                }
-
-                case SNAPCAST_MESSAGE_TIME: {
-                  if (parse_time_message(&parser, &base_message_rx, &time_message_rx, &start, &len) == PARSER_COMPLETE){ 
-                    time_sync_msg_received(&base_message_rx, &time_message_rx, &time_sync_data, received_codec_header);
-                  }
-                  // No need to check for error here, they do not occur in parse_time_message or time_sync_msg_received
-                  break;
-                }
-
-                default: {
-                  parse_unknown_message(&parser, &base_message_rx, &start, &len);
-                  break;
-                }
-              }
-
-              break;
-            }
-
-            default: {
-              break;
-            }
+         
+          if (process_data(&parser, &base_message_rx, &time_sync_data, &time_message_rx, 
+                          &received_codec_header, &codec, &scSet, &pcmData, &wire_chnk,
+                          &offset, &payloadOffset, &tmpData, &decoderChunk, &payloadDataShift,
+                          &typedMsgLen, &serverSettingsString, &codecString, &codecPayload,
+                          &start, &len) != 0) {
+            return; // critical error in data processing
           }
 
           if (rc1 != ERR_OK) {
