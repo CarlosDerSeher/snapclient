@@ -63,7 +63,9 @@ typedef enum {
 	TAS5805M_CTRL_SLEEP 	= 0x01,		 					// Sleep
 	TAS5805M_CTRL_HI_Z 		= 0x02,		 					// Hi-Z
 	TAS5805M_CTRL_PLAY 		= 0x03,			 				// Play
-	TAS5805M_CTRL_MUTE 		= 0x08  					 	// Mute Flag
+	TAS5805M_CTRL_MUTE 		= 0x08,  					 	// Mute Flag
+															// Mute, but driver in PLAY state
+	TAS5805M_CTRL_PLAY_MUTE = TAS5805M_CTRL_MUTE | TAS5805M_CTRL_PLAY
 } TAS5805M_CTRL_STATE;
 
 typedef struct {
