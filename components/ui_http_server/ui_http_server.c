@@ -694,7 +694,7 @@ static void http_server_task(void *pvParameters) {
   ESP_ERROR_CHECK(start_server("/html", CONFIG_WEB_PORT));
 
   // Load last active flow from NVS
-  int32_t tmpv;
+  int32_t tmpv = 0;
   dspFlows_t active_flow = dspfEQBassTreble;  // default
   if (ui_http_load_param("active_flow", &tmpv) == ESP_OK) {
     active_flow = (dspFlows_t)tmpv;
@@ -705,6 +705,8 @@ static void http_server_task(void *pvParameters) {
   char key[32];
   for (int flow = 0; flow < 6; flow++) {
     filterParams_t params;
+    // Initialize all fields to zero
+    memset(&params, 0, sizeof(filterParams_t));
     params.dspFlow = (dspFlows_t)flow;
     
     // Initialize with defaults from DSP processor
