@@ -1085,6 +1085,34 @@ int receive_data(int* rc2, struct netbuf** firstNetBuf, bool isMuted, esp_netif_
 }
 
 
+int fill_buffer(bool* first_netbuf_processed, int* rc1, struct netbuf* firstNetBuf,
+                char** start, uint16_t* len) {
+  while (1) {
+    // currentPos = 0;
+    if (!*first_netbuf_processed) {
+      netbuf_first(firstNetBuf);
+      *first_netbuf_processed = true;
+    } else {
+      if (netbuf_next(firstNetBuf) < 0) {
+        return -1; // fetch new data from network
+      }
+    }
+
+    *rc1 = netbuf_data(firstNetBuf, (void **)start, len);
+    if (*rc1 == ERR_OK) {
+      // ESP_LOGI (TAG, "netconn rx, data len: %d, %d",
+      // len, netbuf_len(firstNetBuf));
+      return 0;
+    } else {
+      ESP_LOGE(TAG, "netconn rx, couldn't get data");
+      continue; // try again
+    }
+    break; // not reached, defensive programming
+  }
+  return 0; // not reached, defensive programming
+}
+
+
 int process_data(
     snapcast_custom_parser_t* parser,
     base_message_t* base_message_rx,
@@ -1577,19 +1605,13 @@ static void http_get_task(void *pvParameters) {
         break; // restart connection
       }
 
+      bool first_netbuf_processed = false;
       // now parse the data
-      netbuf_first(firstNetBuf);
-      do {
-        // currentPos = 0;
+      while (true) {
 
-        rc1 = netbuf_data(firstNetBuf, (void **)&start, &len);
-        if (rc1 == ERR_OK) {
-          // ESP_LOGI (TAG, "netconn rx, data len: %d, %d",
-          // len, netbuf_len(firstNetBuf));
-        } else {
-          ESP_LOGE(TAG, "netconn rx, couldn't get data");
-
-          continue;
+        if (fill_buffer(&first_netbuf_processed, &rc1, firstNetBuf,
+                    &start, &len) != 0) {
+          break; // fetch new data from network
         }
 
         while (len > 0) {
@@ -1607,7 +1629,7 @@ static void http_get_task(void *pvParameters) {
             break;
           }
         }
-      } while (netbuf_next(firstNetBuf) >= 0);
+      }
 
       netbuf_delete(firstNetBuf);
 
