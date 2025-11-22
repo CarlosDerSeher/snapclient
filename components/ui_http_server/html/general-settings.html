@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>General Settings</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="index.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 20px auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+
+    h1 {
+      color: #333;
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    .settings-container {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .setting-control {
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .setting-control label {
+      display: block;
+      font-weight: bold;
+      margin-bottom: 10px;
+      color: #333;
+      font-size: 16px;
+    }
+
+    .setting-control .description {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 15px;
+      font-style: italic;
+    }
+
+    .setting-control input[type="text"] {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 16px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-sizing: border-box;
+      transition: border-color 0.3s;
+    }
+
+    .setting-control input[type="text"]:focus {
+      outline: none;
+      border-color: #007bff;
+      box-shadow: 0 0 0 3px rgba(0,123,255,0.1);
+    }
+
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 15px;
+    }
+
+    .btn {
+      padding: 10px 20px;
+      font-size: 14px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+
+    .btn-primary {
+      background-color: #007bff;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background-color: #0056b3;
+    }
+
+    .btn-primary:disabled {
+      background-color: #6c757d;
+      cursor: not-allowed;
+    }
+
+    .btn-secondary {
+      background-color: #6c757d;
+      color: white;
+    }
+
+    .btn-secondary:hover {
+      background-color: #545b62;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+    }
+
+    .error {
+      background-color: #f8d7da;
+      color: #721c24;
+      padding: 15px;
+      border-radius: 4px;
+      margin: 20px 0;
+    }
+
+    .success {
+      background-color: #d4edda;
+      color: #155724;
+      padding: 15px;
+      border-radius: 4px;
+      margin: 20px 0;
+    }
+
+    .info {
+      background-color: #d1ecf1;
+      color: #0c5460;
+      padding: 15px;
+      border-radius: 4px;
+      margin: 20px 0;
+      font-size: 14px;
+    }
+
+    .validation-error {
+      color: #dc3545;
+      font-size: 14px;
+      margin-top: 5px;
+    }
+  </style>
+</head>
+<body>
+  <h1>General Settings</h1>
+  
+  <div id="app">
+    <div class="loading">Loading settings...</div>
+  </div>
+
+  <script>
+    'use strict';
+
+    let currentHostname = '';
+    let isDirty = false;
+
+    // Load current settings
+    async function loadSettings() {
+      const app = document.getElementById('app');
+      
+      try {
+        // Get current hostname
+        const response = await getParameter('hostname');
+        currentHostname = response !== null ? response : 'esp32-snapclient';
+        
+        renderUI();
+      } catch (error) {
+        console.error('Error loading settings:', error);
+        showError('Error loading settings. Please refresh the page.', app);
+      }
+    }
+
+    // Render the UI
+    function renderUI() {
+      const app = document.getElementById('app');
+      
+      let html = '<div class="settings-container">';
+      
+      // Hostname setting
+      html += '<div class="setting-control">';
+      html += '<label for="hostname">Device Hostname</label>';
+      html += '<div class="description">Set a custom hostname for your ESP32 Snapclient device. This will be used for mDNS discovery and network identification.</div>';
+      html += `<input type="text" id="hostname" value="${escapeHtml(currentHostname)}" placeholder="esp32-snapclient" maxlength="63" oninput="handleHostnameChange(this.value)">`;
+      html += '<div id="hostname-validation" class="validation-error"></div>';
+      html += '<div class="button-group">';
+      html += '<button class="btn btn-primary" id="save-btn" onclick="saveHostname()" disabled>Save Changes</button>';
+      html += '<button class="btn btn-secondary" onclick="resetHostname()">Reset</button>';
+      html += '</div>';
+      html += '</div>';
+      
+      // Info message
+      html += '<div class="info">';
+      html += '<strong>Note:</strong> After changing the hostname, you will need to restart the device for the changes to take effect.';
+      html += '</div>';
+      
+      html += '</div>';
+      
+      app.innerHTML = html;
+    }
+
+    // Escape HTML to prevent XSS
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Validate hostname according to RFC 1123
+    function validateHostname(hostname) {
+      // Must be 1-63 characters
+      if (hostname.length === 0) {
+        return 'Hostname cannot be empty';
+      }
+      if (hostname.length > 63) {
+        return 'Hostname must be 63 characters or less';
+      }
+      
+      // Must contain only alphanumeric characters and hyphens
+      if (!/^[a-zA-Z0-9-]+$/.test(hostname)) {
+        return 'Hostname must contain only letters, numbers, and hyphens';
+      }
+      
+      // Cannot start or end with a hyphen
+      if (hostname.startsWith('-') || hostname.endsWith('-')) {
+        return 'Hostname cannot start or end with a hyphen';
+      }
+      
+      return null; // Valid
+    }
+
+    // Handle hostname input changes
+    function handleHostnameChange(value) {
+      const validationDiv = document.getElementById('hostname-validation');
+      const saveBtn = document.getElementById('save-btn');
+      
+      const error = validateHostname(value);
+      
+      if (error) {
+        validationDiv.textContent = error;
+        saveBtn.disabled = true;
+        isDirty = false;
+      } else {
+        validationDiv.textContent = '';
+        isDirty = (value !== currentHostname);
+        saveBtn.disabled = !isDirty;
+      }
+    }
+
+    // Save hostname
+    async function saveHostname() {
+      const hostnameInput = document.getElementById('hostname');
+      const newHostname = hostnameInput.value.trim();
+      const saveBtn = document.getElementById('save-btn');
+      
+      // Validate again before saving
+      const error = validateHostname(newHostname);
+      if (error) {
+        alert(error);
+        return;
+      }
+      
+      // Disable button during save
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving...';
+      
+      try {
+        const success = await setParameter('hostname', newHostname);
+        
+        if (success) {
+          currentHostname = newHostname;
+          isDirty = false;
+          
+          // Show success message
+          const app = document.getElementById('app');
+          const successDiv = document.createElement('div');
+          successDiv.className = 'success';
+          successDiv.textContent = 'Hostname saved successfully! Please restart the device for changes to take effect.';
+          app.insertBefore(successDiv, app.firstChild);
+          
+          // Remove success message after 5 seconds
+          setTimeout(() => {
+            successDiv.remove();
+          }, 5000);
+          
+          saveBtn.textContent = 'Save Changes';
+        } else {
+          throw new Error('Failed to save hostname');
+        }
+      } catch (error) {
+        console.error('Error saving hostname:', error);
+        alert('Failed to save hostname. Please try again.');
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Changes';
+      }
+    }
+
+    // Reset hostname to current value
+    function resetHostname() {
+      const hostnameInput = document.getElementById('hostname');
+      const validationDiv = document.getElementById('hostname-validation');
+      const saveBtn = document.getElementById('save-btn');
+      
+      hostnameInput.value = currentHostname;
+      validationDiv.textContent = '';
+      saveBtn.disabled = true;
+      isDirty = false;
+    }
+
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', loadSettings);
+  </script>
+</body>
+</html>

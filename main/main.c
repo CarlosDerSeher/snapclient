@@ -56,6 +56,7 @@
 #include "player.h"
 #include "snapcast.h"
 #include "ui_http_server.h"
+#include "hostname_manager.h"
 
 static bool isCachedChunk = false;
 static uint32_t cachedBlocks = 0;
@@ -462,6 +463,7 @@ static void http_get_task(void *pvParameters) {
   hello_message_t hello_message;
   wire_chunk_message_t wire_chnk = {{0, 0}, 0, NULL};
   char *hello_message_serialized = NULL;
+  static char device_hostname[64] = {0};  // Buffer for hostname
   int result;
   int64_t now, trx, tdif, ttx;
   time_message_t time_message_rx = {{0, 0}};
@@ -760,7 +762,13 @@ static void http_get_task(void *pvParameters) {
 
     // init hello message
     hello_message.mac = mac_address;
-    hello_message.hostname = SNAPCAST_CLIENT_NAME;
+    
+    // Get hostname from NVS or fallback to CONFIG default
+    if (hostname_get(device_hostname, sizeof(device_hostname)) != ESP_OK) {
+      strncpy(device_hostname, SNAPCAST_CLIENT_NAME, sizeof(device_hostname) - 1);
+    }
+    hello_message.hostname = device_hostname;
+    
     hello_message.version = (char *)VERSION_STRING;
     hello_message.client_name = "libsnapcast";
     hello_message.os = "esp32";
@@ -2607,6 +2615,10 @@ void app_main(void) {
   // esp_log_level_set("i2s_common", ESP_LOG_DEBUG);
   esp_log_level_set("wifi", ESP_LOG_WARN);
   esp_log_level_set("wifi_init", ESP_LOG_WARN);
+  esp_log_level_set("httpd_uri", ESP_LOG_DEBUG);
+  esp_log_level_set("HOSTNAME", ESP_LOG_DEBUG);
+  esp_log_level_set("UI_HTTP", ESP_LOG_DEBUG);
+  esp_log_level_set("dspProc", ESP_LOG_DEBUG);
 
 #if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
     CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
@@ -2779,13 +2791,23 @@ void app_main(void) {
   */
   network_if_init();
 
+  // Initialize hostname manager
+  hostname_manager_init();
+  
+  // Get hostname for mDNS
+  char mdns_hostname[64] = {0};
+  if (hostname_get(mdns_hostname, sizeof(mdns_hostname)) != ESP_OK) {
+    strncpy(mdns_hostname, "snapclient", sizeof(mdns_hostname) - 1);
+  }
+  ESP_LOGI(TAG, "Device hostname: %s", mdns_hostname);
+
   init_http_server_task();
 
   // Enable websocket server
   //  ESP_LOGI(TAG, "Setup ws server");
   //  websocket_if_start();
 
-  net_mdns_register("snapclient");
+  net_mdns_register(mdns_hostname);
 #ifdef CONFIG_SNAPCLIENT_SNTP_ENABLE
   set_time_from_sntp();
 #endif
