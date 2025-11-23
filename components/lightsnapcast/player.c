@@ -647,7 +647,7 @@ int32_t get_diff_to_server(int64_t *tDiff, int64_t now) {
   if (xSemaphoreTake(latencyBufSemaphoreHandle, 0) == pdFALSE) {
     dt = now - lastLastUpdate;
     offset = round(lastDiff + lastDrift * dt);
-    *tDiff = -offset;
+    *tDiff = offset;
 
      ESP_LOGW(TAG,
               "get_diff_to_server: can't take semaphore. Old diff retrieved");
