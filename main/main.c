@@ -77,8 +77,8 @@ static FLAC__StreamDecoder *flacDecoder = NULL;
 
 const char *VERSION_STRING = "0.0.3";
 
-#define HTTP_TASK_PRIORITY 5
-#define HTTP_TASK_CORE_ID tskNO_AFFINITY
+#define HTTP_TASK_PRIORITY 17
+#define HTTP_TASK_CORE_ID 1
 
 #define OTA_TASK_PRIORITY 6
 #define OTA_TASK_CORE_ID tskNO_AFFINITY
@@ -480,7 +480,7 @@ static void http_get_task(void *pvParameters) {
   int rc1 = ERR_OK, rc2 = ERR_OK;
   struct netbuf *firstNetBuf = NULL;
   uint16_t len;
-  uint64_t timeout = FAST_SYNC_LATENCY_BUF;
+  uint64_t timeout = NORMAL_SYNC_LATENCY_BUF;
   char *codecString = NULL;
   char *codecPayload = NULL;
   char *serverSettingsString = NULL;
@@ -509,7 +509,7 @@ static void http_get_task(void *pvParameters) {
 
       connected_interface = -1;
       received_header = false;
-      timeout = FAST_SYNC_LATENCY_BUF;
+      timeout = NORMAL_SYNC_LATENCY_BUF;
 
       xSemaphoreTake(idCounterSemaphoreHandle, portMAX_DELAY);
       id_counter = 0;
@@ -719,11 +719,11 @@ static void http_get_task(void *pvParameters) {
 
     ESP_LOGI(TAG, "netconn connected using %s", network_get_ifkey(netif));
 
-    if (reset_latency_buffer() < 0) {
-      ESP_LOGE(TAG,
-               "reset_diff_buffer: couldn't reset median filter long. STOP");
-      return;
-    }
+    //if (reset_latency_buffer() < 0) {
+    //  ESP_LOGE(TAG,
+    //           "reset_diff_buffer: couldn't reset median filter long. STOP");
+    //  return;
+    //}
 
     uint8_t base_mac[6];
 #if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
@@ -2054,7 +2054,7 @@ static void http_get_task(void *pvParameters) {
                         esp_timer_stop(timeSyncMessageTimer);
                         if (!esp_timer_is_active(timeSyncMessageTimer)) {
                           esp_timer_start_periodic(timeSyncMessageTimer,
-                                                   timeout);
+                                                   timeout);                 
                         }
                       }
 
@@ -2438,10 +2438,10 @@ static void http_get_task(void *pvParameters) {
                             (int64_t)base_message_rx.received.usec;
                         ttx = (int64_t)base_message_rx.sent.sec * 1000000LL +
                               (int64_t)base_message_rx.sent.usec;
-                        tdif = trx - ttx;
+                        tdif = trx - ttx;  //T4-T3
                         ttx = (int64_t)time_message_rx.latency.sec * 1000000LL +
-                              (int64_t)time_message_rx.latency.usec;
-                        tmpDiffToServer = (ttx - tdif) / 2;
+                              (int64_t)time_message_rx.latency.usec; // T2-T1
+                        tmpDiffToServer = (ttx - tdif) / 2; //((T2-T1) - (-T3+T4))/2
 
                         int64_t diff;
 
@@ -2467,7 +2467,7 @@ static void http_get_task(void *pvParameters) {
                           }
                         }
 
-                        player_latency_insert(-tmpDiffToServer, (tdif + trx) / 2, trx);
+                        player_latency_insert(tmpDiffToServer, (tdif + ttx) / 2, trx);
 
                         // ESP_LOGI(TAG, "Current latency:%lld:",
                         // tmpDiffToServer);
