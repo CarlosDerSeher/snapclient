@@ -229,6 +229,18 @@ static int32_t dsp_processor_gen_filter(ptype_t *filter, uint32_t cnt) {
 }
 
 /**
+ * Clamp float to range [-1.0, 1.0] and convert to int16_t
+ * Prevents overflow/clipping artifacts when gain is high
+ */
+static inline int16_t float_to_int16_clamped(float value) {
+  // Clamp to ±1.0 range
+  if (value > 1.0f) value = 1.0f;
+  if (value < -1.0f) value = -1.0f;
+  
+  return (int16_t)(value * INT16_MAX);
+}
+
+/**
  *
  */
 int dsp_processor_worker(void *p_pcmChnk, const void *p_scSet) {
@@ -492,7 +504,7 @@ int dsp_processor_worker(void *p_pcmChnk, const void *p_scSet) {
           BIQUAD(sbufout0, sbuffer0, max, filter[1].coeffs, filter[1].w);
 
           for (i = 0; i < max; i++) {
-            valint = (int16_t)(sbuffer0[i] * INT16_MAX);
+            valint = float_to_int16_clamped(sbuffer0[i]);
             tmp[i] =
                 (volatile uint32_t)((tmp[i] & 0xFFFF0000) + (uint32_t)valint);
           }
@@ -510,7 +522,7 @@ int dsp_processor_worker(void *p_pcmChnk, const void *p_scSet) {
           BIQUAD(sbufout0, sbuffer0, max, filter[3].coeffs, filter[3].w);
 
           for (i = 0; i < max; i++) {
-            valint = (int16_t)(sbuffer0[i] * INT16_MAX);
+            valint = float_to_int16_clamped(sbuffer0[i]);
             tmp[i] = (volatile uint32_t)((tmp[i] & 0xFFFF) +
                                          ((uint32_t)valint << 16));
           }
@@ -560,31 +572,26 @@ int dsp_processor_worker(void *p_pcmChnk, const void *p_scSet) {
           // channel 0
           for (i = 0; i < max; i++) {
             sbuffer0[i] =
-                0.5 * ((float)((int16_t)(tmp[i] & 0xFFFF))) / INT16_MAX;
-#if SNAPCAST_USE_SOFT_VOL
-            sbuffer0[i] *= dynamic_vol;
-#endif
+                dynamic_vol * 
+                ((float)((int16_t)(tmp[i] & 0xFFFF))) / INT16_MAX;
           }
           BIQUAD(sbuffer0, sbufout0, max, filter[0].coeffs, filter[0].w);
 
           for (i = 0; i < max; i++) {
-            valint = (int16_t)(sbufout0[i] * INT16_MAX);
+            valint = float_to_int16_clamped(sbufout0[i]);
             tmp[i] = (tmp[i] & 0xFFFF0000) + (uint32_t)valint;
           }
 
           // channel 1
           for (i = 0; i < max; i++) {
-            sbuffer0[i] = 0.5 *
+            sbuffer0[i] = dynamic_vol *
                           ((float)((int16_t)((tmp[i] & 0xFFFF0000) >> 16))) /
                           INT16_MAX;
-#if SNAPCAST_USE_SOFT_VOL
-            sbuffer0[i] *= dynamic_vol;
-#endif
           }
           BIQUAD(sbuffer0, sbufout0, max, filter[1].coeffs, filter[1].w);
 
           for (i = 0; i < max; i++) {
-            valint = (int16_t)(sbufout0[i] * INT16_MAX);
+            valint = float_to_int16_clamped(sbufout0[i]);
             tmp[i] = (tmp[i] & 0xFFFF) + ((uint32_t)valint << 16);
           }
         }
@@ -605,33 +612,27 @@ int dsp_processor_worker(void *p_pcmChnk, const void *p_scSet) {
           // Process audio ch0 LOW PASS FILTER
           for (i = 0; i < max; i++) {
             sbuffer0[i] =
-                0.5 * ((float)((int16_t)(tmp[i] & 0xFFFF))) / INT16_MAX;
-#if SNAPCAST_USE_SOFT_VOL
-            sbuffer0[i] *= dynamic_vol;
-#endif
+                dynamic_vol * ((float)((int16_t)(tmp[i] & 0xFFFF))) / INT16_MAX;
           }
           BIQUAD(sbuffer0, sbufout0, max, filter[0].coeffs, filter[0].w);
           BIQUAD(sbufout0, sbuffer0, max, filter[1].coeffs, filter[1].w);
 
           for (i = 0; i < max; i++) {
-            valint = (int16_t)(sbuffer0[i] * INT16_MAX);
+            valint = float_to_int16_clamped(sbuffer0[i]);
             tmp[i] = (tmp[i] & 0xFFFF0000) + (uint32_t)valint;
           }
 
           // Process audio ch1 HIGH PASS FILTER
           for (i = 0; i < max; i++) {
-            sbuffer0[i] = 0.5 *
+            sbuffer0[i] = dynamic_vol *
                           ((float)((int16_t)((tmp[i] & 0xFFFF0000) >> 16))) /
                           INT16_MAX;
-#if SNAPCAST_USE_SOFT_VOL
-            sbuffer0[i] *= dynamic_vol;
-#endif
           }
           BIQUAD(sbuffer0, sbufout0, max, filter[2].coeffs, filter[2].w);
           BIQUAD(sbufout0, sbuffer0, max, filter[3].coeffs, filter[3].w);
 
           for (i = 0; i < max; i++) {
-            valint = (int16_t)(sbuffer0[i] * INT16_MAX);
+            valint = float_to_int16_clamped(sbuffer0[i]);
             tmp[i] = (tmp[i] & 0xFFFF) + ((uint32_t)valint << 16);
           }
         }
