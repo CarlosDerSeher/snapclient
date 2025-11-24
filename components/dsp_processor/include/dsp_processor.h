@@ -50,6 +50,7 @@ typedef enum dspFlows {
   dspfFunkyHonda,
   dspfBassBoost,
   dspfEQBassTreble,
+  DSP_FLOW_COUNT  // Total number of DSP flows
 } dspFlows_t;
 
 enum filtertypes {
@@ -108,7 +109,7 @@ typedef struct dsp_all_params_s {
     float gain_2;  // Secondary gain
     float fc_3;    // Tertiary frequency (treble/high crossover)
     float gain_3;  // Tertiary gain (treble)
-  } flow_params[6];  // One entry per dspFlows_t enum value
+  } flow_params[DSP_FLOW_COUNT];  // One entry per dspFlows_t enum value
 } dsp_all_params_t;
 
 // TODO: this is unused, remove???

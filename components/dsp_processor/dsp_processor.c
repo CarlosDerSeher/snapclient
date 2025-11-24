@@ -93,7 +93,7 @@ void dsp_processor_init(void) {
 
   // Load saved parameters from NVS for all flows
   ESP_LOGI(TAG, "%s: Loading saved parameters from NVS", __func__);
-  for (int flow = 0; flow < 6; flow++) {
+  for (int flow = 0; flow < DSP_FLOW_COUNT; flow++) {
     int32_t fc_1, gain_1, fc_2, gain_2, fc_3, gain_3;
     
     // Load each parameter, keeping defaults if not found in NVS
@@ -183,7 +183,7 @@ esp_err_t dsp_processor_update_filter_params(filterParams_t *params) {
   
   // Also update centralized storage for the current flow
   dspFlows_t flow = params->dspFlow;
-  if (flow >= 0 && flow < 6) {  // Validate flow index
+  if (flow >= 0 && flow < DSP_FLOW_COUNT) {  // Validate flow index
     all_params.active_flow = flow;
     all_params.flow_params[flow].fc_1 = params->fc_1;
     all_params.flow_params[flow].gain_1 = params->gain_1;
@@ -778,7 +778,7 @@ const dsp_all_params_t* dsp_processor_get_all_params(void) {
 esp_err_t dsp_processor_get_params_for_flow(dspFlows_t flow, filterParams_t *params) {
   ESP_LOGD(TAG, "%s: getting params for flow %d", __func__, flow);
   
-  if (params == NULL || flow < 0 || flow >= 6) {
+  if (params == NULL || flow < 0 || flow >= DSP_FLOW_COUNT) {
     return ESP_ERR_INVALID_ARG;
   }
   
@@ -799,7 +799,7 @@ esp_err_t dsp_processor_get_params_for_flow(dspFlows_t flow, filterParams_t *par
 esp_err_t dsp_processor_set_params_for_flow(dspFlows_t flow, const filterParams_t *params) {
   ESP_LOGD(TAG, "%s: setting params for flow %d", __func__, flow);
   
-  if (params == NULL || flow < 0 || flow >= 6) {
+  if (params == NULL || flow < 0 || flow >= DSP_FLOW_COUNT) {
     return ESP_ERR_INVALID_ARG;
   }
   
@@ -834,7 +834,7 @@ esp_err_t dsp_processor_set_params_for_flow(dspFlows_t flow, const filterParams_
 esp_err_t dsp_processor_switch_flow(dspFlows_t flow) {
   ESP_LOGI(TAG, "%s: switching from flow %d to %d", __func__, all_params.active_flow, flow);
   
-  if (flow < 0 || flow >= 6) {
+  if (flow < 0 || flow >= DSP_FLOW_COUNT) {
     return ESP_ERR_INVALID_ARG;
   }
   
