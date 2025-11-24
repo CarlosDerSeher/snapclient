@@ -160,13 +160,6 @@ esp_err_t dsp_processor_set_params_for_flow(dspFlows_t flow, const filterParams_
  */
 esp_err_t dsp_processor_switch_flow(dspFlows_t flow);
 
-/**
- * Get DSP capabilities as JSON string.
- * Returns a dynamically allocated string that must be freed by caller.
- * Returns NULL on error.
- */
-char* dsp_processor_get_capabilities_json(void);
-
 #ifdef __cplusplus
 }
 #endif

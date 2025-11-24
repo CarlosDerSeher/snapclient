@@ -8,6 +8,7 @@
 
 #if CONFIG_USE_DSP_PROCESSOR
 #include "dsp_processor.h"
+#include "dsp_processor_settings.h"
 #include "dsps_biquad.h"
 #include "dsps_biquad_gen.h"
 #include "esp_log.h"
@@ -43,18 +44,8 @@ static float *sbufout0 = NULL;
 
 #if CONFIG_USE_DSP_PROCESSOR
 #define SNAPCAST_USE_SOFT_VOL CONFIG_SNAPCLIENT_USE_SOFT_VOL
-#if CONFIG_SNAPCLIENT_DSP_FLOW_STEREO
+// Default DSP flow is Stereo, but will be updated from NVS at runtime
 dspFlows_t dspFlowInit = dspfStereo;
-#endif
-#if CONFIG_SNAPCLIENT_DSP_FLOW_BASSBOOST
-dspFlows_t dspFlowInit = dspfBassBoost;
-#endif
-#if CONFIG_SNAPCLIENT_DSP_FLOW_BIAMP
-dspFlows_t dspFlowInit = dspfBiamp;
-#endif
-#if CONFIG_SNAPCLIENT_DSP_FLOW_BASS_TREBLE_EQ
-dspFlows_t dspFlowInit = dspfEQBassTreble;
-#endif
 #endif
 
 /**
@@ -99,6 +90,39 @@ void dsp_processor_init(void) {
   
   // dspfStereo has no parameters (pass-through with volume only)
   // dspf2DOT1 and dspfFunkyHonda not yet implemented
+
+  // Load saved parameters from NVS for all flows
+  ESP_LOGI(TAG, "%s: Loading saved parameters from NVS", __func__);
+  for (int flow = 0; flow < 6; flow++) {
+    int32_t fc_1, gain_1, fc_2, gain_2, fc_3, gain_3;
+    
+    // Load each parameter, keeping defaults if not found in NVS
+    if (dsp_settings_load_flow_param((dspFlows_t)flow, "fc_1", &fc_1) == ESP_OK) {
+      all_params.flow_params[flow].fc_1 = (float)fc_1;
+    }
+    if (dsp_settings_load_flow_param((dspFlows_t)flow, "gain_1", &gain_1) == ESP_OK) {
+      all_params.flow_params[flow].gain_1 = (float)gain_1;
+    }
+    if (dsp_settings_load_flow_param((dspFlows_t)flow, "fc_2", &fc_2) == ESP_OK) {
+      all_params.flow_params[flow].fc_2 = (float)fc_2;
+    }
+    if (dsp_settings_load_flow_param((dspFlows_t)flow, "gain_2", &gain_2) == ESP_OK) {
+      all_params.flow_params[flow].gain_2 = (float)gain_2;
+    }
+    if (dsp_settings_load_flow_param((dspFlows_t)flow, "fc_3", &fc_3) == ESP_OK) {
+      all_params.flow_params[flow].fc_3 = (float)fc_3;
+    }
+    if (dsp_settings_load_flow_param((dspFlows_t)flow, "gain_3", &gain_3) == ESP_OK) {
+      all_params.flow_params[flow].gain_3 = (float)gain_3;
+    }
+  }
+  
+  // Load saved active flow
+  dspFlows_t saved_flow;
+  if (dsp_settings_load_active_flow(&saved_flow) == ESP_OK) {
+    all_params.active_flow = saved_flow;
+    ESP_LOGI(TAG, "%s: Restored active flow: %d", __func__, saved_flow);
+  }
 
   // Initialize legacy filterParams from active flow
   filterParams.dspFlow = all_params.active_flow;
@@ -739,106 +763,6 @@ void dsp_processor_set_volome(double volume) {
 dspFlows_t dsp_processor_get_current_flow(void) {
   ESP_LOGD(TAG, "%s: returning flow=%d", __func__, filterParams.dspFlow);
   return filterParams.dspFlow;
-}
-
-/**
- * Get DSP capabilities as JSON string
- * Caller must free the returned string
- */
-char* dsp_processor_get_capabilities_json(void) {
-  ESP_LOGD(TAG, "%s: generating capabilities JSON", __func__);
-  // Pre-calculate required buffer size (approximate)
-  size_t buffer_size = 4096;
-  char* json = (char*)malloc(buffer_size);
-  if (!json) {
-    ESP_LOGE(TAG, "Failed to allocate memory for capabilities JSON");
-    return NULL;
-  }
-
-  int offset = 0;
-  
-  // Start JSON
-  offset += snprintf(json + offset, buffer_size - offset,
-    "{\n"
-    "  \"version\": \"1.0\",\n"
-    "  \"flows\": [\n");
-    
-  // dspfStereo
-  offset += snprintf(json + offset, buffer_size - offset,
-    "    {\n"
-    "      \"id\": \"dspfStereo\",\n"
-    "      \"name\": \"Stereo Pass-Through\",\n"
-    "      \"description\": \"No DSP processing, optional soft volume\",\n"
-    "      \"parameters\": []\n"
-    "    },\n");
-
-  // dspfEQBassTreble
-  offset += snprintf(json + offset, buffer_size - offset,
-    "    {\n"
-    "      \"id\": \"dspfEQBassTreble\",\n"
-    "      \"name\": \"Bass & Treble EQ\",\n"
-    "      \"description\": \"Simple 2-band equalizer with bass and treble controls\",\n"
-    "      \"parameters\": [\n"
-    "        {\"key\": \"fc_1\", \"name\": \"Bass Frequency\", \"type\": \"float\", \"unit\": \"Hz\", \"min\": %.1f, \"max\": %.1f, \"default\": %.1f, \"step\": %.1f, \"ui_control\": \"slider\"},\n"
-    "        {\"key\": \"gain_1\", \"name\": \"Bass Gain\", \"type\": \"float\", \"unit\": \"dB\", \"min\": %.1f, \"max\": %.1f, \"default\": %.1f, \"step\": %.1f, \"ui_control\": \"slider\"},\n"
-    "        {\"key\": \"fc_3\", \"name\": \"Treble Frequency\", \"type\": \"float\", \"unit\": \"Hz\", \"min\": %.1f, \"max\": %.1f, \"default\": %.1f, \"step\": %.1f, \"ui_control\": \"slider\"},\n"
-    "        {\"key\": \"gain_3\", \"name\": \"Treble Gain\", \"type\": \"float\", \"unit\": \"dB\", \"min\": %.1f, \"max\": %.1f, \"default\": %.1f, \"step\": %.1f, \"ui_control\": \"slider\"}\n"
-    "      ]\n"
-    "    },\n",
-    DSP_BASS_FREQ_MIN, DSP_BASS_FREQ_MAX, DSP_BASS_FREQ_DEFAULT, DSP_BASS_FREQ_STEP,
-    DSP_GAIN_MIN, DSP_GAIN_MAX, DSP_GAIN_DEFAULT, DSP_GAIN_STEP,
-    DSP_TREBLE_FREQ_MIN, DSP_TREBLE_FREQ_MAX, DSP_TREBLE_FREQ_DEFAULT, DSP_TREBLE_FREQ_STEP,
-    DSP_GAIN_MIN, DSP_GAIN_MAX, DSP_GAIN_DEFAULT, DSP_GAIN_STEP);
-
-  // dspfBassBoost
-  offset += snprintf(json + offset, buffer_size - offset,
-    "    {\n"
-    "      \"id\": \"dspfBassBoost\",\n"
-    "      \"name\": \"Bass Boost\",\n"
-    "      \"description\": \"Adjustable bass enhancement\",\n"
-    "      \"parameters\": [\n"
-    "        {\"key\": \"fc_1\", \"name\": \"Bass Frequency\", \"type\": \"float\", \"unit\": \"Hz\", \"min\": %.1f, \"max\": %.1f, \"default\": %.1f, \"step\": %.1f, \"ui_control\": \"slider\"},\n"
-    "        {\"key\": \"gain_1\", \"name\": \"Bass Gain\", \"type\": \"float\", \"unit\": \"dB\", \"min\": %.1f, \"max\": %.1f, \"default\": %.1f, \"step\": %.1f, \"ui_control\": \"slider\"}\n"
-    "      ]\n"
-    "    },\n",
-    DSP_BASS_FREQ_MIN, DSP_BASS_FREQ_MAX, DSP_BASS_FREQ_DEFAULT, DSP_BASS_FREQ_STEP,
-    DSP_BASSBOOST_GAIN_MIN, DSP_BASSBOOST_GAIN_MAX, DSP_BASSBOOST_GAIN_DEFAULT, DSP_BASSBOOST_GAIN_STEP);
-
-  // dspfBiamp
-  offset += snprintf(json + offset, buffer_size - offset,
-    "    {\n"
-    "      \"id\": \"dspfBiamp\",\n"
-    "      \"name\": \"Bi-Amp Crossover\",\n"
-    "      \"description\": \"Channel 0: Low-pass, Channel 1: High-pass\",\n"
-    "      \"parameters\": [\n"
-    "        {\"key\": \"fc_1\", \"name\": \"Low-Pass Frequency\", \"type\": \"float\", \"unit\": \"Hz\", \"min\": %.1f, \"max\": %.1f, \"default\": %.1f, \"step\": %.1f, \"ui_control\": \"slider\"},\n"
-    "        {\"key\": \"gain_1\", \"name\": \"Low-Pass Gain\", \"type\": \"float\", \"unit\": \"dB\", \"min\": %.1f, \"max\": %.1f, \"default\": %.1f, \"step\": %.1f, \"ui_control\": \"slider\"},\n"
-    "        {\"key\": \"fc_3\", \"name\": \"High-Pass Frequency\", \"type\": \"float\", \"unit\": \"Hz\", \"min\": %.1f, \"max\": %.1f, \"default\": %.1f, \"step\": %.1f, \"ui_control\": \"slider\"},\n"
-    "        {\"key\": \"gain_3\", \"name\": \"High-Pass Gain\", \"type\": \"float\", \"unit\": \"dB\", \"min\": %.1f, \"max\": %.1f, \"default\": %.1f, \"step\": %.1f, \"ui_control\": \"slider\"}\n"
-    "      ]\n"
-    "    }\n",
-    DSP_CROSSOVER_FREQ_MIN, DSP_CROSSOVER_FREQ_MAX, DSP_CROSSOVER_FREQ_DEFAULT, DSP_CROSSOVER_FREQ_STEP,
-    DSP_GAIN_MIN, DSP_GAIN_MAX, DSP_GAIN_DEFAULT, DSP_GAIN_STEP,
-    DSP_CROSSOVER_FREQ_MIN, DSP_CROSSOVER_FREQ_MAX, DSP_CROSSOVER_FREQ_DEFAULT, DSP_CROSSOVER_FREQ_STEP,
-    DSP_GAIN_MIN, DSP_GAIN_MAX, DSP_GAIN_DEFAULT, DSP_GAIN_STEP);
-
-  // Close JSON
-  offset += snprintf(json + offset, buffer_size - offset,
-    "  ],\n"
-    "  \"current_flow\": \"%s\"\n"
-    "}\n",
-    filterParams.dspFlow == dspfEQBassTreble ? "dspfEQBassTreble" :
-    filterParams.dspFlow == dspfBassBoost ? "dspfBassBoost" :
-    filterParams.dspFlow == dspfBiamp ? "dspfBiamp" :
-    filterParams.dspFlow == dspfStereo ? "dspfStereo" :
-    filterParams.dspFlow == dspf2DOT1 ? "dspf2DOT1" :
-    filterParams.dspFlow == dspfFunkyHonda ? "dspfFunkyHonda" : "unknown");
-
-  if (offset >= buffer_size - 1) {
-    ESP_LOGW(TAG, "JSON buffer may have been truncated");
-  }
-
-  return json;
 }
 
 /**

@@ -2821,6 +2821,7 @@ void app_main(void) {
 #endif
 
 #if CONFIG_USE_DSP_PROCESSOR
+  dsp_settings_init();
   dsp_processor_init();
   dsp_settings_init();
 #endif
