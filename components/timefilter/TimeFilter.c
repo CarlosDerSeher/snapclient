@@ -11,6 +11,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+//
+// Based on C++ implementation from https://github.com/Resonate-Protocol/time-filter
 
 #include "TimeFilter.h"
 #include <stdint.h>

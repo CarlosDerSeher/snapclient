@@ -616,7 +616,7 @@ int32_t latency_buffer_full(bool *is_full, TickType_t wait) {
   }
 
   if (xSemaphoreTake(latencyBufSemaphoreHandle, wait) == pdFALSE) {
-    ESP_LOGW(TAG, "latency_buffer_full: can't take semaphore");
+    // ESP_LOGW(TAG, "latency_buffer_full: can't take semaphore");
 
     return -1;
   }
@@ -649,8 +649,8 @@ int32_t get_diff_to_server(int64_t *tDiff, int64_t now) {
     offset = round(lastDiff + lastDrift * dt);
     *tDiff = offset;
 
-     ESP_LOGW(TAG,
-              "get_diff_to_server: can't take semaphore. Old diff retrieved");
+     // ESP_LOGW(TAG,
+     //         "get_diff_to_server: can't take semaphore. Old diff retrieved");
 
     return -1;
   }
@@ -1284,6 +1284,24 @@ static void player_task(void *pvParameters) {
   }
   audio_set_mute(scSet.muted);
 
+  // wait for early time syncs to be ready
+  while (1) {
+    bool is_full = false;
+    int64_t tDiff;
+    int tmp = latency_buffer_full(&is_full, pdMS_TO_TICKS(1));
+    if (tmp == 0) {
+      if (is_full == false) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+        //ESP_LOGW(TAG, "diff buffer not full");
+      } else {
+        if (get_diff_to_server(&tDiff, esp_timer_get_time())==0) {
+          break;
+        }
+      }
+    }
+    vTaskDelay(pdMS_TO_TICKS(1));
+  }
+
   while (1) {
     // ESP_LOGW( TAG, "32b f %d b %d", heap_caps_get_free_size
     //(MALLOC_CAP_8BIT), heap_caps_get_largest_free_block (MALLOC_CAP_8BIT));
@@ -1364,21 +1382,6 @@ static void player_task(void *pvParameters) {
 
       }
 
-    }
-
-    // wait for early time syncs to be ready
-    bool is_full = false;
-    int tmp = latency_buffer_full(&is_full, pdMS_TO_TICKS(1));
-    if (tmp < 0) {
-      continue;
-    } else {
-      if (is_full == false) {
-        vTaskDelay(pdMS_TO_TICKS(20));
-
-        // ESP_LOGW(TAG, "diff buffer not full");
-
-        continue;
-      }
     }
 
     if (chnk == NULL) {

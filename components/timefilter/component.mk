@@ -1,2 +1,0 @@
-COMPONENT_SRCDIRS := .
-# CFLAGS +=
