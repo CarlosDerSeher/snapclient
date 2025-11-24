@@ -17,8 +17,8 @@ extern "C" {
 // size?!
 #define CHNK_CTRL_CNT 2
 
-#define LATENCY_MEDIAN_FILTER_LEN 199
-#define LATENCY_MEDIAN_FILTER_FULL 19
+//#define LATENCY_MEDIAN_FILTER_LEN 199
+#define LATENCY_TIME_FILTER_FULL 29
 
 // set to 0 if you do not wish to be the median an average around actual
 // median average will be (LATENCY_MEDIAN_FILTER_LEN /
@@ -73,13 +73,13 @@ int32_t insert_pcm_chunk(pcm_chunk_message_t *pcmChunk);
 // int8_t insert_pcm_chunk (wire_chunk_message_t *decodedWireChunk);
 int8_t free_pcm_chunk(pcm_chunk_message_t *pcmChunk);
 
-int32_t player_latency_insert(int64_t newValue);
+int32_t player_latency_insert(int64_t newValue, int64_t max_error, int64_t time_added);
 int32_t player_send_snapcast_setting(snapcastSetting_t *setting);
 int8_t player_get_snapcast_settings(snapcastSetting_t *setting);
 
 int32_t reset_latency_buffer(void);
 int32_t latency_buffer_full(bool *is_full, TickType_t wait);
-int32_t get_diff_to_server(int64_t *tDiff);
+int32_t get_diff_to_server(int64_t *tDiff, int64_t now);
 int32_t server_now(int64_t *sNow, int64_t *diff2Server);
 
 int32_t pcm_chunk_queue_msg_waiting(void);
