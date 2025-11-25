@@ -512,6 +512,13 @@ esp_err_t settings_get_json(char *json_out, size_t max_len) {
     cJSON_AddBoolToObject(root, "dsp_available", false);
 #endif
 
+    // Add DAC availability flag
+#if CONFIG_DAC_TAS5805M
+    cJSON_AddBoolToObject(root, "dac_available", true);
+#else
+    cJSON_AddBoolToObject(root, "dac_available", false);
+#endif
+
     // Render to string
     char *json_str = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);

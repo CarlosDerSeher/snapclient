@@ -319,6 +319,91 @@ esp_err_t tas5805m_get_volume(int *vol) {
   return ESP_OK;
 }
 
+// Set digital volume in dB (0.5dB steps)
+esp_err_t tas5805m_set_digital_volume_db(int vol_half_db) {
+  ESP_LOGD(TAG, "%s: Setting digital volume to %d half-dB (%.1f dB)", __func__, vol_half_db, vol_half_db / 2.0);
+  
+  // Clamp to valid range: -207 to +48 (-103.5dB to +24dB)
+  if (vol_half_db < -207) vol_half_db = -207;
+  if (vol_half_db > 48) vol_half_db = 48;
+  
+  // Convert half-dB to register value
+  // Register: 0x00 = +24dB, 0x30 = 0dB, 0xff = -103.5dB (mute)
+  // Formula: reg = 48 - vol_half_db
+  uint8_t reg_val = (uint8_t)(48 - vol_half_db);
+  
+  esp_err_t ret = tas5805m_write_byte(TAS5805M_DIG_VOL_CTRL_REGISTER, reg_val);
+  if (ret != ESP_OK) {
+    ESP_LOGW(TAG, "%s: Failed to write digital volume (reg 0x%02x): %s", __func__, reg_val, esp_err_to_name(ret));
+  }
+  return ret;
+}
+
+// Get digital volume in dB (0.5dB steps)
+esp_err_t tas5805m_get_digital_volume_db(int *vol_half_db) {
+  if (vol_half_db == NULL) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  
+  uint8_t reg_val = 0;
+  esp_err_t ret = tas5805m_read_byte(TAS5805M_DIG_VOL_CTRL_REGISTER, &reg_val);
+  if (ret != ESP_OK) {
+    ESP_LOGW(TAG, "%s: Failed to read digital volume register: %s", __func__, esp_err_to_name(ret));
+    return ret;
+  }
+  
+  // Convert register value to half-dB
+  // Formula: vol_half_db = 48 - reg
+  *vol_half_db = 48 - (int)reg_val;
+  
+  ESP_LOGD(TAG, "%s: Digital volume: reg=0x%02x, value=%d half-dB (%.1f dB)", 
+           __func__, reg_val, *vol_half_db, *vol_half_db / 2.0);
+  return ESP_OK;
+}
+
+// Set analog gain in dB (0.5dB steps)
+esp_err_t tas5805m_set_analog_gain(int gain_half_db) {
+  ESP_LOGD(TAG, "%s: Setting analog gain to %d half-dB (%.1f dB)", __func__, gain_half_db, gain_half_db / 2.0);
+  
+  // Clamp to valid range: -31 to 0 (-15.5dB to 0dB)
+  if (gain_half_db < -31) gain_half_db = -31;
+  if (gain_half_db > 0) gain_half_db = 0;
+  
+  // Convert half-dB to register value
+  // Register: bits [4:0], 0x00 = 0dB, 0x1f = -15.5dB
+  // Formula: reg = -gain_half_db
+  uint8_t reg_val = (uint8_t)(-gain_half_db) & 0x1F;
+  
+  esp_err_t ret = tas5805m_write_byte(TAS5805M_AGAIN_REGISTER, reg_val);
+  if (ret != ESP_OK) {
+    ESP_LOGW(TAG, "%s: Failed to write analog gain (reg 0x%02x): %s", __func__, reg_val, esp_err_to_name(ret));
+  }
+  return ret;
+}
+
+// Get analog gain in dB (0.5dB steps)
+esp_err_t tas5805m_get_analog_gain(int *gain_half_db) {
+  if (gain_half_db == NULL) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  
+  uint8_t reg_val = 0;
+  esp_err_t ret = tas5805m_read_byte(TAS5805M_AGAIN_REGISTER, &reg_val);
+  if (ret != ESP_OK) {
+    ESP_LOGW(TAG, "%s: Failed to read analog gain register: %s", __func__, esp_err_to_name(ret));
+    return ret;
+  }
+  
+  // Convert register value to half-dB
+  // Formula: gain_half_db = -(reg & 0x1F)
+  *gain_half_db = -(int)(reg_val & 0x1F);
+  
+  ESP_LOGD(TAG, "%s: Analog gain: reg=0x%02x, value=%d half-dB (%.1f dB)", 
+           __func__, reg_val, *gain_half_db, *gain_half_db / 2.0);
+  return ESP_OK;
+}
+
+
 // Deinit the TAS5805M
 esp_err_t tas5805m_deinit(void) {
   ESP_ERROR_CHECK(tas5805m_set_state(TAS5805M_CTRL_HI_Z));

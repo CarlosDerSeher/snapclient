@@ -116,6 +116,51 @@ esp_err_t tas5805m_set_volume(int vol);
 esp_err_t tas5805m_get_volume(int *vol);
 
 /**
+ * @brief Set analog gain (register 0x54)
+ *
+ * @param gain_db: gain in 0.5dB steps, range -15.5 to 0 dB
+ *                 Stored as int representing 0.5dB steps (e.g., -31 = -15.5dB, 0 = 0dB)
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_FAIL
+ */
+esp_err_t tas5805m_set_analog_gain(int gain_half_db);
+
+/**
+ * @brief Get analog gain (register 0x54)
+ *
+ * @param[out] gain_half_db: gain in 0.5dB steps
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_FAIL
+ */
+esp_err_t tas5805m_get_analog_gain(int *gain_half_db);
+
+/**
+ * @brief Set digital volume in dB (register 0x4c)
+ *
+ * @param vol_half_db: volume in 0.5dB steps, range -207 to 48 (-103.5dB to 24dB)
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_FAIL
+ */
+esp_err_t tas5805m_set_digital_volume_db(int vol_half_db);
+
+/**
+ * @brief Get digital volume in dB (register 0x4c)
+ *
+ * @param[out] vol_half_db: volume in 0.5dB steps
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_FAIL
+ */
+esp_err_t tas5805m_get_digital_volume_db(int *vol_half_db);
+
+/**
  * @brief Set TAS5805 mute or not
  *        Continuously call should have an interval time determined by
  * tas5805m_set_mute_fade()
