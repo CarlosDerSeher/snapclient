@@ -128,15 +128,30 @@ esp_err_t pcm51xx_set_mute(bool enable);
 esp_err_t pcm51xx_get_mute(bool *enabled);
 
 /**
- * @brief Set DAMP mode
+ * @brief Control codec mode
  *
- * @param value  PCM51XX_DAMP_MODE_BTL or PCM51XX_DAMP_MODE_PBTL
+ * @param mode codec mode
+ * @param ctrl_state control state
+ *
  * @return
- *     - ESP_FAIL Parameter error
- *     - ESP_OK   Success
- *
+ *     - ESP_OK
+ *     - ESP_FAIL
  */
-esp_err_t pcm51xx_set_damp_mode(int value);
+esp_err_t pcm51xx_ctrl(audio_hal_codec_mode_t mode,
+                       audio_hal_ctrl_t ctrl_state);
+
+/**
+ * @brief Configure codec interface
+ *
+ * @param mode codec mode
+ * @param iface I2S interface configuration
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_FAIL
+ */
+esp_err_t pcm51xx_config_iface(audio_hal_codec_mode_t mode,
+                               audio_hal_codec_i2s_iface_t *iface);
 
 #ifdef __cplusplus
 }

@@ -273,6 +273,19 @@ menu "Audio Board"
 	                This is labeled "X(S)MT" on chip/boards
 	    endmenu
 
+	     menu "TI PCM51XX interface Configuration"
+	        depends on DAC_PCM51XX
+
+	        config PCM51XX_MUTE_PIN
+	            int "Master mute/unmute GPIO for PCM51XX"
+	            default 255
+	            help
+	                GPIO number to control mute/unmute pin (hardware mute).
+	                Set to 255 to disable hardware mute pin control.
+	                When enabled, this pin will be set HIGH on unmute and LOW on mute.
+	                This is in addition to the I2C register-based mute control.
+	    endmenu
+
 	    menu "MAX98357 interface Configuration"
 	        depends on DAC_MAX98357
 
