@@ -1147,6 +1147,64 @@ int process_data(
 }
 
 
+typedef enum {
+  CONNECTION_INITIALIZED,
+  CONNECTION_DATA_RECEIVED,
+  CONNECTION_BUFFER_FILLED,
+  CONNECTION_RESTART_REQUIRED,
+} connection_state_t;
+
+
+static int connection_ensure_byte(
+    connection_state_t* connection_state,
+    struct netbuf** firstNetBuf, 
+    bool isMuted,
+    esp_netif_t* netif,
+    bool* first_receive,
+    int* rc1,
+    bool* first_netbuf_processed,
+    char** start,
+    uint16_t* len) {
+ 
+  // iterate until we could read data
+  while (1) {
+    switch (*connection_state) {
+      case CONNECTION_INITIALIZED: {
+        if (receive_data(firstNetBuf, isMuted, netif, first_receive, *rc1) != 0) {
+          *connection_state = CONNECTION_RESTART_REQUIRED;
+          break; // restart connection
+        }
+        *first_netbuf_processed = false;
+        *connection_state = CONNECTION_DATA_RECEIVED;
+        break;
+      }
+
+      case CONNECTION_DATA_RECEIVED: {
+        if (fill_buffer(first_netbuf_processed, rc1, *firstNetBuf, start, len) != 0) {
+          *connection_state = CONNECTION_INITIALIZED;
+          break; // fetch new data from network
+        }
+        *connection_state = CONNECTION_BUFFER_FILLED;
+        break;
+      }
+
+      case CONNECTION_BUFFER_FILLED: {
+        if (*len <= 0) {
+          *connection_state = CONNECTION_DATA_RECEIVED;
+          break;
+        }
+        *rc1 = ERR_OK;  // probably not necessary
+        // We can read data now!
+        return 0;
+      }
+
+      case CONNECTION_RESTART_REQUIRED: {
+        return -1;
+      }
+    }
+  }
+}
+
 /**
  *
  */
@@ -1356,65 +1414,24 @@ static void http_get_task(void *pvParameters) {
     bool first_receive = true;
     bool first_netbuf_processed = false;
 
-
-
-    typedef enum {
-      CONNECTION_INITIALIZED,
-      CONNECTION_DATA_RECEIVED,
-      CONNECTION_BUFFER_FILLED,
-      CONNECTION_RESTART_REQUIRED,
-    } connection_state_t;
-
     connection_state_t connection_state = CONNECTION_INITIALIZED;
 
+    // Main connection loop - state machine + data processing
     while (1) {
-      switch (connection_state) {
-        case CONNECTION_INITIALIZED: {
-          if (receive_data(&firstNetBuf, scSet.muted, netif, &first_receive, rc1) != 0) {
-            connection_state = CONNECTION_RESTART_REQUIRED;
-            break; // restart connection
-          }
-          first_netbuf_processed = false;
-          connection_state = CONNECTION_DATA_RECEIVED;
-          break;
-        }
+      int result = connection_ensure_byte(&connection_state, &firstNetBuf, scSet.muted, netif,
+                                          &first_receive, &rc1, &first_netbuf_processed, &start, &len);
 
-        case CONNECTION_DATA_RECEIVED: {
-          if (fill_buffer(&first_netbuf_processed, &rc1, firstNetBuf,
-                      &start, &len) != 0) {
-            connection_state = CONNECTION_INITIALIZED;
-            break; // fetch new data from network
-          }
-          connection_state = CONNECTION_BUFFER_FILLED;
-
-          break;
-        }
-
-        case CONNECTION_BUFFER_FILLED: {
-          if (len <= 0) {
-            connection_state = CONNECTION_DATA_RECEIVED;
-            break;
-          }
-          rc1 = ERR_OK;  // probably not necessary
-         
-          if (process_data(&parser, &base_message_rx, &time_sync_data, &time_message_rx, 
-                          &received_codec_header, &codec, &scSet, &pcmData, &wire_chnk,
-                          &offset, &payloadOffset, &tmpData, &decoderChunk, &payloadDataShift,
-                          &typedMsgLen, &serverSettingsString, &codecString, &codecPayload,
-                          &start, &len) != 0) {
-            return; // critical error in data processing
-          }
-
-          break;
-        }
-
-        case CONNECTION_RESTART_REQUIRED: {
-          // we can't break out of while loop here, so we do it below
-          break;
-        }
+      if (result != 0) {
+        break; // restart connection
       }
-      if (connection_state == CONNECTION_RESTART_REQUIRED) {
-        break;
+      
+      // Process data only when state machine is OK
+      if (process_data(&parser, &base_message_rx, &time_sync_data, &time_message_rx, 
+                      &received_codec_header, &codec, &scSet, &pcmData, &wire_chnk,
+                      &offset, &payloadOffset, &tmpData, &decoderChunk, &payloadDataShift,
+                      &typedMsgLen, &serverSettingsString, &codecString, &codecPayload,
+                      &start, &len) != 0) {
+        return; // critical error in data processing
       }
     }
   }
