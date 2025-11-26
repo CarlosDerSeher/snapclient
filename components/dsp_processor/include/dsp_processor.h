@@ -153,14 +153,6 @@ esp_err_t dsp_processor_get_params_for_flow(dspFlows_t flow, filterParams_t *par
  */
 esp_err_t dsp_processor_set_params_for_flow(dspFlows_t flow, const filterParams_t *params);
 
-/**
- * Switch to a different DSP flow
- * This activates the flow and applies its stored parameters
- * @param flow The DSP flow to switch to
- * @return ESP_OK on success
- */
-esp_err_t dsp_processor_switch_flow(dspFlows_t flow);
-
 #ifdef __cplusplus
 }
 #endif

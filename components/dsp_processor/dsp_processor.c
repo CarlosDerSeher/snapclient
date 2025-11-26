@@ -828,29 +828,4 @@ esp_err_t dsp_processor_set_params_for_flow(dspFlows_t flow, const filterParams_
   return ESP_OK;
 }
 
-/**
- * Switch to a different DSP flow
- */
-esp_err_t dsp_processor_switch_flow(dspFlows_t flow) {
-  ESP_LOGI(TAG, "%s: switching from flow %d to %d", __func__, all_params.active_flow, flow);
-  
-  if (flow < 0 || flow >= DSP_FLOW_COUNT) {
-    return ESP_ERR_INVALID_ARG;
-  }
-  
-  all_params.active_flow = flow;
-  
-  // Load parameters for the new flow and apply them
-  filterParams_t params;
-  params.dspFlow = flow;
-  params.fc_1 = all_params.flow_params[flow].fc_1;
-  params.gain_1 = all_params.flow_params[flow].gain_1;
-  params.fc_2 = all_params.flow_params[flow].fc_2;
-  params.gain_2 = all_params.flow_params[flow].gain_2;
-  params.fc_3 = all_params.flow_params[flow].fc_3;
-  params.gain_3 = all_params.flow_params[flow].gain_3;
-  
-  return dsp_processor_update_filter_params(&params);
-}
-
 #endif
