@@ -80,13 +80,6 @@ typedef struct {
 	uint8_t ot_warn;
 } TAS5805M_FAULT;
 
-/* Cached state structure */
-typedef struct {
-	int8_t volume;
-	TAS5805M_CTRL_STATE state;
-	TAS5805M_MIXER_MODE mixer_mode;
-} TAS5805_STATE;
-
 // Analog gain
 #define TAS5805M_MAX_GAIN 0
 #define TAS5805M_MIN_GAIN 31
@@ -124,6 +117,45 @@ static const uint8_t tas5805m_again[TAS5805M_MIN_GAIN + 1] = {
 	0x1E, /* -15.0dB */
 	0x1F, /* -15.5dB */
 };
+
+typedef enum {
+	TAS5805M_EQ_MODE_OFF = 0b0111,
+	TAS5805M_EQ_MODE_ON = 0b0110,
+	TAS5805M_EQ_MODE_BIAMP = 0b1110,
+	TAS5805M_EQ_MODE_BIAMP_OFF = 0b1111,
+} TAS5805M_EQ_MODE;
+
+typedef enum {
+	TAS5805M_EQ_CHANNELS_LEFT = 0x00,
+	TAS5805M_EQ_CHANNELS_RIGHT = 0x01,
+	TAS5805M_EQ_CHANNELS_BOTH = 0x00,
+} TAS5805M_EQ_CHANNELS;
+
+#define TAS5805M_EQ_PROFILES 21
+
+typedef enum {
+	FLAT = 0,			  // 0dB
+	LF_60HZ_CUTOFF = 1,	  // Low Frequency 60Hz cutoff
+	LF_70HZ_CUTOFF = 2,	  // Low Frequency 40Hz cutoff
+	LF_80HZ_CUTOFF = 3,	  // Low Frequency 80Hz cutoff
+	LF_90HZ_CUTOFF = 4,	  // Low Frequency 90Hz cutoff
+	LF_100HZ_CUTOFF = 5,  // Low Frequency 100Hz cutoff
+	LF_110HZ_CUTOFF = 6,  // Low Frequency 110Hz cutoff
+	LF_120HZ_CUTOFF = 7,  // Low Frequency 120Hz cutoff
+	LF_130HZ_CUTOFF = 8,  // Low Frequency 130Hz cutoff
+	LF_140HZ_CUTOFF = 9,  // Low Frequency 140Hz cutoff
+	LF_150HZ_CUTOFF = 10, // Low Frequency 150Hz cutoff
+	HF_60HZ_CUTOFF = 11,  // High Frequency 60Hz cutoff
+	HF_70HZ_CUTOFF = 12,  // High Frequency 70Hz cutoff
+	HF_80HZ_CUTOFF = 13,  // High Frequency 80Hz cutoff
+	HF_90HZ_CUTOFF = 14,  // High Frequency 90Hz cutoff
+	HF_100HZ_CUTOFF = 15, // High Frequency 100Hz cutoff
+	HF_110HZ_CUTOFF = 16, // High Frequency 110Hz cutoff
+	HF_120HZ_CUTOFF = 17, // High Frequency 120Hz cutoff
+	HF_130HZ_CUTOFF = 18, // High Frequency 130Hz cutoff
+	HF_140HZ_CUTOFF = 19, // High Frequency 140Hz cutoff
+	HF_150HZ_CUTOFF = 20, // High Frequency 150Hz cutoff
+} TAS5805M_EQ_PROFILE;
 
 #ifdef __cplusplus
 }

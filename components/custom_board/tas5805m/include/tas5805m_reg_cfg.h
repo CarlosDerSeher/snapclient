@@ -97,8 +97,13 @@ extern "C"
 #define TAS5805M_PIN_CONTROL2_REGISTER 0x75
 #define TAS5805M_MISC_CONTROL_REGISTER 0x76
 #define TAS5805M_FAULT_CLEAR_REGISTER 0x78
-/* TAS5805M_REG_FAULT register values */
+
+// TAS5805M_REG_FAULT register values */
 #define TAS5805M_ANALOG_FAULT_CLEAR 0x80
+
+// EQ registers
+#define TAS5805M_CTRL_EQ_ON 0x00
+#define TAS5805M_CTRL_EQ_OFF 0x01
 
 // Mixer registers
 #define TAS5805M_REG_BOOK_5 0x8c

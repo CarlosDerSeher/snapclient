@@ -205,84 +205,10 @@ esp_err_t tas5805m_init() {
     return ret;
   }
 
-  // Check if Bridge-Mode is enabled
-#if defined(CONFIG_DAC_BRIDGE_MODE_MONO) || defined(CONFIG_DAC_BRIDGE_MODE_LEFT) || defined(CONFIG_DAC_BRIDGE_MODE_RIGHT)
-  ESP_LOGD(TAG, "%s: Setting Bridge-Mode", __func__);
-
-  // enable bridge mode
-  ret = tas5805m_write_byte(TAS5805M_DEVICE_CTRL_1_REGISTER, 0x04);
-  
-  // Mixer config
-  ret |= tas5805m_write_byte(0x0, 0x0);
-  ret |= tas5805m_write_byte(0x7f, 0x8c);
-  ret |= tas5805m_write_byte(0x0, 0x29);
-
-  #if defined(CONFIG_DAC_BRIDGE_MODE_MONO)
-  ESP_LOGI(TAG, "%s: Defining Bridge-Mode to Mono", __func__);
-  // Left mixer input to left ouput (-6 dB)
-  ret |= tas5805m_write_byte(0x18, 0x00);
-  ret |= tas5805m_write_byte(0x19, 0x40);
-  ret |= tas5805m_write_byte(0x1a, 0x26);
-  ret |= tas5805m_write_byte(0x1b, 0xe7);
-
-  // Right mixer input to left ouput (-6 dB)
-  ret |= tas5805m_write_byte(0x1c, 0x00);
-  ret |= tas5805m_write_byte(0x1d, 0x40);
-  ret |= tas5805m_write_byte(0x1e, 0x26);
-  ret |= tas5805m_write_byte(0x1f, 0xe7);
-
-  #elif defined(CONFIG_DAC_BRIDGE_MODE_LEFT)
-  ESP_LOGI(TAG, "%s: Defining Bridge-Mode to Left", __func__);
-  // Left mixer input to left ouput (0 dB)
-  ret |= tas5805m_write_byte(0x18, 0x00);
-  ret |= tas5805m_write_byte(0x19, 0x80);
-  ret |= tas5805m_write_byte(0x1a, 0x00);
-  ret |= tas5805m_write_byte(0x1b, 0x00);
-
-  // Right mixer input to left ouput (-110 dB)
-  ret |= tas5805m_write_byte(0x1c, 0x00);
-  ret |= tas5805m_write_byte(0x1d, 0x00);
-  ret |= tas5805m_write_byte(0x1e, 0x00);
-  ret |= tas5805m_write_byte(0x1f, 0x00);
-
-  #elif defined(CONFIG_DAC_BRIDGE_MODE_RIGHT)
-  ESP_LOGI(TAG, "%s: Defining Bridge-Mode to Right", __func__);
-  // Left mixer input to left ouput (-110 dB)
-  ret |= tas5805m_write_byte(0x18, 0x00);
-  ret |= tas5805m_write_byte(0x19, 0x00);
-  ret |= tas5805m_write_byte(0x1a, 0x00);
-  ret |= tas5805m_write_byte(0x1b, 0x00);
-
-  // Right mixer input to left ouput (0 dB)
-  ret |= tas5805m_write_byte(0x1c, 0x00);
-  ret |= tas5805m_write_byte(0x1d, 0x80);
-  ret |= tas5805m_write_byte(0x1e, 0x00);
-  ret |= tas5805m_write_byte(0x1f, 0x00);
-
-  #endif
-
-  // Left mixer input to right ouput (-110 dB as the right output is not used)
-  ret |= tas5805m_write_byte(0x20, 0x00);
-  ret |= tas5805m_write_byte(0x21, 0x00);
-  ret |= tas5805m_write_byte(0x22, 0x00);
-  ret |= tas5805m_write_byte(0x23, 0x00);
-
-  // Right mixer input to right ouput (-110 dB as the right output is not used)
-  ret |= tas5805m_write_byte(0x24, 0x00);
-  ret |= tas5805m_write_byte(0x25, 0x00);
-  ret |= tas5805m_write_byte(0x26, 0x00);
-  ret |= tas5805m_write_byte(0x27, 0x00);
-
-
-  // End config
-  ret |= tas5805m_write_byte(0x0, 0x0);
-  ret |= tas5805m_write_byte(0x7f, 0x0);
-
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "%s: Setting Bridge-Mode failed", __func__);
-    return ret;
-  }
-#endif
+  /* Bridge-mode configuration removed: bridge mode is now controlled at runtime
+     via the UI and persisted through settings. If you need to reintroduce
+     compile-time bridge-mode options, re-add the Kconfig choice and the
+     corresponding conditional code here. */
 
   return ret;
 }
@@ -773,3 +699,190 @@ void tas5805m_decode_faults(TAS5805M_FAULT fault)
         ESP_LOGW(TAG, "%s: Over temperature warning", __func__);
   }
 }
+
+/* EQ-related functions and data: compile only when enabled in Kconfig */
+#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+
+esp_err_t tas5805m_get_eq_mode(TAS5805M_EQ_MODE *mode)
+{
+  uint8_t value = 0;
+  esp_err_t err = tas5805m_read_byte(TAS5805M_DSP_MISC_REGISTER, &value);
+  if (err != ESP_OK)
+  {
+    ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(err));
+    return err;
+  }
+
+  // Extract the EQ mode from the value
+  *mode = (TAS5805M_EQ_MODE)(value & 0b00001111);
+  return ESP_OK;
+}
+
+esp_err_t tas5805m_set_eq_mode(TAS5805M_EQ_MODE mode)
+{
+  ESP_LOGD(TAG, "%s: Setting EQ MODE to %d", __func__, mode);
+  return tas5805m_write_byte(TAS5805M_DSP_MISC_REGISTER, (uint8_t)mode);
+}
+
+esp_err_t tas5805m_set_eq(bool enable)
+{
+  ESP_LOGD(TAG, "%s: Setting EQ to %d", __func__, enable);
+  return tas5805m_write_byte(TAS5805M_DSP_MISC_REGISTER, enable ? TAS5805M_CTRL_EQ_ON : TAS5805M_CTRL_EQ_OFF);
+}
+
+esp_err_t tas5805m_get_eq_gain(int band, int *gain)
+{
+  return tas5805m_get_eq_gain_channel(TAS5805M_EQ_CHANNELS_LEFT, band, gain);
+}
+
+esp_err_t tas5805m_get_eq_gain_channel(TAS5805M_EQ_CHANNELS channel, int band, int *gain)
+{
+  switch (channel)
+  {
+    case TAS5805M_EQ_CHANNELS_RIGHT:
+      *gain = tas5805m_state.eq_gain_r[band];
+      break;
+    default:
+      *gain = tas5805m_state.eq_gain_l[band];
+      break;
+  }
+  return ESP_OK;
+}
+
+esp_err_t tas5805m_set_eq_gain(int band, int gain) {
+  return tas5805m_set_eq_gain_channel(TAS5805M_EQ_CHANNELS_LEFT, band, gain);
+}
+
+esp_err_t tas5805m_set_eq_gain_channel(TAS5805M_EQ_CHANNELS channel, int band, int gain)
+{
+  if (band < 0 || band >= TAS5805M_EQ_BANDS)
+  {
+    ESP_LOGE(TAG, "%s: Invalid band %d", __func__, band);
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  if (gain < TAS5805M_EQ_MIN_DB || gain > TAS5805M_EQ_MAX_DB)
+  {
+    ESP_LOGE(TAG, "%s: Invalid gain %d", __func__, gain);
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  int current_page = 0; 
+  int ret = ESP_OK;
+  ESP_LOGD(TAG, "%s: Setting EQ band %d (%d Hz) to gain %d", __func__, band, tas5805m_eq_bands[band], gain);
+
+  int x = gain + TAS5805M_EQ_MAX_DB;                                 
+  int y = band * TAS5805M_EQ_KOEF_PER_BAND * TAS5805M_EQ_REG_PER_KOEF; 
+    
+  const reg_sequence_eq **eq_maps = (channel == TAS5805M_EQ_CHANNELS_RIGHT) ? tas5805m_eq_registers_right : tas5805m_eq_registers_left;
+
+  for (int i = 0; i < TAS5805M_EQ_KOEF_PER_BAND * TAS5805M_EQ_REG_PER_KOEF; i += TAS5805M_EQ_REG_PER_KOEF) 
+  { 
+      const reg_sequence_eq *reg_value0 = &eq_maps[x][y + i + 0];
+      const reg_sequence_eq *reg_value1 = &eq_maps[x][y + i + 1];
+      const reg_sequence_eq *reg_value2 = &eq_maps[x][y + i + 2];
+      const reg_sequence_eq *reg_value3 = &eq_maps[x][y + i + 3];
+
+      if (reg_value0 == NULL || reg_value1 == NULL || reg_value2 == NULL || reg_value3 == NULL) {                                        
+          ESP_LOGW(TAG, "%s: NULL pointer encountered at row[%d]", __func__, y + i); 
+          continue;                                                   
+      }                                                               
+      
+      // Assume all 4 reg values are in the same page, seems to be true for all BQ registers
+      if (reg_value0->page != current_page) {                          
+        TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_EQ, reg_value0->page); 
+        current_page = reg_value0->page;                             
+      }                                                               
+                
+      uint8_t address = reg_value0->offset;
+      uint32_t value = reg_value0->value | 
+                     (reg_value1->value << 8) | 
+                     (reg_value2->value << 16) | 
+                     (reg_value3->value << 24);
+
+      ESP_LOGV(TAG, "%s: + %d: w 0x%x 0x%x 0x%x 0x%x 0x%x -> 0x%x", __func__, i, 
+             reg_value0->offset, reg_value0->value, 
+             reg_value1->value, reg_value2->value, reg_value3->value, value);
+      ret = ret | tas5805m_write_bytes(&address, 1, (uint8_t *)&value, sizeof(value));
+      if (ret != ESP_OK) { 
+          ESP_LOGE(TAG, "%s: Error writing to register 0x%x", __func__, address); 
+      }          
+  }   
+  
+  if (channel == TAS5805M_EQ_CHANNELS_RIGHT)
+    tas5805m_state.eq_gain_r[band] = gain;
+  else
+    tas5805m_state.eq_gain_l[band] = gain;
+                                                                      
+  TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_CONTROL_PORT, TAS5805M_REG_PAGE_ZERO); 
+  return ret;
+}
+
+esp_err_t tas5805m_get_eq_profile(TAS5805M_EQ_PROFILE *profile)
+{
+  return tas5805m_get_eq_profile_channel(TAS5805M_EQ_CHANNELS_LEFT, profile);
+}
+
+esp_err_t tas5805m_get_eq_profile_channel(TAS5805M_EQ_CHANNELS channel, TAS5805M_EQ_PROFILE *profile)
+{
+  *profile = tas5805m_state.eq_profile[channel];
+  return ESP_OK;
+}
+
+esp_err_t tas5805m_set_eq_profile(TAS5805M_EQ_PROFILE profile) {
+  return tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS_LEFT, profile);
+}
+
+esp_err_t tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS channel, TAS5805M_EQ_PROFILE profile)
+{
+  // Apply preset EQ gains for the selected profile
+  int current_page = 0; 
+  int ret = ESP_OK;
+  ESP_LOGD(TAG, "%s: Setting EQ profile to %d", __func__, profile);
+  
+  const reg_sequence_eq **eq_maps = (channel == TAS5805M_EQ_CHANNELS_RIGHT) ? tas5805m_eq_profile_right_registers : tas5805m_eq_profile_left_registers;
+
+  int x = (uint8_t)profile;
+  for (int i = 0; i < TAS5805M_EQ_PROFILE_REG_PER_STEP; i += TAS5805M_EQ_REG_PER_KOEF) 
+  { 
+    const reg_sequence_eq *reg_value0 = &eq_maps[x][i + 0]; 
+    const reg_sequence_eq *reg_value1 = &eq_maps[x][i + 1];
+    const reg_sequence_eq *reg_value2 = &eq_maps[x][i + 2];
+    const reg_sequence_eq *reg_value3 = &eq_maps[x][i + 3];
+
+    if (reg_value0 == NULL || reg_value1 == NULL || reg_value2 == NULL || reg_value3 == NULL) {                                        
+        ESP_LOGW(TAG, "%s: NULL pointer encountered at row[%d]", __func__, i); 
+        continue;                                                   
+    }                
+      
+    // Assume all 4 reg values are in the same page, seems to be true for all BQ registers
+    if (reg_value0->page != current_page) {                          
+        current_page = reg_value0->page;                             
+        TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_EQ, reg_value0->page); 
+    }                                                               
+
+    uint8_t address = reg_value0->offset;
+    uint32_t value = reg_value0->value | 
+                     (reg_value1->value << 8) | 
+                     (reg_value2->value << 16) | 
+                     (reg_value3->value << 24);
+   
+    // ESP_LOGV(TAG, "%s: + %d: w 0x%x 0x%x 0x%x 0x%x 0x%x -> 0x%x", __func__, i, 
+    //        reg_value0->offset, reg_value0->value, 
+    //        reg_value1->value, reg_value2->value, reg_value3->value, value);
+    ret = ret | tas5805m_write_bytes(&address, 1, (uint8_t *)&value, sizeof(value));
+    // ret = ret | tas5805m_write_byte(reg_value->offset, reg_value->value);
+    if (ret != ESP_OK) { 
+        ESP_LOGE(TAG, "%s: Error writing to register 0x%x", __func__, address); 
+    }     
+  }
+
+  // Set the EQ profile
+  tas5805m_state.eq_profile[channel] = profile;
+
+
+  TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_CONTROL_PORT, TAS5805M_REG_PAGE_ZERO); 
+  return ret;
+}
+
+#endif /* CONFIG_DAC_TAS5805M_EQ_SUPPORT */
