@@ -1350,24 +1350,44 @@ static void http_get_task(void *pvParameters) {
     uint32_t tmpData = 0;
     int32_t payloadDataShift = 0;
 
-    firstNetBuf = NULL;
+    // state machine starts here     
 
+    firstNetBuf = NULL;
     bool first_receive = true;
 
+    typedef enum {
+      CONNECTION_INITIALIZED,
+      CONNECTION_DATA_RECEIVED,
+      CONNECTION_BUFFER_FILLED,
+      CONNECTION_RESTART_REQUIRED,
+      CONNECTION_PANIC
+    } connection_state_t;
+
+    connection_state_t connection_state = CONNECTION_INITIALIZED;
+
     while (1) {
+
       if (receive_data(&firstNetBuf, scSet.muted, netif, &first_receive, rc1) != 0) {
+        connection_state = CONNECTION_RESTART_REQUIRED;
         break; // restart connection
       }
-
       bool first_netbuf_processed = false;
+      connection_state = CONNECTION_DATA_RECEIVED;
+
       while (true) {
 
         if (fill_buffer(&first_netbuf_processed, &rc1, firstNetBuf,
                     &start, &len) != 0) {
+          connection_state = CONNECTION_INITIALIZED;
           break; // fetch new data from network
         }
+        connection_state = CONNECTION_BUFFER_FILLED;
 
-        while (len > 0) {
+        while (1) {
+          if (len <= 0) {
+            connection_state = CONNECTION_DATA_RECEIVED;
+            break;
+          }
           rc1 = ERR_OK;  // probably not necessary
          
           if (process_data(&parser, &base_message_rx, &time_sync_data, &time_message_rx, 
@@ -1375,11 +1395,8 @@ static void http_get_task(void *pvParameters) {
                           &offset, &payloadOffset, &tmpData, &decoderChunk, &payloadDataShift,
                           &typedMsgLen, &serverSettingsString, &codecString, &codecPayload,
                           &start, &len) != 0) {
+            connection_state = CONNECTION_PANIC;
             return; // critical error in data processing
-          }
-
-          if (rc1 != ERR_OK) {
-            break;
           }
         }
       }
