@@ -319,90 +319,40 @@ esp_err_t tas5805m_get_volume(int *vol) {
   return ESP_OK;
 }
 
-// Set digital volume in dB (0.5dB steps)
-esp_err_t tas5805m_set_digital_volume_db(int vol_half_db) {
-  ESP_LOGD(TAG, "%s: Setting digital volume to %d half-dB (%.1f dB)", __func__, vol_half_db, vol_half_db / 2.0);
-  
-  // Clamp to valid range: -207 to +48 (-103.5dB to +24dB)
-  if (vol_half_db < -207) vol_half_db = -207;
-  if (vol_half_db > 48) vol_half_db = 48;
-  
-  // Convert half-dB to register value
-  // Register: 0x00 = +24dB, 0x30 = 0dB, 0xff = -103.5dB (mute)
-  // Formula: reg = 48 - vol_half_db
-  uint8_t reg_val = (uint8_t)(48 - vol_half_db);
-  
-  esp_err_t ret = tas5805m_write_byte(TAS5805M_DIG_VOL_CTRL_REGISTER, reg_val);
-  if (ret != ESP_OK) {
-    ESP_LOGW(TAG, "%s: Failed to write digital volume (reg 0x%02x): %s", __func__, reg_val, esp_err_to_name(ret));
+
+// Setting the Volume [0..255], 0 is mute, 255 is full blast
+esp_err_t tas5805m_set_digital_volume(uint8_t vol)
+{
+  esp_err_t ret = ESP_OK;
+  if (vol < TAS5805M_VOLUME_DIGITAL_MIN)
+  {
+    vol = TAS5805M_VOLUME_DIGITAL_MIN;
   }
+  if (vol > TAS5805M_VOLUME_DIGITAL_MAX)
+  {
+    vol = TAS5805M_VOLUME_DIGITAL_MAX;
+  }
+
+  ret = tas5805m_write_byte(TAS5805M_DIG_VOL_CTRL, vol);
+  if (ret != ESP_OK)
+  {
+    ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(ret));
+  }
+
   return ret;
 }
 
-// Get digital volume in dB (0.5dB steps)
-esp_err_t tas5805m_get_digital_volume_db(int *vol_half_db) {
-  if (vol_half_db == NULL) {
-    return ESP_ERR_INVALID_ARG;
-  }
-  
-  uint8_t reg_val = 0;
-  esp_err_t ret = tas5805m_read_byte(TAS5805M_DIG_VOL_CTRL_REGISTER, &reg_val);
-  if (ret != ESP_OK) {
-    ESP_LOGW(TAG, "%s: Failed to read digital volume register: %s", __func__, esp_err_to_name(ret));
-    return ret;
-  }
-  
-  // Convert register value to half-dB
-  // Formula: vol_half_db = 48 - reg
-  *vol_half_db = 48 - (int)reg_val;
-  
-  ESP_LOGD(TAG, "%s: Digital volume: reg=0x%02x, value=%d half-dB (%.1f dB)", 
-           __func__, reg_val, *vol_half_db, *vol_half_db / 2.0);
-  return ESP_OK;
-}
-
-// Set analog gain in dB (0.5dB steps)
-esp_err_t tas5805m_set_analog_gain(int gain_half_db) {
-  ESP_LOGD(TAG, "%s: Setting analog gain to %d half-dB (%.1f dB)", __func__, gain_half_db, gain_half_db / 2.0);
-  
-  // Clamp to valid range: -31 to 0 (-15.5dB to 0dB)
-  if (gain_half_db < -31) gain_half_db = -31;
-  if (gain_half_db > 0) gain_half_db = 0;
-  
-  // Convert half-dB to register value
-  // Register: bits [4:0], 0x00 = 0dB, 0x1f = -15.5dB
-  // Formula: reg = -gain_half_db
-  uint8_t reg_val = (uint8_t)(-gain_half_db) & 0x1F;
-  
-  esp_err_t ret = tas5805m_write_byte(TAS5805M_AGAIN_REGISTER, reg_val);
-  if (ret != ESP_OK) {
-    ESP_LOGW(TAG, "%s: Failed to write analog gain (reg 0x%02x): %s", __func__, reg_val, esp_err_to_name(ret));
+// Getting the Volume [0..255], 0 is mute, 255 is full blast
+esp_err_t tas5805m_get_digital_volume(uint8_t *vol)
+{
+  esp_err_t ret = ESP_OK;
+  ret = tas5805m_read_byte(TAS5805M_DIG_VOL_CTRL_REGISTER, vol);
+  if (ret != ESP_OK)
+  {
+    ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(ret));
   }
   return ret;
 }
-
-// Get analog gain in dB (0.5dB steps)
-esp_err_t tas5805m_get_analog_gain(int *gain_half_db) {
-  if (gain_half_db == NULL) {
-    return ESP_ERR_INVALID_ARG;
-  }
-  
-  uint8_t reg_val = 0;
-  esp_err_t ret = tas5805m_read_byte(TAS5805M_AGAIN_REGISTER, &reg_val);
-  if (ret != ESP_OK) {
-    ESP_LOGW(TAG, "%s: Failed to read analog gain register: %s", __func__, esp_err_to_name(ret));
-    return ret;
-  }
-  
-  // Convert register value to half-dB
-  // Formula: gain_half_db = -(reg & 0x1F)
-  *gain_half_db = -(int)(reg_val & 0x1F);
-  
-  ESP_LOGD(TAG, "%s: Analog gain: reg=0x%02x, value=%d half-dB (%.1f dB)", 
-           __func__, reg_val, *gain_half_db, *gain_half_db / 2.0);
-  return ESP_OK;
-}
-
 
 // Deinit the TAS5805M
 esp_err_t tas5805m_deinit(void) {
@@ -461,4 +411,230 @@ esp_err_t tas5805m_config_iface(audio_hal_codec_mode_t mode,
                                 audio_hal_codec_i2s_iface_t *iface) {
   // TODO
   return ESP_OK;
+}
+
+esp_err_t tas5805m_get_dac_mode(TAS5805M_DAC_MODE *mode)
+{
+    uint8_t current_value;
+    esp_err_t err = tas5805m_read_byte(TAS5805M_DEVICE_CTRL_1, &current_value);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(err));
+        return err;
+    }
+
+    if (current_value & (1 << 2)) {
+        *mode = TAS5805M_DAC_MODE_PBTL;
+    } else {
+        *mode = TAS5805M_DAC_MODE_BTL;
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t tas5805m_set_dac_mode(TAS5805M_DAC_MODE mode)
+{
+    ESP_LOGD(TAG, "%s: Setting DAC mode to %d", __func__, mode);
+
+    // Read the current value of the register
+    uint8_t current_value;
+    esp_err_t err = tas5805m_read_byte(TAS5805M_DEVICE_CTRL_1, &current_value);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(err));
+        return err;
+    }
+
+    // Update bit 2 based on the mode
+    if (mode == TAS5805M_DAC_MODE_PBTL) {
+        current_value |= (1 << 2);  // Set bit 2 to 1 (PBTL mode)
+    } else {
+        current_value &= ~(1 << 2); // Clear bit 2 to 0 (BTL mode)
+    }
+
+    // Write the updated value back to the register
+    int ret = tas5805m_write_byte(TAS5805M_DEVICE_CTRL_1, current_value);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(ret));
+    }
+
+    return ret;
+}
+
+esp_err_t tas5805m_get_modulation_mode(TAS5805M_MOD_MODE *mode, TAS5805M_SW_FREQ *freq, TAS5805M_BD_FREQ *bd_freq)
+{
+  // Read the current value of the register
+  uint8_t current_value;
+  esp_err_t err = tas5805m_read_byte(TAS5805M_DEVICE_CTRL_1, &current_value);
+  if (err != ESP_OK) {
+      ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(err));
+      return err;
+  }
+
+  // Extract bits 0-1
+  *mode = (current_value & 0b00000011);
+  // Extract bits 4-6
+  *freq = (current_value & 0b01110000);
+
+  // Read the BD frequency
+  err = tas5805m_read_byte(TAS5805M_ANA_CTRL, &current_value);
+  if (err != ESP_OK) {
+      ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(err));
+      return err;
+  }
+
+  *bd_freq = (current_value & 0b01100000);
+  return ESP_OK;
+}
+
+esp_err_t tas5805m_set_modulation_mode(TAS5805M_MOD_MODE mode, TAS5805M_SW_FREQ freq, TAS5805M_BD_FREQ bd_freq)
+{
+  ESP_LOGD(TAG, "%s: Setting modulation to %d, FSW: %d, Class-D bandwidth control: %d", __func__, mode, freq, bd_freq);
+
+  // Read the current value of the register
+  uint8_t current_value;
+  esp_err_t err = tas5805m_read_byte(TAS5805M_DEVICE_CTRL_1, &current_value);
+  if (err != ESP_OK) {
+      ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(err));
+      return err;
+  }
+
+  // Clear bits 0-1 and 4-6
+  current_value &= ~((0x07 << 4) | (0x03 << 0));
+  // Update bit 0-1 based on the mode
+  current_value |= mode & 0b00000011;  // Set bits 0-1
+  // Update bits 4-6 based on sw freq
+  current_value |= freq & 0b01110000;  // Set bits 4-6
+  
+  // Write the updated value back to the register
+  int ret = tas5805m_write_byte(TAS5805M_DEVICE_CTRL_1, current_value);
+  if (ret != ESP_OK) {
+      ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(ret));
+  } 
+
+  // Set the BD frequency
+  ret = tas5805m_write_byte(TAS5805M_ANA_CTRL, bd_freq);
+  if (ret != ESP_OK) {
+      ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(ret));
+  } 
+
+  return ret;
+}
+
+esp_err_t tas5805m_get_again(uint8_t *gain)
+{
+  int ret = ESP_OK;
+  ret = tas5805m_read_byte(TAS5805M_AGAIN, gain);
+  if (ret != ESP_OK)
+  {
+    ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(ret));
+  }
+  return ret;
+}
+
+esp_err_t tas5805m_set_again(uint8_t gain)
+{
+  // Gain is inverted!
+  if (gain < TAS5805M_MAX_GAIN || gain > TAS5805M_MIN_GAIN)
+  {
+    ESP_LOGE(TAG, "%s: Invalid gain %d", __func__, gain);
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  uint8_t value = tas5805m_again[gain];
+  int ret = tas5805m_write_byte(TAS5805M_AGAIN, value);
+  if (ret != ESP_OK)
+  {
+    ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(ret));
+  }
+
+  return ret;
+}
+
+esp_err_t tas5805m_clear_faults()
+{
+  ESP_LOGD(TAG, "%s: Clearing faults", __func__);
+  int ret = tas5805m_write_byte(TAS5805M_FAULT_CLEAR, TAS5805M_ANALOG_FAULT_CLEAR);
+  if (ret != ESP_OK)
+  {
+    ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(ret));
+  }
+  return ret;
+}
+
+esp_err_t tas5805m_get_faults(TAS5805M_FAULT *fault)
+{
+  int ret = ESP_OK;
+
+  ret = tas5805m_read_byte(TAS5805M_CHAN_FAULT, &(fault->err0));
+  if (ret != ESP_OK)
+  {
+    ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(ret));
+    return ret;
+  }
+
+  ret = tas5805m_read_byte(TAS5805M_GLOBAL_FAULT1, &(fault->err1));
+  if (ret != ESP_OK)
+  {
+    ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(ret));
+    return ret;
+  }
+
+  ret = tas5805m_read_byte(TAS5805M_GLOBAL_FAULT2, &(fault->err2));
+  if (ret != ESP_OK)
+  {
+    ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(ret));
+    return ret;
+  }
+
+  ret= tas5805m_read_byte(TAS5805M_OT_WARNING, &(fault->ot_warn));
+  if (ret != ESP_OK)
+  {
+    ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(ret));
+    return ret;
+  }
+
+  return ret;
+}
+
+void tas5805m_decode_faults(TAS5805M_FAULT fault)
+{
+  if (fault.err0) {
+    if (fault.err0 & (1 << 0))  
+        ESP_LOGW(TAG, "%s: Right channel over current fault", __func__);
+
+    if (fault.err0 & (1 << 1))
+        ESP_LOGW(TAG, "%s: Left channel over current fault", __func__);
+
+    if (fault.err0 & (1 << 2)) 
+        ESP_LOGW(TAG, "%s: Right channel DC fault", __func__);
+
+    if (fault.err0 & (1 << 3))  
+        ESP_LOGW(TAG, "%s: Left channel DC fault", __func__);
+  }
+
+  if (fault.err1) {
+    if (fault.err1 & (1 << 0))  
+        ESP_LOGW(TAG, "%s: PVDD UV fault", __func__);
+
+    if (fault.err1 & (1 << 1))
+        ESP_LOGW(TAG, "%s: PVDD OV fault", __func__);
+
+    if (fault.err1 & (1 << 2)) 
+        ESP_LOGW(TAG, "%s: Clock fault", __func__);
+
+    if (fault.err1 & (1 << 6))  
+        ESP_LOGW(TAG, "%s: The recent BQ is written failed", __func__);
+
+    if (fault.err1 & (1 << 7))  
+        ESP_LOGW(TAG, "%s: Indicate OTP CRC check error", __func__);
+  }
+
+  if (fault.err2) {
+    if (fault.err2 & (1 << 0))  
+        ESP_LOGW(TAG, "%s: Over temperature shut down fault", __func__);
+  }
+
+  if (fault.ot_warn) {
+    if (fault.ot_warn & (1 << 2))  
+        ESP_LOGW(TAG, "%s: Over temperature warning", __func__);
+  }
 }

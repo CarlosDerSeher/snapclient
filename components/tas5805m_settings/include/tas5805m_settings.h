@@ -27,6 +27,10 @@ extern "C" {
 #define TAS5805M_NVS_KEY_STATE      "state"
 #define TAS5805M_NVS_KEY_DIGITAL_VOL "dig_vol"
 #define TAS5805M_NVS_KEY_ANALOG_GAIN "ana_gain"
+#define TAS5805M_NVS_KEY_DAC_MODE   "dac_mode"
+#define TAS5805M_NVS_KEY_MOD_MODE   "mod_mode"
+#define TAS5805M_NVS_KEY_SW_FREQ    "sw_freq"
+#define TAS5805M_NVS_KEY_BD_FREQ    "bd_freq"
 
 // Digital Volume Settings (in 0.5dB steps)
 #define TAS5805M_DIGITAL_VOL_MIN    -207    // -103.5 dB
@@ -90,6 +94,42 @@ esp_err_t tas5805m_settings_save_analog_gain(int gain_half_db);
  * @return ESP_OK on success, ESP_ERR_NVS_NOT_FOUND if not set
  */
 esp_err_t tas5805m_settings_load_analog_gain(int *gain_half_db);
+
+/**
+ * Save DAC mode setting to NVS
+ * @param mode The DAC mode (BTL or PBTL)
+ * @return ESP_OK on success
+ */
+esp_err_t tas5805m_settings_save_dac_mode(TAS5805M_DAC_MODE mode);
+
+/**
+ * Load DAC mode setting from NVS
+ * @param mode Pointer to store the DAC mode
+ * @return ESP_OK on success, ESP_ERR_NVS_NOT_FOUND if not set
+ */
+esp_err_t tas5805m_settings_load_dac_mode(TAS5805M_DAC_MODE *mode);
+
+/**
+ * Save modulation mode settings to NVS
+ * @param mode The modulation mode
+ * @param freq The switching frequency
+ * @param bd_freq The BD frequency
+ * @return ESP_OK on success
+ */
+esp_err_t tas5805m_settings_save_modulation_mode(TAS5805M_MOD_MODE mode, 
+                                                   TAS5805M_SW_FREQ freq,
+                                                   TAS5805M_BD_FREQ bd_freq);
+
+/**
+ * Load modulation mode settings from NVS
+ * @param mode Pointer to store modulation mode
+ * @param freq Pointer to store switching frequency
+ * @param bd_freq Pointer to store BD frequency
+ * @return ESP_OK on success, ESP_ERR_NVS_NOT_FOUND if not set
+ */
+esp_err_t tas5805m_settings_load_modulation_mode(TAS5805M_MOD_MODE *mode,
+                                                   TAS5805M_SW_FREQ *freq,
+                                                   TAS5805M_BD_FREQ *bd_freq);
 
 /**
  * Get current TAS5805M settings as a JSON string

@@ -42,29 +42,28 @@ extern "C" {
 #define I2C_MASTER_RX_BUF_DISABLE 0 /*!< I2C master doesn't need buffer */
 #define I2C_MASTER_TIMEOUT_MS 1000
 
-#define TAS5805M_VOLUME_MUTE    0xff // (-103.5 dB - actual mute)
-#define TAS5805M_VOLUME_MIN 	0xa8 // (   -60 dB - save value representing barely hearable volume)
-#define TAS5805M_VOLUME_MAX     0x30 // (     0 dB - maximum volume that guarantees no distortion )
+#define TAS5805M_VOLUME_MUTE 0xff // (-103.5 dB - actual mute)
+#define TAS5805M_VOLUME_MIN                                                    \
+	0xa8 // (   -60 dB - save value representing barely hearable volume)
+#define TAS5805M_VOLUME_MAX                                                    \
+	0x30 // (     0 dB - maximum volume that guarantees no distortion )
 /*
 // TODO: make it available for user configuration
-#define TAS5805M_REG_VOLUME_MAX     0x00 // (+24 dB - maximum volume that DAC can do)
+#define TAS5805M_REG_VOLUME_MAX     0x00 // (+24 dB - maximum volume that DAC
+can do)
 */
 
-/* See here for the original Implementation : audio_hal/driver/tas5805m */
-/* Its not from me it was developed by Espressif */
-/* Volume steps tas5805m_volume[0] => 255 which means mute */
-static const uint8_t tas5805m_volume[] = {
-	0xff, 0x9f, 0x8f, 0x7f, 0x6f, 0x5f, 0x5c, 0x5a, 0x58, 0x54, 0x50,
-	0x4c, 0x4a, 0x48, 0x44, 0x40, 0x3d, 0x3b, 0x39, 0x37, 0x35};
-
+#define TAS5805M_VOLUME_DIGITAL_MAX 255    // Mute
+#define TAS5805M_VOLUME_DIGITAL_DEFAULT 48 //  +0 Db
+#define TAS5805M_VOLUME_DIGITAL_MIN 0      // +24 Db
 
 typedef enum {
-	TAS5805M_CTRL_DEEP_SLEEP = 	0x00,	 					// Deep Sleep
-	TAS5805M_CTRL_SLEEP 	= 0x01,		 					// Sleep
-	TAS5805M_CTRL_HI_Z 		= 0x02,		 					// Hi-Z
-	TAS5805M_CTRL_PLAY 		= 0x03,			 				// Play
-	TAS5805M_CTRL_MUTE 		= 0x08,  					 	// Mute Flag
-															// Mute, but driver in PLAY state
+	TAS5805M_CTRL_DEEP_SLEEP = 0x00, // Deep Sleep
+	TAS5805M_CTRL_SLEEP = 0x01,		 // Sleep
+	TAS5805M_CTRL_HI_Z = 0x02,		 // Hi-Z
+	TAS5805M_CTRL_PLAY = 0x03,		 // Play
+	TAS5805M_CTRL_MUTE = 0x08,		 // Mute Flag
+									 // Mute, but driver in PLAY state
 	TAS5805M_CTRL_PLAY_MUTE = TAS5805M_CTRL_MUTE | TAS5805M_CTRL_PLAY
 } TAS5805M_CTRL_STATE;
 
@@ -72,6 +71,38 @@ typedef struct {
 	int8_t volume;
 	TAS5805M_CTRL_STATE state;
 } TAS5805_STATE;
+
+typedef enum {
+	TAS5805M_DAC_MODE_BTL = 0x00, // Bridge tied load
+	TAS5805M_DAC_MODE_PBTL = 0x01 // Parallel load
+} TAS5805M_DAC_MODE;
+
+typedef enum {
+	SW_FREQ_768K = (0x00 << 4),
+	SW_FREQ_384K = (0x01 << 4),
+	SW_FREQ_480K = (0x03 << 4),
+	SW_FREQ_576K = (0x04 << 4),
+} TAS5805M_SW_FREQ;
+
+typedef enum {
+	SW_FREQ_80K = (0x00 << 5),
+	SW_FREQ_100K = (0x01 << 5),
+	SW_FREQ_120K = (0x02 << 5),
+	SW_FREQ_175K = (0x03 << 5),
+} TAS5805M_BD_FREQ;
+
+typedef enum {
+	MOD_MODE_BD = 0x0,
+	MOD_MODE_1SPW = 0x1,
+	MOD_MODE_HYBRID = 0x2,
+} TAS5805M_MOD_MODE;
+
+typedef struct {
+	uint8_t err0;
+	uint8_t err1;
+	uint8_t err2;
+	uint8_t ot_warn;
+} TAS5805M_FAULT;
 
 /**
  * @brief Initialize TAS5805 codec chip
@@ -116,49 +147,26 @@ esp_err_t tas5805m_set_volume(int vol);
 esp_err_t tas5805m_get_volume(int *vol);
 
 /**
- * @brief Set analog gain (register 0x54)
+ * @brief  Set device volume)
  *
- * @param gain_db: gain in 0.5dB steps, range -15.5 to 0 dB
- *                 Stored as int representing 0.5dB steps (e.g., -31 = -15.5dB, 0 = 0dB)
+ * @param volume: digital volume (inverted) (0~255)
  *
  * @return
  *     - ESP_OK
  *     - ESP_FAIL
  */
-esp_err_t tas5805m_set_analog_gain(int gain_half_db);
+esp_err_t tas5805m_set_digital_volume(uint8_t vol);
 
 /**
- * @brief Get analog gain (register 0x54)
+ * @brief Get device volume
  *
- * @param[out] gain_half_db: gain in 0.5dB steps
- *
- * @return
- *     - ESP_OK
- *     - ESP_FAIL
- */
-esp_err_t tas5805m_get_analog_gain(int *gain_half_db);
-
-/**
- * @brief Set digital volume in dB (register 0x4c)
- *
- * @param vol_half_db: volume in 0.5dB steps, range -207 to 48 (-103.5dB to 24dB)
+ * @param[out] *volume: digital volume (inverted) (0~255)
  *
  * @return
  *     - ESP_OK
  *     - ESP_FAIL
  */
-esp_err_t tas5805m_set_digital_volume_db(int vol_half_db);
-
-/**
- * @brief Get digital volume in dB (register 0x4c)
- *
- * @param[out] vol_half_db: volume in 0.5dB steps
- *
- * @return
- *     - ESP_OK
- *     - ESP_FAIL
- */
-esp_err_t tas5805m_get_digital_volume_db(int *vol_half_db);
+esp_err_t tas5805m_get_digital_volume(uint8_t *vol);
 
 /**
  * @brief Set TAS5805 mute or not
@@ -207,20 +215,116 @@ esp_err_t tas5805m_set_state(TAS5805M_CTRL_STATE state);
  * @return
  *     - ESP_OK
  *     - ESP_FAIL
- */	
+ */
 esp_err_t tas5805m_ctrl(audio_hal_codec_mode_t mode,
 						audio_hal_ctrl_t ctrl_state);
 
 /**
  * @brief  Configure the I2S interface of TAS5805 codec chip
  * @param mode: codec mode
- * @param iface: I2S interface configuration		
+ * @param iface: I2S interface configuration
  * @return
  *    - ESP_OK
  * 	- ESP_FAIL
- */	
+ */
 esp_err_t tas5805m_config_iface(audio_hal_codec_mode_t mode,
 								audio_hal_codec_i2s_iface_t *iface);
+
+/**
+ * @brief Get the current DAC mode of the TAS5805M
+ *
+ * @param mode: Pointer to the mode variable
+ *
+ */
+esp_err_t tas5805m_get_dac_mode(TAS5805M_DAC_MODE *mode);
+
+/**
+ * @brief Set the DAC mode of the TAS5805M
+ *
+ * @param mode: The mode to set
+ *
+ */
+esp_err_t tas5805m_set_dac_mode(TAS5805M_DAC_MODE mode);
+
+/**
+ * @brief Get the current modulation mode of the TAS5805M
+ *
+ * @param mode: Pointer to the mode variable
+ * @param freq: Pointer to the DSP frequency variable
+ * @param bd_freq: Pointer to the BD frequency variable
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_FAIL
+ */
+esp_err_t tas5805m_get_modulation_mode(TAS5805M_MOD_MODE *mode,
+									   TAS5805M_SW_FREQ *freq,
+									   TAS5805M_BD_FREQ *bd_freq);
+
+/**
+ * @brief Set the modulation mode of the TAS5805M
+ *
+ * @param mode: The mode to set
+ * @param freq: The DSP frequency to set
+ * @param bd_freq: The BD frequency to set
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_FAIL
+ */
+esp_err_t tas5805m_set_modulation_mode(TAS5805M_MOD_MODE mode,
+									   TAS5805M_SW_FREQ freq,
+									   TAS5805M_BD_FREQ bd_freq);
+
+/**
+ * @brief Get the analog gain of the TAS5805M
+ *
+ * @param gain: Pointer to the gain variable
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_FAIL
+ */
+esp_err_t tas5805m_get_again(uint8_t *gain);
+
+/**
+ * @brief Set the analog gain of the TAS5805M
+ *
+ * @param gain: The gain to set
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_FAIL
+ */
+esp_err_t tas5805m_set_again(uint8_t gain);
+
+/**
+ * @brief Get the faults of the TAS5805M
+ *
+ * @param fault: Pointer to the fault struct
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_FAIL
+ */
+esp_err_t tas5805m_get_faults(TAS5805M_FAULT *fault);
+
+/**
+ * @brief Clear the faults of the TAS5805M
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_FAIL
+ */
+esp_err_t tas5805m_clear_faults();
+
+/**
+ * @brief Decode the errors from the TAS5805M
+ *
+ * @param fault: The fault struct to decode
+ *
+ */
+void tas5805m_decode_faults(TAS5805M_FAULT fault);
 
 #ifdef __cplusplus
 }
