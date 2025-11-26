@@ -35,6 +35,18 @@ static const char* tas5805m_state_to_string(TAS5805M_CTRL_STATE state) {
     }
 }
 
+static const char* tas5805m_mixer_mode_to_string(TAS5805M_MIXER_MODE mode) {
+    switch (mode) {
+        case MIXER_UNKNOWN: return "Unknown";
+        case MIXER_STEREO: return "Stereo";
+        case MIXER_STEREO_INVERSE: return "Stereo (Inverse)";
+        case MIXER_MONO: return "Mono";
+        case MIXER_RIGHT: return "Right";
+        case MIXER_LEFT: return "Left";
+        default: return "Unknown";
+    }
+}
+
 esp_err_t tas5805m_settings_init(void) {
     if (tas5805m_settings_mutex == NULL) {
         tas5805m_settings_mutex = xSemaphoreCreateMutex();
@@ -230,6 +242,62 @@ esp_err_t tas5805m_settings_load_modulation_mode(TAS5805M_MOD_MODE *mode,
     return err;
 }
 
+/** Save mixer mode to NVS */
+esp_err_t tas5805m_settings_save_mixer_mode(TAS5805M_MIXER_MODE mode) {
+    ESP_LOGD(TAG, "%s: mode=%d", __func__, (int)mode);
+
+    if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (xSemaphoreTake(tas5805m_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(TAS5805M_NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        err = nvs_set_i32(h, TAS5805M_NVS_KEY_MIXER_MODE, (int32_t)mode);
+        if (err == ESP_OK) {
+            err = nvs_commit(h);
+        }
+        nvs_close(h);
+    }
+
+    xSemaphoreGive(tas5805m_settings_mutex);
+
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "%s: Mixer mode saved: %d", __func__, (int)mode);
+    } else {
+        ESP_LOGE(TAG, "%s: Failed to save mixer mode: %s", __func__, esp_err_to_name(err));
+    }
+
+    return err;
+}
+
+/** Load mixer mode from NVS */
+esp_err_t tas5805m_settings_load_mixer_mode(TAS5805M_MIXER_MODE *mode) {
+    if (!mode) return ESP_ERR_INVALID_ARG;
+    if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (xSemaphoreTake(tas5805m_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(TAS5805M_NVS_NAMESPACE, NVS_READONLY, &h);
+    if (err == ESP_OK) {
+        int32_t v = 0;
+        err = nvs_get_i32(h, TAS5805M_NVS_KEY_MIXER_MODE, &v);
+        if (err == ESP_OK) {
+            *mode = (TAS5805M_MIXER_MODE)v;
+            ESP_LOGD(TAG, "%s: Mixer mode from NVS: %d", __func__, (int)*mode);
+        }
+        nvs_close(h);
+    }
+
+    xSemaphoreGive(tas5805m_settings_mutex);
+    return err;
+}
+
 esp_err_t tas5805m_settings_get_json(char *json_out, size_t max_len) {
     ESP_LOGD(TAG, "%s: max_len=%zu", __func__, max_len);
     
@@ -294,6 +362,9 @@ esp_err_t tas5805m_settings_get_json(char *json_out, size_t max_len) {
     cJSON_AddNumberToObject(root, "modulation_mode", (int)mod_mode);
     cJSON_AddNumberToObject(root, "sw_freq", (int)sw_freq);
     cJSON_AddNumberToObject(root, "bd_freq", (int)bd_freq);
+    /* Mixer mode from cached state */
+    cJSON_AddNumberToObject(root, "mixer_mode", (int)dac_state.mixer_mode);
+    cJSON_AddStringToObject(root, "mixer_mode_name", tas5805m_mixer_mode_to_string(dac_state.mixer_mode));
 
     // Render to string
     char *json_str = cJSON_PrintUnformatted(root);
@@ -437,6 +508,19 @@ esp_err_t tas5805m_settings_set_from_json(const char *json_in) {
         }
     }
 
+    // Update mixer mode if present
+    cJSON *mixer_mode_item = cJSON_GetObjectItem(root, "mixer_mode");
+    if (cJSON_IsNumber(mixer_mode_item)) {
+        TAS5805M_MIXER_MODE mode = (TAS5805M_MIXER_MODE)mixer_mode_item->valueint;
+        err = tas5805m_set_mixer_mode(mode);
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "%s: Applied mixer mode %d to DAC", __func__, (int)mode);
+            tas5805m_settings_save_mixer_mode(mode);
+        } else {
+            ESP_LOGE(TAG, "%s: Failed to apply mixer mode: %s", __func__, esp_err_to_name(err));
+        }
+    }
+
     cJSON_Delete(root);
     return err;
 }
@@ -506,7 +590,7 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     cJSON_AddStringToObject(dig_vol_param, "key", "digital_volume");
     cJSON_AddStringToObject(dig_vol_param, "name", "Digital Volume");
     cJSON_AddStringToObject(dig_vol_param, "type", "range");
-    cJSON_AddStringToObject(dig_vol_param, "unit", "register");
+    cJSON_AddStringToObject(dig_vol_param, "unit", "");
     cJSON_AddNumberToObject(dig_vol_param, "min", TAS5805M_VOLUME_DIGITAL_MIN);
     cJSON_AddNumberToObject(dig_vol_param, "max", TAS5805M_VOLUME_DIGITAL_MAX);
     cJSON_AddNumberToObject(dig_vol_param, "step", 1);
@@ -520,7 +604,7 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     cJSON_AddStringToObject(ana_gain_param, "key", "analog_gain");
     cJSON_AddStringToObject(ana_gain_param, "name", "Analog Gain");
     cJSON_AddStringToObject(ana_gain_param, "type", "range");
-    cJSON_AddStringToObject(ana_gain_param, "unit", "register");
+    cJSON_AddStringToObject(ana_gain_param, "unit", "");
     cJSON_AddNumberToObject(ana_gain_param, "min", 0);
     cJSON_AddNumberToObject(ana_gain_param, "max", 31);
     cJSON_AddNumberToObject(ana_gain_param, "step", 1);
@@ -609,6 +693,48 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     cJSON_AddItemToObject(dac_mode_param, "values", dac_mode_values);
     cJSON_AddItemToArray(dac_config_params, dac_mode_param);
     
+    // Mixer Mode parameter
+    cJSON *mixer_mode_param = cJSON_CreateObject();
+    cJSON_AddStringToObject(mixer_mode_param, "key", "mixer_mode");
+    cJSON_AddStringToObject(mixer_mode_param, "name", "Mixer Mode");
+    cJSON_AddStringToObject(mixer_mode_param, "type", "enum");
+    cJSON_AddNumberToObject(mixer_mode_param, "current", (int)dac_state.mixer_mode);
+
+    cJSON *mixer_mode_values = cJSON_CreateArray();
+
+    cJSON *mm_unknown = cJSON_CreateObject();
+    cJSON_AddNumberToObject(mm_unknown, "value", MIXER_UNKNOWN);
+    cJSON_AddStringToObject(mm_unknown, "name", "Unknown");
+    cJSON_AddItemToArray(mixer_mode_values, mm_unknown);
+
+    cJSON *mm_stereo = cJSON_CreateObject();
+    cJSON_AddNumberToObject(mm_stereo, "value", MIXER_STEREO);
+    cJSON_AddStringToObject(mm_stereo, "name", "Stereo");
+    cJSON_AddItemToArray(mixer_mode_values, mm_stereo);
+
+    cJSON *mm_stereo_inv = cJSON_CreateObject();
+    cJSON_AddNumberToObject(mm_stereo_inv, "value", MIXER_STEREO_INVERSE);
+    cJSON_AddStringToObject(mm_stereo_inv, "name", "Stereo (Inverse)");
+    cJSON_AddItemToArray(mixer_mode_values, mm_stereo_inv);
+
+    cJSON *mm_mono = cJSON_CreateObject();
+    cJSON_AddNumberToObject(mm_mono, "value", MIXER_MONO);
+    cJSON_AddStringToObject(mm_mono, "name", "Mono");
+    cJSON_AddItemToArray(mixer_mode_values, mm_mono);
+
+    cJSON *mm_right = cJSON_CreateObject();
+    cJSON_AddNumberToObject(mm_right, "value", MIXER_RIGHT);
+    cJSON_AddStringToObject(mm_right, "name", "Right");
+    cJSON_AddItemToArray(mixer_mode_values, mm_right);
+
+    cJSON *mm_left = cJSON_CreateObject();
+    cJSON_AddNumberToObject(mm_left, "value", MIXER_LEFT);
+    cJSON_AddStringToObject(mm_left, "name", "Left");
+    cJSON_AddItemToArray(mixer_mode_values, mm_left);
+
+    cJSON_AddItemToObject(mixer_mode_param, "values", mixer_mode_values);
+    cJSON_AddItemToArray(dac_config_params, mixer_mode_param);
+
     // Modulation Mode parameter
     cJSON *mod_mode_param = cJSON_CreateObject();
     cJSON_AddStringToObject(mod_mode_param, "key", "modulation_mode");
@@ -699,10 +825,11 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     
     cJSON_AddItemToObject(bd_freq_param, "values", bd_freq_values);
     cJSON_AddItemToArray(dac_config_params, bd_freq_param);
-    
+
     cJSON_AddItemToObject(dac_config_group, "parameters", dac_config_params);
     cJSON_AddItemToArray(groups, dac_config_group);
 
+    // End groups
     cJSON_AddItemToObject(root, "groups", groups);
 
     // Render to string
@@ -772,6 +899,15 @@ esp_err_t tas5805m_settings_apply_all(void) {
         ESP_LOGI(TAG, "%s: Restoring modulation mode=%d, sw=%d, bd=%d", __func__, (int)mod_mode, (int)sw_freq, (int)bd_freq);
         if (tas5805m_set_modulation_mode(mod_mode, sw_freq, bd_freq) != ESP_OK) {
             ESP_LOGW(TAG, "%s: Failed to apply saved modulation mode", __func__);
+        }
+    }
+
+    // Apply mixer mode
+    TAS5805M_MIXER_MODE mixer_mode;
+    if (tas5805m_settings_load_mixer_mode(&mixer_mode) == ESP_OK) {
+        ESP_LOGI(TAG, "%s: Restoring mixer mode=%d", __func__, (int)mixer_mode);
+        if (tas5805m_set_mixer_mode(mixer_mode) != ESP_OK) {
+            ESP_LOGW(TAG, "%s: Failed to apply saved mixer mode", __func__);
         }
     }
 

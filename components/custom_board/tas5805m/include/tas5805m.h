@@ -236,6 +236,42 @@ esp_err_t tas5805m_get_again(uint8_t *gain);
 esp_err_t tas5805m_set_again(uint8_t gain);
 
 /**
+ * @brief Get the mixer mode of the TAS5805M
+ *
+ * @param mode: Pointer to the mode variable
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_FAIL
+ */
+esp_err_t tas5805m_get_mixer_mode(TAS5805M_MIXER_MODE *mode);
+
+/**
+ * @brief Set the mixer mode of the TAS5805M
+ *
+ * @param mode: The mode to set
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_FAIL
+ */
+esp_err_t tas5805m_set_mixer_mode(TAS5805M_MIXER_MODE mode);
+
+/**
+ * @brief Set the mixer gain of the TAS5805M
+ * (4-bytes value, representing decimal in 9.23 format)
+ *
+ * @param channel: The channel to set the gain for
+ * @param gain: The gain to set
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_FAIL
+ */
+esp_err_t tas5805m_set_mixer_gain(TAS5805M_MIXER_CHANNELS channel,
+								  uint32_t gain);
+
+/**
  * @brief Get the faults of the TAS5805M
  *
  * @param fault: Pointer to the fault struct

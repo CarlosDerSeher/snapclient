@@ -8,10 +8,8 @@ extern "C" {
 #endif
 
 #define TAS5805M_VOLUME_MUTE 0xff // (-103.5 dB - actual mute)
-#define TAS5805M_VOLUME_MIN                                                    \
-	0xa8 // (   -60 dB - save value representing barely hearable volume)
-#define TAS5805M_VOLUME_MAX                                                    \
-	0x30 // (     0 dB - maximum volume that guarantees no distortion )
+#define TAS5805M_VOLUME_MIN  0xa8 // (   -60 dB - save value representing barely hearable volume)
+#define TAS5805M_VOLUME_MAX  0x30 // (     0 dB - maximum volume that guarantees no distortion )
 // 							 0x00 // (+24 dB - maximum volume that DAC can do)
 
 #define TAS5805M_VOLUME_DIGITAL_MAX 255	   // Mute
@@ -27,12 +25,6 @@ typedef enum {
 	TAS5805M_CTRL_MUTE = 0x08,
 	TAS5805M_CTRL_PLAY_MUTE = TAS5805M_CTRL_MUTE | TAS5805M_CTRL_PLAY
 } TAS5805M_CTRL_STATE;
-
-/* Cached state structure */
-typedef struct {
-	int8_t volume;
-	TAS5805M_CTRL_STATE state;
-} TAS5805_STATE;
 
 /* DAC mode */
 typedef enum {
@@ -64,12 +56,36 @@ typedef enum {
 } TAS5805M_MOD_MODE;
 
 /* Fault structure */
+typedef enum {
+	MIXER_UNKNOWN,
+	MIXER_STEREO,
+	MIXER_STEREO_INVERSE,
+	MIXER_MONO,
+	MIXER_RIGHT,
+	MIXER_LEFT,
+} TAS5805M_MIXER_MODE;
+
+typedef enum {
+	TAS5805M_MIXER_CHANNEL_LEFT_TO_LEFT = 0x00,
+	TAS5805M_MIXER_CHANNEL_RIGHT_TO_LEFT = 0x01,
+	TAS5805M_MIXER_CHANNEL_LEFT_TO_RIGHT = 0x02,
+	TAS5805M_MIXER_CHANNEL_RIGHT_TO_RIGHT = 0x03,
+} TAS5805M_MIXER_CHANNELS;
+
+/* Fault structure */
 typedef struct {
 	uint8_t err0;
 	uint8_t err1;
 	uint8_t err2;
 	uint8_t ot_warn;
 } TAS5805M_FAULT;
+
+/* Cached state structure */
+typedef struct {
+	int8_t volume;
+	TAS5805M_CTRL_STATE state;
+	TAS5805M_MIXER_MODE mixer_mode;
+} TAS5805_STATE;
 
 // Analog gain
 #define TAS5805M_MAX_GAIN 0

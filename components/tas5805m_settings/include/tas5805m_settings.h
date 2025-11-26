@@ -17,6 +17,7 @@ extern "C" {
 #include <esp_err.h>
 #include <stddef.h>
 #include <stdint.h>
+
 #include "tas5805m_types.h"
 #include "tas5805m.h"
 
@@ -27,6 +28,8 @@ extern "C" {
 #define TAS5805M_NVS_KEY_MOD_MODE   "mod_mode"
 #define TAS5805M_NVS_KEY_SW_FREQ    "sw_freq"
 #define TAS5805M_NVS_KEY_BD_FREQ    "bd_freq"
+// Mixer mode (persisted)
+#define TAS5805M_NVS_KEY_MIXER_MODE  "mixer_mode"
 
 // Digital Volume Settings (in 0.5dB steps) - kept for UI scaling/display
 #define TAS5805M_DIGITAL_VOL_MIN    -207    // -103.5 dB
@@ -63,6 +66,11 @@ esp_err_t tas5805m_settings_save_modulation_mode(TAS5805M_MOD_MODE mode,
 esp_err_t tas5805m_settings_load_modulation_mode(TAS5805M_MOD_MODE *mode,
                                                    TAS5805M_SW_FREQ *freq,
                                                    TAS5805M_BD_FREQ *bd_freq);
+
+/** Save mixer mode to NVS */
+esp_err_t tas5805m_settings_save_mixer_mode(TAS5805M_MIXER_MODE mode);
+/** Load mixer mode from NVS */
+esp_err_t tas5805m_settings_load_mixer_mode(TAS5805M_MIXER_MODE *mode);
 
 /** Get current TAS5805M settings as a JSON string */
 esp_err_t tas5805m_settings_get_json(char *json_out, size_t max_len);

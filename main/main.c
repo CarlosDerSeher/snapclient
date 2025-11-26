@@ -2624,10 +2624,9 @@ void app_main(void) {
   esp_log_level_set("wifi", ESP_LOG_WARN);
   esp_log_level_set("wifi_init", ESP_LOG_WARN);
   esp_log_level_set("httpd_uri", ESP_LOG_WARN);
-  esp_log_level_set("settings", ESP_LOG_DEBUG);
-  esp_log_level_set("dsp_settings", ESP_LOG_DEBUG);
   esp_log_level_set("UI_HTTP", ESP_LOG_WARN);
   esp_log_level_set("TAS5805M", ESP_LOG_DEBUG);
+  esp_log_level_set("tas5805m_settings", ESP_LOG_INFO);
 
 #if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
     CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
