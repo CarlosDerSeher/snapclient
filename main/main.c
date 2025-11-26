@@ -1352,14 +1352,14 @@ static void http_get_task(void *pvParameters) {
 
     firstNetBuf = NULL;
 
-    while (1) {
+    bool first_receive = true;
 
-      if (receive_data(&firstNetBuf, scSet.muted, netif) != 0) {
+    while (1) {
+      if (receive_data(&firstNetBuf, scSet.muted, netif, &first_receive, rc1) != 0) {
         break; // restart connection
       }
 
       bool first_netbuf_processed = false;
-      // now parse the data
       while (true) {
 
         if (fill_buffer(&first_netbuf_processed, &rc1, firstNetBuf,
@@ -1382,16 +1382,6 @@ static void http_get_task(void *pvParameters) {
             break;
           }
         }
-      }
-
-      netbuf_delete(firstNetBuf);
-
-      if (rc1 != ERR_OK) {
-        ESP_LOGE(TAG, "Data error, closing netconn");
-
-        netconn_close(lwipNetconn);
-
-        break;
       }
     }
   }

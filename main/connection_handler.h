@@ -10,7 +10,8 @@
 
 // Function declarations for connection handling
 void setup_network(esp_netif_t** netif);
-int receive_data(struct netbuf** firstNetBuf, bool isMuted, esp_netif_t* netif);
+int receive_data(struct netbuf** firstNetBuf, bool isMuted, esp_netif_t* netif,
+                 bool* first_receive, int rc1);
 int fill_buffer(bool* first_netbuf_processed, int* rc1,
                 struct netbuf* firstNetBuf, char** start, uint16_t* len);
 

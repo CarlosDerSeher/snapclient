@@ -196,8 +196,22 @@ void setup_network(esp_netif_t** netif) {
   }
 }
 
-int receive_data(struct netbuf** firstNetBuf, bool isMuted,
-                 esp_netif_t* netif) {
+int receive_data(struct netbuf** firstNetBuf, bool isMuted, esp_netif_t* netif,
+                 bool* first_receive, int rc1) {
+  // delete old netbuf. Restart connection if required
+  if (*first_receive) {
+    *first_receive = false;
+  } else {
+    netbuf_delete(*firstNetBuf);
+
+    if (rc1 != ERR_OK) {
+      ESP_LOGE(TAG, "Data error, closing netconn");
+
+      netconn_close(lwipNetconn);
+      return -1;
+    }
+  }
+
   while (1) {
     int rc2 = netconn_recv(lwipNetconn, firstNetBuf);
     if (rc2 != ERR_OK) {
