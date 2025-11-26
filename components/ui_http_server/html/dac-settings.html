@@ -107,6 +107,51 @@
       border: none;
     }
 
+    /* Read-only parameter styles */
+    .parameter-control.readonly {
+      background-color: #f9f9f9;
+      border-left: 3px solid #999;
+    }
+
+    .parameter-control.readonly label {
+      color: #666;
+    }
+
+    .parameter-control.readonly select {
+      background-color: #f0f0f0;
+      color: #666;
+      cursor: not-allowed;
+      border-color: #ddd;
+    }
+
+    .parameter-control.readonly input[type="range"] {
+      background: #e8e8e8;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    .parameter-control.readonly input[type="range"]::-webkit-slider-thumb {
+      background: #999;
+      cursor: not-allowed;
+    }
+
+    .parameter-control.readonly input[type="range"]::-moz-range-thumb {
+      background: #999;
+      cursor: not-allowed;
+    }
+
+    .readonly-indicator {
+      display: inline-block;
+      margin-left: 8px;
+      padding: 2px 8px;
+      background-color: #e0e0e0;
+      color: #666;
+      font-size: 11px;
+      font-weight: normal;
+      border-radius: 3px;
+      text-transform: uppercase;
+    }
+
     .range-labels {
       display: flex;
       justify-content: space-between;
@@ -179,10 +224,46 @@
       color: #007bff;
       font-weight: bold;
     }
+
+    .polling-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: #666;
+      padding: 8px 12px;
+      background-color: #f8f9fa;
+      border-radius: 4px;
+      margin-bottom: 10px;
+    }
+
+    .polling-indicator .pulse {
+      width: 8px;
+      height: 8px;
+      background-color: #28a745;
+      border-radius: 50%;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+      }
+      50% {
+        opacity: 0.5;
+        transform: scale(0.8);
+      }
+    }
   </style>
 </head>
 <body>
   <h1>TAS5805M DAC Settings</h1>
+  
+  <div class="polling-indicator">
+    <span class="pulse"></span>
+    <span>Auto-refreshing every 2 seconds</span>
+  </div>
   
   <div id="app">
     <div class="loading">Loading DAC settings...</div>
@@ -193,6 +274,8 @@
 
     let schema = null;
     let currentSettings = null;
+    let pollingInterval = null;
+    const POLL_INTERVAL_MS = 2000; // Poll every 2 seconds
 
     // Fetch DAC schema from the device
     async function loadSchema() {
@@ -207,6 +290,9 @@
         await loadCurrentSettings();
         
         renderUI();
+        
+        // Start periodic polling
+        startPolling();
       } catch (error) {
         console.error('Error loading DAC schema:', error);
         document.getElementById('app').innerHTML = 
@@ -221,10 +307,46 @@
         if (!response.ok) {
           throw new Error('Failed to fetch DAC settings');
         }
-        currentSettings = await response.json();
+        const newSettings = await response.json();
+        
+        // Check if settings actually changed before updating UI
+        if (JSON.stringify(newSettings) !== JSON.stringify(currentSettings)) {
+          currentSettings = newSettings;
+          return true; // Settings changed
+        }
+        return false; // No change
       } catch (error) {
         console.error('Error loading current DAC settings:', error);
-        currentSettings = null;
+        // Don't clear currentSettings on error, keep showing last known state
+        return false;
+      }
+    }
+
+    // Start periodic polling of DAC settings
+    function startPolling() {
+      // Clear any existing interval
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+      }
+      
+      // Poll for changes every POLL_INTERVAL_MS
+      pollingInterval = setInterval(async () => {
+        const changed = await loadCurrentSettings();
+        if (changed && schema) {
+          renderUI();
+          console.log('DAC settings updated from polling');
+        }
+      }, POLL_INTERVAL_MS);
+      
+      console.log(`Started polling DAC settings every ${POLL_INTERVAL_MS}ms`);
+    }
+
+    // Stop polling (useful for cleanup)
+    function stopPolling() {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+        console.log('Stopped polling DAC settings');
       }
     }
 
@@ -233,26 +355,6 @@
       const app = document.getElementById('app');
       
       let html = '';
-
-      // Show current state info if available
-      if (currentSettings) {
-        html += '<div class="current-state">';
-        html += '<span class="label">Current State:</span>';
-        html += `<span class="value">${currentSettings.state_name || 'Unknown'}</span>`;
-        html += '</div>';
-
-        // Show additional info
-        if (currentSettings.volume !== undefined || currentSettings.muted !== undefined) {
-          html += '<div class="info-box">';
-          if (currentSettings.volume !== undefined) {
-            html += `Volume: ${currentSettings.volume}<br>`;
-          }
-          if (currentSettings.muted !== undefined) {
-            html += `Muted: ${currentSettings.muted ? 'Yes' : 'No'}`;
-          }
-          html += '</div>';
-        }
-      }
 
       // Create parameters container
       html += '<div class="parameters-container" id="parameters"></div>';
@@ -270,6 +372,20 @@
       if (!schema || !schema.groups || schema.groups.length === 0) {
         container.innerHTML = '<div class="loading">No configurable parameters available.</div>';
         return;
+      }
+
+      // Update schema with current values from currentSettings before rendering
+      if (currentSettings && schema.groups) {
+        for (const group of schema.groups) {
+          if (group.parameters) {
+            for (const param of group.parameters) {
+              // Update param.current with the value from currentSettings if available
+              if (currentSettings.hasOwnProperty(param.key)) {
+                param.current = currentSettings[param.key];
+              }
+            }
+          }
+        }
       }
 
       container.innerHTML = '';
@@ -291,8 +407,20 @@
           const controlDiv = document.createElement('div');
           controlDiv.className = 'parameter-control';
           
+          // Add readonly class if parameter is readonly
+          if (param.readonly) {
+            controlDiv.className += ' readonly';
+          }
+          
           let html = '<div class="param-info">';
-          html += `<label class="param-name">${param.name}</label>`;
+          html += `<label class="param-name">${param.name}`;
+          
+          // Add readonly indicator badge
+          if (param.readonly) {
+            html += '<span class="readonly-indicator">Read-Only</span>';
+          }
+          
+          html += '</label>';
           
           if (param.type === 'range') {
             // Display current value with scaling
@@ -305,7 +433,9 @@
 
           if (param.type === 'enum') {
             // Create dropdown for enum types
-            html += `<select id="${param.key}" onchange="handleParameterChange('${param.key}', this.value)">`;
+            const disabledAttr = param.readonly ? 'disabled' : '';
+            const onchangeAttr = param.readonly ? '' : `onchange="handleParameterChange('${param.key}', this.value)"`;
+            html += `<select id="${param.key}" ${disabledAttr} ${onchangeAttr}>`;
             
             for (const enumValue of param.values) {
               const selected = (param.current === enumValue.value) ? 'selected' : '';
@@ -319,6 +449,9 @@
             const displayMin = (param.min * scale).toFixed(1);
             const displayMax = (param.max * scale).toFixed(1);
             
+            const disabledAttr = param.readonly ? 'disabled' : '';
+            const oninputAttr = param.readonly ? '' : `oninput="handleRangeChange('${param.key}', this.value, ${scale}, '${param.unit}')"`;
+            
             html += `<input type="range" 
                       id="${param.key}" 
                       min="${param.min}" 
@@ -327,7 +460,8 @@
                       value="${param.current}"
                       data-scale="${scale}"
                       data-unit="${param.unit}"
-                      oninput="handleRangeChange('${param.key}', this.value, ${scale}, '${param.unit}')"
+                      ${disabledAttr}
+                      ${oninputAttr}
                       aria-label="${param.name}">`;
             html += '<div class="range-labels">';
             html += `<span>${displayMin} ${param.unit}</span>`;
@@ -389,6 +523,9 @@
 
     // Initialize on page load
     document.addEventListener('DOMContentLoaded', loadSchema);
+    
+    // Stop polling when page is unloaded
+    window.addEventListener('beforeunload', stopPolling);
   </script>
 </body>
 </html>

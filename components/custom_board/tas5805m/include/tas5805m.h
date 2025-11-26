@@ -33,6 +33,8 @@
 #include "esp_err.h"
 #include "esp_log.h"
 
+#include "tas5805m_types.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -42,72 +44,7 @@ extern "C" {
 #define I2C_MASTER_RX_BUF_DISABLE 0 /*!< I2C master doesn't need buffer */
 #define I2C_MASTER_TIMEOUT_MS 1000
 
-#define TAS5805M_VOLUME_MUTE 0xff // (-103.5 dB - actual mute)
-#define TAS5805M_VOLUME_MIN                                                    \
-	0xa8 // (   -60 dB - save value representing barely hearable volume)
-#define TAS5805M_VOLUME_MAX                                                    \
-	0x30 // (     0 dB - maximum volume that guarantees no distortion )
-/*
-// TODO: make it available for user configuration
-#define TAS5805M_REG_VOLUME_MAX     0x00 // (+24 dB - maximum volume that DAC
-can do)
-*/
-
-#define TAS5805M_VOLUME_DIGITAL_MAX 255    // Mute
-#define TAS5805M_VOLUME_DIGITAL_DEFAULT 48 //  +0 Db
-#define TAS5805M_VOLUME_DIGITAL_MIN 0      // +24 Db
-
-typedef enum {
-	TAS5805M_CTRL_DEEP_SLEEP = 0x00, // Deep Sleep
-	TAS5805M_CTRL_SLEEP = 0x01,		 // Sleep
-	TAS5805M_CTRL_HI_Z = 0x02,		 // Hi-Z
-	TAS5805M_CTRL_PLAY = 0x03,		 // Play
-	TAS5805M_CTRL_MUTE = 0x08,		 // Mute Flag
-									 // Mute, but driver in PLAY state
-	TAS5805M_CTRL_PLAY_MUTE = TAS5805M_CTRL_MUTE | TAS5805M_CTRL_PLAY
-} TAS5805M_CTRL_STATE;
-
-typedef struct {
-	int8_t volume;
-	TAS5805M_CTRL_STATE state;
-} TAS5805_STATE;
-
-typedef enum {
-	TAS5805M_DAC_MODE_BTL = 0x00, // Bridge tied load
-	TAS5805M_DAC_MODE_PBTL = 0x01 // Parallel load
-} TAS5805M_DAC_MODE;
-
-typedef enum {
-	SW_FREQ_768K = (0x00 << 4),
-	SW_FREQ_384K = (0x01 << 4),
-	SW_FREQ_480K = (0x03 << 4),
-	SW_FREQ_576K = (0x04 << 4),
-} TAS5805M_SW_FREQ;
-
-typedef enum {
-	SW_FREQ_80K = (0x00 << 5),
-	SW_FREQ_100K = (0x01 << 5),
-	SW_FREQ_120K = (0x02 << 5),
-	SW_FREQ_175K = (0x03 << 5),
-} TAS5805M_BD_FREQ;
-
-typedef enum {
-	MOD_MODE_BD = 0x0,
-	MOD_MODE_1SPW = 0x1,
-	MOD_MODE_HYBRID = 0x2,
-} TAS5805M_MOD_MODE;
-
-typedef struct {
-	uint8_t err0;
-	uint8_t err1;
-	uint8_t err2;
-	uint8_t ot_warn;
-} TAS5805M_FAULT;
-
-/**
- * @brief Initialize TAS5805 codec chip
- *
- * @param cfg configuration of TAS5805
+/* @brief Initialize TAS5805 codec chip
  *
  * @return
  *     - ESP_OK

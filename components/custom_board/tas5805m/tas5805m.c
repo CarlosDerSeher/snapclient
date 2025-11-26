@@ -101,7 +101,7 @@ esp_err_t tas5805m_read_byte(uint8_t register_name, uint8_t *data) {
   ret = i2c_master_cmd_begin(I2C_TAS5805M_MASTER_NUM, cmd,
                              1000 / portTICK_PERIOD_MS);
   i2c_cmd_link_delete(cmd);
-  ESP_LOGD(TAG, "%s: Read 0x%02x from register 0x%02x", __func__, *data, register_name);
+  ESP_LOGV(TAG, "%s: Read 0x%02x from register 0x%02x", __func__, *data, register_name);
   return ret;
 }
 
@@ -333,7 +333,7 @@ esp_err_t tas5805m_set_digital_volume(uint8_t vol)
     vol = TAS5805M_VOLUME_DIGITAL_MAX;
   }
 
-  ret = tas5805m_write_byte(TAS5805M_DIG_VOL_CTRL, vol);
+  ret = tas5805m_write_byte(TAS5805M_DIG_VOL_CTRL_REGISTER, vol);
   if (ret != ESP_OK)
   {
     ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(ret));
@@ -416,7 +416,7 @@ esp_err_t tas5805m_config_iface(audio_hal_codec_mode_t mode,
 esp_err_t tas5805m_get_dac_mode(TAS5805M_DAC_MODE *mode)
 {
     uint8_t current_value;
-    esp_err_t err = tas5805m_read_byte(TAS5805M_DEVICE_CTRL_1, &current_value);
+    esp_err_t err = tas5805m_read_byte(TAS5805M_DEVICE_CTRL_1_REGISTER, &current_value);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(err));
         return err;
@@ -437,7 +437,7 @@ esp_err_t tas5805m_set_dac_mode(TAS5805M_DAC_MODE mode)
 
     // Read the current value of the register
     uint8_t current_value;
-    esp_err_t err = tas5805m_read_byte(TAS5805M_DEVICE_CTRL_1, &current_value);
+    esp_err_t err = tas5805m_read_byte(TAS5805M_DEVICE_CTRL_1_REGISTER, &current_value);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(err));
         return err;
@@ -451,7 +451,7 @@ esp_err_t tas5805m_set_dac_mode(TAS5805M_DAC_MODE mode)
     }
 
     // Write the updated value back to the register
-    int ret = tas5805m_write_byte(TAS5805M_DEVICE_CTRL_1, current_value);
+    int ret = tas5805m_write_byte(TAS5805M_DEVICE_CTRL_1_REGISTER, current_value);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(ret));
     }
@@ -463,7 +463,7 @@ esp_err_t tas5805m_get_modulation_mode(TAS5805M_MOD_MODE *mode, TAS5805M_SW_FREQ
 {
   // Read the current value of the register
   uint8_t current_value;
-  esp_err_t err = tas5805m_read_byte(TAS5805M_DEVICE_CTRL_1, &current_value);
+  esp_err_t err = tas5805m_read_byte(TAS5805M_DEVICE_CTRL_1_REGISTER, &current_value);
   if (err != ESP_OK) {
       ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(err));
       return err;
@@ -475,7 +475,7 @@ esp_err_t tas5805m_get_modulation_mode(TAS5805M_MOD_MODE *mode, TAS5805M_SW_FREQ
   *freq = (current_value & 0b01110000);
 
   // Read the BD frequency
-  err = tas5805m_read_byte(TAS5805M_ANA_CTRL, &current_value);
+  err = tas5805m_read_byte(TAS5805M_ANA_CTRL_REGISTER, &current_value);
   if (err != ESP_OK) {
       ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(err));
       return err;
@@ -491,7 +491,7 @@ esp_err_t tas5805m_set_modulation_mode(TAS5805M_MOD_MODE mode, TAS5805M_SW_FREQ 
 
   // Read the current value of the register
   uint8_t current_value;
-  esp_err_t err = tas5805m_read_byte(TAS5805M_DEVICE_CTRL_1, &current_value);
+  esp_err_t err = tas5805m_read_byte(TAS5805M_DEVICE_CTRL_1_REGISTER, &current_value);
   if (err != ESP_OK) {
       ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(err));
       return err;
@@ -505,13 +505,13 @@ esp_err_t tas5805m_set_modulation_mode(TAS5805M_MOD_MODE mode, TAS5805M_SW_FREQ 
   current_value |= freq & 0b01110000;  // Set bits 4-6
   
   // Write the updated value back to the register
-  int ret = tas5805m_write_byte(TAS5805M_DEVICE_CTRL_1, current_value);
+  int ret = tas5805m_write_byte(TAS5805M_DEVICE_CTRL_1_REGISTER, current_value);
   if (ret != ESP_OK) {
       ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(ret));
   } 
 
   // Set the BD frequency
-  ret = tas5805m_write_byte(TAS5805M_ANA_CTRL, bd_freq);
+  ret = tas5805m_write_byte(TAS5805M_ANA_CTRL_REGISTER, bd_freq);
   if (ret != ESP_OK) {
       ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(ret));
   } 
@@ -522,7 +522,7 @@ esp_err_t tas5805m_set_modulation_mode(TAS5805M_MOD_MODE mode, TAS5805M_SW_FREQ 
 esp_err_t tas5805m_get_again(uint8_t *gain)
 {
   int ret = ESP_OK;
-  ret = tas5805m_read_byte(TAS5805M_AGAIN, gain);
+  ret = tas5805m_read_byte(TAS5805M_AGAIN_REGISTER, gain);
   if (ret != ESP_OK)
   {
     ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(ret));
@@ -540,7 +540,7 @@ esp_err_t tas5805m_set_again(uint8_t gain)
   }
 
   uint8_t value = tas5805m_again[gain];
-  int ret = tas5805m_write_byte(TAS5805M_AGAIN, value);
+  int ret = tas5805m_write_byte(TAS5805M_AGAIN_REGISTER, value);
   if (ret != ESP_OK)
   {
     ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(ret));
@@ -552,7 +552,7 @@ esp_err_t tas5805m_set_again(uint8_t gain)
 esp_err_t tas5805m_clear_faults()
 {
   ESP_LOGD(TAG, "%s: Clearing faults", __func__);
-  int ret = tas5805m_write_byte(TAS5805M_FAULT_CLEAR, TAS5805M_ANALOG_FAULT_CLEAR);
+  int ret = tas5805m_write_byte(TAS5805M_FAULT_CLEAR_REGISTER, TAS5805M_ANALOG_FAULT_CLEAR);
   if (ret != ESP_OK)
   {
     ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(ret));
@@ -564,28 +564,28 @@ esp_err_t tas5805m_get_faults(TAS5805M_FAULT *fault)
 {
   int ret = ESP_OK;
 
-  ret = tas5805m_read_byte(TAS5805M_CHAN_FAULT, &(fault->err0));
+  ret = tas5805m_read_byte(TAS5805M_CHAN_FAULT_REGISTER, &(fault->err0));
   if (ret != ESP_OK)
   {
     ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(ret));
     return ret;
   }
 
-  ret = tas5805m_read_byte(TAS5805M_GLOBAL_FAULT1, &(fault->err1));
+  ret = tas5805m_read_byte(TAS5805M_GLOBAL_FAULT1_REGISTER, &(fault->err1));
   if (ret != ESP_OK)
   {
     ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(ret));
     return ret;
   }
 
-  ret = tas5805m_read_byte(TAS5805M_GLOBAL_FAULT2, &(fault->err2));
+  ret = tas5805m_read_byte(TAS5805M_GLOBAL_FAULT2_REGISTER, &(fault->err2));
   if (ret != ESP_OK)
   {
     ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(ret));
     return ret;
   }
 
-  ret= tas5805m_read_byte(TAS5805M_OT_WARNING, &(fault->ot_warn));
+  ret= tas5805m_read_byte(TAS5805M_OT_WARNING_REGISTER, &(fault->ot_warn));
   if (ret != ESP_OK)
   {
     ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(ret));

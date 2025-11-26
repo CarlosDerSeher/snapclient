@@ -48,117 +48,11 @@ esp_err_t tas5805m_settings_init(void) {
     return ESP_OK;
 }
 
-esp_err_t tas5805m_settings_save_state(TAS5805M_CTRL_STATE state) {
-    ESP_LOGD(TAG, "%s: state=%d", __func__, (int)state);
-    
-    if (!tas5805m_settings_mutex) {
-        ESP_LOGE(TAG, "%s: Not initialized", __func__);
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    if (xSemaphoreTake(tas5805m_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
-        ESP_LOGE(TAG, "%s: Failed to acquire mutex (timeout)", __func__);
-        return ESP_ERR_TIMEOUT;
-    }
-
-    nvs_handle_t h;
-    esp_err_t err = nvs_open(TAS5805M_NVS_NAMESPACE, NVS_READWRITE, &h);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "%s: Failed to open NVS: %s", __func__, esp_err_to_name(err));
-        xSemaphoreGive(tas5805m_settings_mutex);
-        return err;
-    }
-
-    err = nvs_set_i32(h, TAS5805M_NVS_KEY_STATE, (int32_t)state);
-    if (err == ESP_OK) {
-        err = nvs_commit(h);
-    }
-
-    nvs_close(h);
-    xSemaphoreGive(tas5805m_settings_mutex);
-
-    if (err == ESP_OK) {
-        ESP_LOGI(TAG, "%s: State saved: %d (%s)", __func__, (int)state, tas5805m_state_to_string(state));
-    } else {
-        ESP_LOGE(TAG, "%s: Failed to save state: %s", __func__, esp_err_to_name(err));
-    }
-
-    return err;
-}
-
-esp_err_t tas5805m_settings_load_state(TAS5805M_CTRL_STATE *state) {
-    ESP_LOGD(TAG, "%s: entered", __func__);
-    
-    if (!state) return ESP_ERR_INVALID_ARG;
-    if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
-
-    if (xSemaphoreTake(tas5805m_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
-        return ESP_ERR_TIMEOUT;
-    }
-
-    nvs_handle_t h;
-    esp_err_t err = nvs_open(TAS5805M_NVS_NAMESPACE, NVS_READONLY, &h);
-    if (err == ESP_OK) {
-        int32_t v = 0;
-        err = nvs_get_i32(h, TAS5805M_NVS_KEY_STATE, &v);
-        nvs_close(h);
-        if (err == ESP_OK) {
-            *state = (TAS5805M_CTRL_STATE)v;
-            ESP_LOGD(TAG, "%s: State from NVS: %d (%s)", __func__, (int)*state, tas5805m_state_to_string(*state));
-        } else if (err != ESP_ERR_NVS_NOT_FOUND) {
-            ESP_LOGW(TAG, "%s: NVS read error: %s", __func__, esp_err_to_name(err));
-        }
-    }
-
-    xSemaphoreGive(tas5805m_settings_mutex);
-    return err;
-}
-
-esp_err_t tas5805m_settings_save_digital_volume(int vol_half_db) {
-    ESP_LOGD(TAG, "%s: vol_half_db=%d", __func__, vol_half_db);
-    
-    if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
-    
-    if (xSemaphoreTake(tas5805m_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
-        return ESP_ERR_TIMEOUT;
-    }
-    
-    nvs_handle_t h;
-    esp_err_t err = nvs_open(TAS5805M_NVS_NAMESPACE, NVS_READWRITE, &h);
-    if (err == ESP_OK) {
-        err = nvs_set_i32(h, TAS5805M_NVS_KEY_DIGITAL_VOL, (int32_t)vol_half_db);
-        if (err == ESP_OK) {
-            err = nvs_commit(h);
-        }
-        nvs_close(h);
-    }
-    
-    xSemaphoreGive(tas5805m_settings_mutex);
-    return err;
-}
-
-esp_err_t tas5805m_settings_load_digital_volume(int *vol_half_db) {
-    if (!vol_half_db) return ESP_ERR_INVALID_ARG;
-    if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
-    
-    if (xSemaphoreTake(tas5805m_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
-        return ESP_ERR_TIMEOUT;
-    }
-    
-    nvs_handle_t h;
-    esp_err_t err = nvs_open(TAS5805M_NVS_NAMESPACE, NVS_READONLY, &h);
-    if (err == ESP_OK) {
-        int32_t v = 0;
-        err = nvs_get_i32(h, TAS5805M_NVS_KEY_DIGITAL_VOL, &v);
-        if (err == ESP_OK) {
-            *vol_half_db = (int)v;
-        }
-        nvs_close(h);
-    }
-    
-    xSemaphoreGive(tas5805m_settings_mutex);
-    return err;
-}
+/* Digital volume persistence removed.
+ * Digital volume is treated as read-only / managed by the TAS5805M driver
+ * and is not persisted to NVS. Previous save/load functions and the
+ * corresponding NVS key were intentionally removed.
+ */
 
 esp_err_t tas5805m_settings_save_analog_gain(int gain_half_db) {
     ESP_LOGD(TAG, "%s: gain_half_db=%d", __func__, gain_half_db);
@@ -411,7 +305,7 @@ esp_err_t tas5805m_settings_get_json(char *json_out, size_t max_len) {
     }
 
     size_t json_len = strlen(json_str);
-    ESP_LOGI(TAG, "%s: Generated JSON size: %zu bytes (buffer size: %zu)", __func__, json_len, max_len);
+    ESP_LOGD(TAG, "%s: Generated JSON size: %zu bytes (buffer size: %zu)", __func__, json_len, max_len);
 
     if (json_len >= max_len) {
         ESP_LOGE(TAG, "%s: JSON too large for buffer (%zu >= %zu)", __func__, json_len, max_len);
@@ -445,18 +339,11 @@ esp_err_t tas5805m_settings_set_from_json(const char *json_in) {
     if (cJSON_IsNumber(state_item)) {
         TAS5805M_CTRL_STATE new_state = (TAS5805M_CTRL_STATE)state_item->valueint;
         
-        // Apply to DAC
+        // Apply to DAC (do NOT persist state - state is managed by application)
         err = tas5805m_set_state(new_state);
         if (err == ESP_OK) {
-            ESP_LOGI(TAG, "%s: Applied state %d (%s) to DAC", __func__, 
+            ESP_LOGI(TAG, "%s: Applied state %d (%s) to DAC (not persisted)", __func__, 
                      (int)new_state, tas5805m_state_to_string(new_state));
-            
-            // Persist to NVS
-            esp_err_t save_err = tas5805m_settings_save_state(new_state);
-            if (save_err != ESP_OK) {
-                ESP_LOGW(TAG, "%s: Failed to save state to NVS: %s", 
-                         __func__, esp_err_to_name(save_err));
-            }
         } else {
             ESP_LOGE(TAG, "%s: Failed to apply state to DAC: %s", 
                      __func__, esp_err_to_name(err));
@@ -468,11 +355,10 @@ esp_err_t tas5805m_settings_set_from_json(const char *json_in) {
     if (cJSON_IsNumber(dig_vol_item)) {
         uint8_t vol = (uint8_t)dig_vol_item->valueint;
         
+        // Apply to DAC (do NOT persist digital volume - managed by application)
         err = tas5805m_set_digital_volume(vol);
         if (err == ESP_OK) {
-            ESP_LOGI(TAG, "%s: Applied digital volume %d to DAC", __func__, vol);
-            // Note: We're saving the raw value, conversion to half_db would need lookup table
-            tas5805m_settings_save_digital_volume((int)vol);
+            ESP_LOGI(TAG, "%s: Applied digital volume %d to DAC (not persisted)", __func__, vol);
         } else {
             ESP_LOGE(TAG, "%s: Failed to apply digital volume: %s", 
                      __func__, esp_err_to_name(err));
@@ -511,23 +397,42 @@ esp_err_t tas5805m_settings_set_from_json(const char *json_in) {
         }
     }
 
-    // Update modulation mode if present (requires all three parameters)
+    // Update modulation mode if any parameter provided. Support partial updates
+    // (UI typically sends only the changed parameter). We'll query current
+    // modulation settings from the driver and apply a merged update.
     cJSON *mod_mode_item = cJSON_GetObjectItem(root, "modulation_mode");
     cJSON *sw_freq_item = cJSON_GetObjectItem(root, "sw_freq");
     cJSON *bd_freq_item = cJSON_GetObjectItem(root, "bd_freq");
-    
-    if (cJSON_IsNumber(mod_mode_item) && cJSON_IsNumber(sw_freq_item) && cJSON_IsNumber(bd_freq_item)) {
-        TAS5805M_MOD_MODE mod_mode = (TAS5805M_MOD_MODE)mod_mode_item->valueint;
-        TAS5805M_SW_FREQ sw_freq = (TAS5805M_SW_FREQ)sw_freq_item->valueint;
-        TAS5805M_BD_FREQ bd_freq = (TAS5805M_BD_FREQ)bd_freq_item->valueint;
-        
-        err = tas5805m_set_modulation_mode(mod_mode, sw_freq, bd_freq);
+
+    if (cJSON_IsNumber(mod_mode_item) || cJSON_IsNumber(sw_freq_item) || cJSON_IsNumber(bd_freq_item)) {
+        TAS5805M_MOD_MODE cur_mod = MOD_MODE_BD;
+        TAS5805M_SW_FREQ cur_sw = SW_FREQ_768K;
+        TAS5805M_BD_FREQ cur_bd = SW_FREQ_80K;
+
+        // Read current values where possible
+        if (tas5805m_get_modulation_mode(&cur_mod, &cur_sw, &cur_bd) != ESP_OK) {
+            ESP_LOGW(TAG, "%s: Failed to read current modulation mode, using defaults", __func__);
+        }
+
+        // Override with provided values
+        if (cJSON_IsNumber(mod_mode_item)) {
+            cur_mod = (TAS5805M_MOD_MODE)mod_mode_item->valueint;
+        }
+        if (cJSON_IsNumber(sw_freq_item)) {
+            cur_sw = (TAS5805M_SW_FREQ)sw_freq_item->valueint;
+        }
+        if (cJSON_IsNumber(bd_freq_item)) {
+            cur_bd = (TAS5805M_BD_FREQ)bd_freq_item->valueint;
+        }
+
+        // Apply merged settings
+        err = tas5805m_set_modulation_mode(cur_mod, cur_sw, cur_bd);
         if (err == ESP_OK) {
-            ESP_LOGI(TAG, "%s: Applied modulation mode: mode=%d, freq=%d, bd_freq=%d", 
-                     __func__, (int)mod_mode, (int)sw_freq, (int)bd_freq);
-            tas5805m_settings_save_modulation_mode(mod_mode, sw_freq, bd_freq);
+            ESP_LOGI(TAG, "%s: Applied modulation mode: mode=%d, freq=%d, bd_freq=%d",
+                     __func__, (int)cur_mod, (int)cur_sw, (int)cur_bd);
+            tas5805m_settings_save_modulation_mode(cur_mod, cur_sw, cur_bd);
         } else {
-            ESP_LOGE(TAG, "%s: Failed to apply modulation mode: %s", 
+            ESP_LOGE(TAG, "%s: Failed to apply modulation mode: %s",
                      __func__, esp_err_to_name(err));
         }
     }
@@ -596,7 +501,7 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     
     cJSON *volume_params = cJSON_CreateArray();
     
-    // Digital Volume parameter (raw register value 0-255)
+    // Digital Volume parameter (raw register value 0-255) - READ-ONLY (managed by application)
     cJSON *dig_vol_param = cJSON_CreateObject();
     cJSON_AddStringToObject(dig_vol_param, "key", "digital_volume");
     cJSON_AddStringToObject(dig_vol_param, "name", "Digital Volume");
@@ -607,6 +512,7 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     cJSON_AddNumberToObject(dig_vol_param, "step", 1);
     cJSON_AddNumberToObject(dig_vol_param, "default", TAS5805M_VOLUME_DIGITAL_DEFAULT);
     cJSON_AddNumberToObject(dig_vol_param, "current", digital_volume);
+    cJSON_AddBoolToObject(dig_vol_param, "readonly", true);
     cJSON_AddItemToArray(volume_params, dig_vol_param);
     
     // Analog Gain parameter (raw register value 0-31)
@@ -632,12 +538,13 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     
     cJSON *state_params = cJSON_CreateArray();
     
-    // State parameter
+    // State parameter - READ-ONLY (managed by application)
     cJSON *state_param = cJSON_CreateObject();
     cJSON_AddStringToObject(state_param, "key", "state");
     cJSON_AddStringToObject(state_param, "name", "DAC State");
     cJSON_AddStringToObject(state_param, "type", "enum");
     cJSON_AddNumberToObject(state_param, "current", (int)dac_state.state);
+    cJSON_AddBoolToObject(state_param, "readonly", true);
     
     // State enum values
     cJSON *state_values = cJSON_CreateArray();
@@ -821,5 +728,53 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     cJSON_free(json_str);
 
     ESP_LOGD(TAG, "%s: Schema JSON generated: %s", __func__, json_out);
+    return ESP_OK;
+}
+
+esp_err_t tas5805m_settings_apply_all(void) {
+    ESP_LOGI(TAG, "%s: Applying persisted TAS5805M settings from NVS", __func__);
+
+    // Ensure settings manager is initialized
+    esp_err_t err = tas5805m_settings_init();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "%s: settings init failed: %s", __func__, esp_err_to_name(err));
+        // continue; we'll still try to load values
+    }
+
+    // NOTE: DAC state and digital volume are intentionally NOT restored here
+    // because they are considered application-managed/read-only and should not
+    // be persisted/restored automatically at boot.
+
+    // Apply analog gain (raw register index)
+    int ana_gain = 0;
+    if (tas5805m_settings_load_analog_gain(&ana_gain) == ESP_OK) {
+        uint8_t gain = (uint8_t)ana_gain;
+        ESP_LOGI(TAG, "%s: Restoring analog gain raw=%d", __func__, gain);
+        if (tas5805m_set_again(gain) != ESP_OK) {
+            ESP_LOGW(TAG, "%s: Failed to apply saved analog gain", __func__);
+        }
+    }
+
+    // Apply DAC mode
+    TAS5805M_DAC_MODE dac_mode;
+    if (tas5805m_settings_load_dac_mode(&dac_mode) == ESP_OK) {
+        ESP_LOGI(TAG, "%s: Restoring DAC mode=%d", __func__, (int)dac_mode);
+        if (tas5805m_set_dac_mode(dac_mode) != ESP_OK) {
+            ESP_LOGW(TAG, "%s: Failed to apply saved DAC mode", __func__);
+        }
+    }
+
+    // Apply modulation mode (mode, sw_freq, bd_freq)
+    TAS5805M_MOD_MODE mod_mode;
+    TAS5805M_SW_FREQ sw_freq;
+    TAS5805M_BD_FREQ bd_freq;
+    if (tas5805m_settings_load_modulation_mode(&mod_mode, &sw_freq, &bd_freq) == ESP_OK) {
+        ESP_LOGI(TAG, "%s: Restoring modulation mode=%d, sw=%d, bd=%d", __func__, (int)mod_mode, (int)sw_freq, (int)bd_freq);
+        if (tas5805m_set_modulation_mode(mod_mode, sw_freq, bd_freq) != ESP_OK) {
+            ESP_LOGW(TAG, "%s: Failed to apply saved modulation mode", __func__);
+        }
+    }
+
+    ESP_LOGI(TAG, "%s: Persisted settings application complete", __func__);
     return ESP_OK;
 }

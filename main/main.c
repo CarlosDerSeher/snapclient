@@ -58,6 +58,7 @@
 #include "snapcast.h"
 #include "ui_http_server.h"
 #include "settings_manager.h"
+#include "tas5805m_settings.h"
 
 static bool isCachedChunk = false;
 static uint32_t cachedBlocks = 0;
@@ -2626,7 +2627,7 @@ void app_main(void) {
   esp_log_level_set("settings", ESP_LOG_DEBUG);
   esp_log_level_set("dsp_settings", ESP_LOG_DEBUG);
   esp_log_level_set("UI_HTTP", ESP_LOG_WARN);
-  esp_log_level_set("dspProc", ESP_LOG_DEBUG);
+  esp_log_level_set("TAS5805M", ESP_LOG_DEBUG);
 
 #if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
     CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
@@ -2712,6 +2713,10 @@ void app_main(void) {
              "is configured right or check your wiring!");
 
     vTaskDelay(portMAX_DELAY);
+  }
+  // Apply persisted TAS5805M settings now that the codec has been initialized
+  if (tas5805m_settings_apply_all() != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to apply persisted TAS5805M settings at boot");
   }
 
   audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_DECODE,

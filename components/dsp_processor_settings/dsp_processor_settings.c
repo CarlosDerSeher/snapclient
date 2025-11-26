@@ -390,7 +390,7 @@ esp_err_t dsp_settings_get_json(char *json_out, size_t max_len) {
     }
 
     size_t json_len = strlen(json_str);
-    ESP_LOGI(TAG, "%s: Generated JSON size: %zu bytes (buffer size: %zu)", __func__, json_len, max_len);
+    ESP_LOGD(TAG, "%s: Generated JSON size: %zu bytes (buffer size: %zu)", __func__, json_len, max_len);
 
     if (json_len >= max_len) {
         ESP_LOGE(TAG, "%s: JSON too large for buffer (%zu >= %zu)", __func__, json_len, max_len);
