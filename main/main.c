@@ -1354,36 +1354,43 @@ static void http_get_task(void *pvParameters) {
 
     firstNetBuf = NULL;
     bool first_receive = true;
+    bool first_netbuf_processed = false;
+
+
 
     typedef enum {
       CONNECTION_INITIALIZED,
       CONNECTION_DATA_RECEIVED,
       CONNECTION_BUFFER_FILLED,
       CONNECTION_RESTART_REQUIRED,
-      CONNECTION_PANIC
     } connection_state_t;
 
     connection_state_t connection_state = CONNECTION_INITIALIZED;
 
     while (1) {
-
-      if (receive_data(&firstNetBuf, scSet.muted, netif, &first_receive, rc1) != 0) {
-        connection_state = CONNECTION_RESTART_REQUIRED;
-        break; // restart connection
-      }
-      bool first_netbuf_processed = false;
-      connection_state = CONNECTION_DATA_RECEIVED;
-
-      while (true) {
-
-        if (fill_buffer(&first_netbuf_processed, &rc1, firstNetBuf,
-                    &start, &len) != 0) {
-          connection_state = CONNECTION_INITIALIZED;
-          break; // fetch new data from network
+      switch (connection_state) {
+        case CONNECTION_INITIALIZED: {
+          if (receive_data(&firstNetBuf, scSet.muted, netif, &first_receive, rc1) != 0) {
+            connection_state = CONNECTION_RESTART_REQUIRED;
+            break; // restart connection
+          }
+          first_netbuf_processed = false;
+          connection_state = CONNECTION_DATA_RECEIVED;
+          break;
         }
-        connection_state = CONNECTION_BUFFER_FILLED;
 
-        while (1) {
+        case CONNECTION_DATA_RECEIVED: {
+          if (fill_buffer(&first_netbuf_processed, &rc1, firstNetBuf,
+                      &start, &len) != 0) {
+            connection_state = CONNECTION_INITIALIZED;
+            break; // fetch new data from network
+          }
+          connection_state = CONNECTION_BUFFER_FILLED;
+
+          break;
+        }
+
+        case CONNECTION_BUFFER_FILLED: {
           if (len <= 0) {
             connection_state = CONNECTION_DATA_RECEIVED;
             break;
@@ -1395,10 +1402,19 @@ static void http_get_task(void *pvParameters) {
                           &offset, &payloadOffset, &tmpData, &decoderChunk, &payloadDataShift,
                           &typedMsgLen, &serverSettingsString, &codecString, &codecPayload,
                           &start, &len) != 0) {
-            connection_state = CONNECTION_PANIC;
             return; // critical error in data processing
           }
+
+          break;
         }
+
+        case CONNECTION_RESTART_REQUIRED: {
+          // we can't break out of while loop here, so we do it below
+          break;
+        }
+      }
+      if (connection_state == CONNECTION_RESTART_REQUIRED) {
+        break;
       }
     }
   }
