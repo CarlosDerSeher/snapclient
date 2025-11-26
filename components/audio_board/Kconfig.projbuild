@@ -182,28 +182,20 @@ menu "Audio Board"
 	            default 33
 	            help
 	                GPIO number to power down the DAC
+        
+			config DAC_TAS5805M_EQ_SUPPORT
+				bool "Enable TAS5805M equalizer support"
+				default n
+				help
+					When enabled, build includes optional TAS5805M equalizer support.
+					Equalizer configuration and runtime control remain available via
+					the device UI. Default: disabled.
 	    endmenu
 
 	    menu "DAC-Operation-Mode"
 			depends on DAC_TAS5805M
 
-	        choice DAC_BRIDGE_MODE
-	            prompt "Bridge-Mode selection"
-	            default DAC_BRIDGE_MODE_DISABLED
-
-				config DAC_BRIDGE_MODE_DISABLED
-					bool "Stereo (bridge mode disabled)"
-
-				config DAC_BRIDGE_MODE_MONO
-					bool "Mono mode (Left + Right / 2)"
-				
-				config DAC_BRIDGE_MODE_LEFT
-					bool "Output left input channel"
-
-				config DAC_BRIDGE_MODE_RIGHT
-					bool "Output right input channel"
-	        
-			endchoice
+			# Bridge mode selection moved to runtime UI; compile-time Kconfig removed
 		endmenu
 
 		menu "Merus MA120x0 interface Configuration"
