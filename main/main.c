@@ -1151,7 +1151,12 @@ int process_data(
  *
  */
 static void http_get_task(void *pvParameters) {
-  char *start;
+  connection_t connection;
+  connection.firstNetBuf = NULL;
+  connection.rc1 = ERR_OK;
+  connection.netif = NULL;
+
+  int rc1; // for local scope (handshake), independent of connection.rc1
   base_message_t base_message_rx;
   hello_message_t hello_message;
   wire_chunk_message_t wire_chnk = {{0, 0}, 0, NULL};
@@ -1165,14 +1170,10 @@ static void http_get_task(void *pvParameters) {
   codec_type_t codec = NONE;
   snapcastSetting_t scSet;
   pcm_chunk_message_t *pcmData = NULL;
-  int rc1 = ERR_OK;
-  struct netbuf *firstNetBuf = NULL;
-  uint16_t len;
   time_sync_data.timeout = FAST_SYNC_LATENCY_BUF;
   char *codecString = NULL;
   char *codecPayload = NULL;
   char *serverSettingsString = NULL;
-  esp_netif_t *netif = NULL;
 
   // create a timer to send time sync messages every x µs
   esp_timer_create(&tSyncArgs, &time_sync_data.timeSyncMessageTimer);
@@ -1240,7 +1241,7 @@ static void http_get_task(void *pvParameters) {
     }
 
     // NETWORK setup ends here ( or before getting mac address )
-    setup_network(&netif);
+    setup_network(&connection.netif);
  
 
     if (reset_latency_buffer() < 0) {
@@ -1352,16 +1353,16 @@ static void http_get_task(void *pvParameters) {
 
     // state machine starts here     
 
-    firstNetBuf = NULL;
-    bool first_receive = true;
-    bool first_netbuf_processed = false;
+    connection.firstNetBuf = NULL;
+    connection.first_receive = true;
+    connection.first_netbuf_processed = false;
 
-    connection_state_t connection_state = CONNECTION_INITIALIZED;
+    connection.state = CONNECTION_INITIALIZED;
 
     // Main connection loop - state machine + data processing
     while (1) {
-      int result = connection_ensure_byte(&connection_state, &firstNetBuf, scSet.muted, netif,
-                                          &first_receive, &rc1, &first_netbuf_processed, &start, &len);
+      int result = connection_ensure_byte(&connection.state, &connection.firstNetBuf, scSet.muted, connection.netif,
+                                          &connection.first_receive, &connection.rc1, &connection.first_netbuf_processed, &connection.start, &connection.len);
 
       if (result != 0) {
         break; // restart connection
@@ -1372,7 +1373,7 @@ static void http_get_task(void *pvParameters) {
                       &received_codec_header, &codec, &scSet, &pcmData, &wire_chnk,
                       &offset, &payloadOffset, &tmpData, &decoderChunk, &payloadDataShift,
                       &typedMsgLen, &serverSettingsString, &codecString, &codecPayload,
-                      &start, &len) != 0) {
+                      &connection.start, &connection.len) != 0) {
         return; // critical error in data processing
       }
     }

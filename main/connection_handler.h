@@ -15,6 +15,20 @@ typedef enum {
   CONNECTION_RESTART_REQUIRED,
 } connection_state_t;
 
+typedef struct {
+  esp_netif_t* netif;
+  bool* isMuted;
+  struct netbuf* firstNetBuf;
+  // buffer
+  char* start;
+  uint16_t len;
+  // state
+  connection_state_t state;
+  bool first_receive;
+  bool first_netbuf_processed;
+  int rc1;
+} connection_t;
+
 // Function declarations for connection handling
 void setup_network(esp_netif_t** netif);
 int receive_data(struct netbuf** firstNetBuf, bool isMuted, esp_netif_t* netif,
