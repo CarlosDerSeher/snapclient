@@ -32,6 +32,9 @@ extern "C" {
 #define TAS5805M_NVS_KEY_MIXER_MODE  "mixer_mode"
 // EQ mode (persisted)
 #define TAS5805M_NVS_KEY_EQ_MODE     "eq_mode"
+// EQ per-band gain keys prefix (final key will be e.g. "eq_gain_l_0" or "eq_gain_r_3")
+#define TAS5805M_NVS_KEY_EQ_GAIN_L_PREFIX "eq_gain_l_"
+#define TAS5805M_NVS_KEY_EQ_GAIN_R_PREFIX "eq_gain_r_"
 
 // Digital Volume Settings (in 0.5dB steps) - kept for UI scaling/display
 #define TAS5805M_DIGITAL_VOL_MIN    -207    // -103.5 dB
@@ -78,6 +81,11 @@ esp_err_t tas5805m_settings_load_mixer_mode(TAS5805M_MIXER_MODE *mode);
 esp_err_t tas5805m_settings_save_eq_mode(TAS5805M_EQ_MODE mode);
 /** Load EQ mode from NVS */
 esp_err_t tas5805m_settings_load_eq_mode(TAS5805M_EQ_MODE *mode);
+
+/** Save per-band EQ gain for a channel to NVS (gain in dB, integer) */
+esp_err_t tas5805m_settings_save_eq_gain(TAS5805M_EQ_CHANNELS ch, int band, int gain_db);
+/** Load per-band EQ gain for a channel from NVS */
+esp_err_t tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS ch, int band, int *gain_db);
 
 /** Get current TAS5805M settings as a JSON string */
 esp_err_t tas5805m_settings_get_json(char *json_out, size_t max_len);

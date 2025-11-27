@@ -381,6 +381,79 @@ esp_err_t tas5805m_settings_save_eq_mode(TAS5805M_EQ_MODE mode) {
     return err;
 }
 
+/** Save per-band EQ gain for a specific channel */
+esp_err_t tas5805m_settings_save_eq_gain(TAS5805M_EQ_CHANNELS ch, int band, int gain_db) {
+    ESP_LOGD(TAG, "%s: ch=%d band=%d gain=%d", __func__, (int)ch, band, gain_db);
+    
+    if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
+    if (band < 0 || band >= TAS5805M_EQ_BANDS) return ESP_ERR_INVALID_ARG;
+    
+    if (xSemaphoreTake(tas5805m_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+    
+    char key[32];
+    if (ch == TAS5805M_EQ_CHANNELS_LEFT) {
+        snprintf(key, sizeof(key), "%s%d", TAS5805M_NVS_KEY_EQ_GAIN_L_PREFIX, band);
+    } else {
+        snprintf(key, sizeof(key), "%s%d", TAS5805M_NVS_KEY_EQ_GAIN_R_PREFIX, band);
+    }
+    
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(TAS5805M_NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        err = nvs_set_i32(h, key, (int32_t)gain_db);
+        if (err == ESP_OK) {
+            err = nvs_commit(h);
+        }
+        nvs_close(h);
+    } else {
+        ESP_LOGW(TAG, "%s: Failed to open NVS namespace '%s': %s", __func__, TAS5805M_NVS_NAMESPACE, esp_err_to_name(err));
+    }
+    
+    xSemaphoreGive(tas5805m_settings_mutex);
+    return err;
+}
+
+/** Load per-band EQ gain for a specific channel */
+esp_err_t tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS ch, int band, int *gain_db) {
+    if (!gain_db) return ESP_ERR_INVALID_ARG;
+    if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
+    if (band < 0 || band >= TAS5805M_EQ_BANDS) return ESP_ERR_INVALID_ARG;
+    
+    if (xSemaphoreTake(tas5805m_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+    
+    char key[32];
+    if (ch == TAS5805M_EQ_CHANNELS_LEFT) {
+        snprintf(key, sizeof(key), "%s%d", TAS5805M_NVS_KEY_EQ_GAIN_L_PREFIX, band);
+    } else {
+        snprintf(key, sizeof(key), "%s%d", TAS5805M_NVS_KEY_EQ_GAIN_R_PREFIX, band);
+    }
+    
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(TAS5805M_NVS_NAMESPACE, NVS_READONLY, &h);
+    if (err == ESP_OK) {
+        int32_t v = 0;
+        err = nvs_get_i32(h, key, &v);
+        if (err == ESP_OK) {
+            *gain_db = (int)v;
+            ESP_LOGD(TAG, "%s: Loaded %s=%d from NVS", __func__, key, *gain_db);
+        } else if (err == ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGD(TAG, "%s: NVS key '%s' not found", __func__, key);
+        } else {
+            ESP_LOGW(TAG, "%s: Failed to read '%s' from NVS: %s", __func__, key, esp_err_to_name(err));
+        }
+        nvs_close(h);
+    } else {
+        ESP_LOGW(TAG, "%s: Failed to open NVS namespace '%s': %s", __func__, TAS5805M_NVS_NAMESPACE, esp_err_to_name(err));
+    }
+    
+    xSemaphoreGive(tas5805m_settings_mutex);
+    return err;
+}
+
 /** Load EQ mode from NVS */
 esp_err_t tas5805m_settings_load_eq_mode(TAS5805M_EQ_MODE *mode) {
     if (!mode) return ESP_ERR_INVALID_ARG;
@@ -489,6 +562,23 @@ esp_err_t tas5805m_settings_get_json(char *json_out, size_t max_len) {
     /* Mixer mode from cached state */
     cJSON_AddNumberToObject(root, "mixer_mode", (int)dac_state.mixer_mode);
     cJSON_AddStringToObject(root, "mixer_mode_name", tas5805m_mixer_mode_to_string(dac_state.mixer_mode));
+
+    /* Per-band EQ gains (left/right) so UI can display current values without refresh */
+#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+    for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
+        int gain = 0;
+        if (tas5805m_get_eq_gain_channel(TAS5805M_EQ_CHANNELS_LEFT, band, &gain) == ESP_OK) {
+            char key_l[32];
+            snprintf(key_l, sizeof(key_l), "%s%d", TAS5805M_NVS_KEY_EQ_GAIN_L_PREFIX, band);
+            cJSON_AddNumberToObject(root, key_l, gain);
+        }
+        if (tas5805m_get_eq_gain_channel(TAS5805M_EQ_CHANNELS_RIGHT, band, &gain) == ESP_OK) {
+            char key_r[32];
+            snprintf(key_r, sizeof(key_r), "%s%d", TAS5805M_NVS_KEY_EQ_GAIN_R_PREFIX, band);
+            cJSON_AddNumberToObject(root, key_r, gain);
+        }
+    }
+#endif
 
     // Render to string
     char *json_str = cJSON_PrintUnformatted(root);
@@ -666,6 +756,48 @@ esp_err_t tas5805m_settings_set_from_json(const char *json_in) {
         (void)new_eq;
 #endif
     }
+
+    // Handle per-band EQ gain keys in deterministic order: left then right per band
+#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+    for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
+        char key_l[32];
+        char key_r[32];
+        snprintf(key_l, sizeof(key_l), "%s%d", TAS5805M_NVS_KEY_EQ_GAIN_L_PREFIX, band);
+        snprintf(key_r, sizeof(key_r), "%s%d", TAS5805M_NVS_KEY_EQ_GAIN_R_PREFIX, band);
+
+        cJSON *item_l = cJSON_GetObjectItem(root, key_l);
+        if (cJSON_IsNumber(item_l)) {
+            int gain = item_l->valueint;
+            esp_err_t serr = tas5805m_set_eq_gain_channel(TAS5805M_EQ_CHANNELS_LEFT, band, gain);
+            if (serr == ESP_OK) {
+                ESP_LOGI(TAG, "%s: Applied EQ gain L band %d = %d", __func__, band, gain);
+                esp_err_t perr = tas5805m_settings_save_eq_gain(TAS5805M_EQ_CHANNELS_LEFT, band, gain);
+                if (perr != ESP_OK) {
+                    ESP_LOGW(TAG, "%s: Failed to persist EQ gain L band %d: %s", __func__, band, esp_err_to_name(perr));
+                }
+            } else {
+                ESP_LOGE(TAG, "%s: Failed to apply EQ gain L band %d: %s", __func__, band, esp_err_to_name(serr));
+            }
+        }
+
+        cJSON *item_r = cJSON_GetObjectItem(root, key_r);
+        if (cJSON_IsNumber(item_r)) {
+            int gain = item_r->valueint;
+            esp_err_t serr = tas5805m_set_eq_gain_channel(TAS5805M_EQ_CHANNELS_RIGHT, band, gain);
+            if (serr == ESP_OK) {
+                ESP_LOGI(TAG, "%s: Applied EQ gain R band %d = %d", __func__, band, gain);
+                esp_err_t perr = tas5805m_settings_save_eq_gain(TAS5805M_EQ_CHANNELS_RIGHT, band, gain);
+                if (perr != ESP_OK) {
+                    ESP_LOGW(TAG, "%s: Failed to persist EQ gain R band %d: %s", __func__, band, esp_err_to_name(perr));
+                }
+            } else {
+                ESP_LOGE(TAG, "%s: Failed to apply EQ gain R band %d: %s", __func__, band, esp_err_to_name(serr));
+            }
+        }
+    }
+#else
+    (void)root; // keep compiler happy when EQ support disabled
+#endif
 
     cJSON_Delete(root);
     return err;
@@ -1028,6 +1160,58 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     cJSON_AddItemToObject(eq_mode_param, "values", eq_mode_values);
     cJSON_AddItemToArray(eq_params, eq_mode_param);
     cJSON_AddItemToObject(eq_group, "parameters", eq_params);
+    /* Add per-band sliders for left and right channels (if EQ supported) */
+#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+    for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
+        int cur_l = 0, cur_r = 0;
+        if (tas5805m_get_eq_gain_channel(TAS5805M_EQ_CHANNELS_LEFT, band, &cur_l) != ESP_OK) {
+            cur_l = 0;
+        }
+        if (tas5805m_get_eq_gain_channel(TAS5805M_EQ_CHANNELS_RIGHT, band, &cur_r) != ESP_OK) {
+            cur_r = 0;
+        }
+
+        char key_l[32];
+        char key_r[32];
+        snprintf(key_l, sizeof(key_l), "%s%d", TAS5805M_NVS_KEY_EQ_GAIN_L_PREFIX, band);
+        snprintf(key_r, sizeof(key_r), "%s%d", TAS5805M_NVS_KEY_EQ_GAIN_R_PREFIX, band);
+
+        // Frequency label for this band (Hz) - use tas5805m_eq_bands
+        char freq_label[32] = {0};
+        snprintf(freq_label, sizeof(freq_label), "%d Hz", tas5805m_eq_bands[band]);
+
+        cJSON *param_l = cJSON_CreateObject();
+        cJSON_AddStringToObject(param_l, "key", key_l);
+    // Name uses frequency and channel: "<freq> (L)"
+    char name_l[48];
+    snprintf(name_l, sizeof(name_l), "%s (L)", freq_label);
+    cJSON_AddStringToObject(param_l, "name", name_l);
+        cJSON_AddStringToObject(param_l, "type", "range");
+        cJSON_AddStringToObject(param_l, "unit", "dB");
+        cJSON_AddStringToObject(param_l, "label", freq_label);
+        cJSON_AddNumberToObject(param_l, "min", TAS5805M_EQ_MIN_DB);
+        cJSON_AddNumberToObject(param_l, "max", TAS5805M_EQ_MAX_DB);
+        cJSON_AddNumberToObject(param_l, "step", 1);
+        cJSON_AddNumberToObject(param_l, "default", 0);
+        cJSON_AddNumberToObject(param_l, "current", cur_l);
+        cJSON_AddItemToArray(eq_params, param_l);
+
+        cJSON *param_r = cJSON_CreateObject();
+        cJSON_AddStringToObject(param_r, "key", key_r);
+    char name_r[48];
+    snprintf(name_r, sizeof(name_r), "%s (R)", freq_label);
+    cJSON_AddStringToObject(param_r, "name", name_r);
+        cJSON_AddStringToObject(param_r, "type", "range");
+        cJSON_AddStringToObject(param_r, "unit", "dB");
+        cJSON_AddStringToObject(param_r, "label", freq_label);
+        cJSON_AddNumberToObject(param_r, "min", TAS5805M_EQ_MIN_DB);
+        cJSON_AddNumberToObject(param_r, "max", TAS5805M_EQ_MAX_DB);
+        cJSON_AddNumberToObject(param_r, "step", 1);
+        cJSON_AddNumberToObject(param_r, "default", 0);
+        cJSON_AddNumberToObject(param_r, "current", cur_r);
+        cJSON_AddItemToArray(eq_params, param_r);
+    }
+#endif
     cJSON_AddItemToArray(groups, eq_group);
     
     // End groups
@@ -1124,6 +1308,28 @@ esp_err_t tas5805m_settings_apply_all(void) {
         ESP_LOGW(TAG, "%s: EQ support disabled in build; ignoring persisted EQ mode", __func__);
 #endif
     }
+
+#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+    // Restore per-band EQ gains for both channels if persisted
+    for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
+        int gain = 0;
+        if (tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_LEFT, band, &gain) == ESP_OK) {
+            if (tas5805m_set_eq_gain_channel(TAS5805M_EQ_CHANNELS_LEFT, band, gain) != ESP_OK) {
+                ESP_LOGW(TAG, "%s: Failed to apply saved EQ gain L band %d", __func__, band);
+            } else {
+                ESP_LOGI(TAG, "%s: Restored EQ gain L band %d = %d", __func__, band, gain);
+            }
+        }
+
+        if (tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_RIGHT, band, &gain) == ESP_OK) {
+            if (tas5805m_set_eq_gain_channel(TAS5805M_EQ_CHANNELS_RIGHT, band, gain) != ESP_OK) {
+                ESP_LOGW(TAG, "%s: Failed to apply saved EQ gain R band %d", __func__, band);
+            } else {
+                ESP_LOGI(TAG, "%s: Restored EQ gain R band %d = %d", __func__, band, gain);
+            }
+        }
+    }
+#endif
 
     ESP_LOGI(TAG, "%s: Persisted settings application complete", __func__);
     return ESP_OK;
