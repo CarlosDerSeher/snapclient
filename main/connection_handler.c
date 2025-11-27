@@ -286,3 +286,47 @@ int fill_buffer(bool* first_netbuf_processed, int* rc1,
   }
   return 0;  // not reached, defensive programming
 }
+
+int connection_ensure_byte(connection_state_t* connection_state,
+                           struct netbuf** firstNetBuf, bool isMuted,
+                           esp_netif_t* netif, bool* first_receive, int* rc1,
+                           bool* first_netbuf_processed, char** start,
+                           uint16_t* len) {
+  // iterate until we could read data
+  while (1) {
+    switch (*connection_state) {
+      case CONNECTION_INITIALIZED: {
+        if (receive_data(firstNetBuf, isMuted, netif, first_receive, *rc1) != 0) {
+          *connection_state = CONNECTION_RESTART_REQUIRED;
+          break;  // restart connection
+        }
+        *first_netbuf_processed = false;
+        *connection_state = CONNECTION_DATA_RECEIVED;
+        break;
+      }
+
+      case CONNECTION_DATA_RECEIVED: {
+        if (fill_buffer(first_netbuf_processed, rc1, *firstNetBuf, start, len) != 0) {
+          *connection_state = CONNECTION_INITIALIZED;
+          break;  // fetch new data from network
+        }
+        *connection_state = CONNECTION_BUFFER_FILLED;
+        break;
+      }
+
+      case CONNECTION_BUFFER_FILLED: {
+        if (*len <= 0) {
+          *connection_state = CONNECTION_DATA_RECEIVED;
+          break;
+        }
+        *rc1 = ERR_OK;  // probably not necessary
+        // We can read data now!
+        return 0;
+      }
+
+      case CONNECTION_RESTART_REQUIRED: {
+        return -1;
+      }
+    }
+  }
+}
