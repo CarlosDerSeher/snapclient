@@ -47,6 +47,21 @@ static const char* tas5805m_mixer_mode_to_string(TAS5805M_MIXER_MODE mode) {
     }
 }
 
+static const char* tas5805m_eq_mode_to_string(TAS5805M_EQ_MODE mode) {
+#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+    switch (mode) {
+        case TAS5805M_EQ_MODE_OFF: return "OFF";
+        case TAS5805M_EQ_MODE_ON: return "ON";
+        case TAS5805M_EQ_MODE_BIAMP: return "BI-AMP";
+        case TAS5805M_EQ_MODE_BIAMP_OFF: return "BI-AMP (OFF)";
+        default: return "Unknown";
+    }
+#else
+    (void)mode;
+    return "OFF";
+#endif
+}
+
 esp_err_t tas5805m_settings_init(void) {
     if (tas5805m_settings_mutex == NULL) {
         tas5805m_settings_mutex = xSemaphoreCreateMutex();
@@ -83,6 +98,8 @@ esp_err_t tas5805m_settings_save_analog_gain(int gain_half_db) {
             err = nvs_commit(h);
         }
         nvs_close(h);
+    } else {
+        ESP_LOGW(TAG, "%s: Failed to open NVS namespace '%s': %s", __func__, TAS5805M_NVS_NAMESPACE, esp_err_to_name(err));
     }
     
     xSemaphoreGive(tas5805m_settings_mutex);
@@ -104,8 +121,15 @@ esp_err_t tas5805m_settings_load_analog_gain(int *gain_half_db) {
         err = nvs_get_i32(h, TAS5805M_NVS_KEY_ANALOG_GAIN, &v);
         if (err == ESP_OK) {
             *gain_half_db = (int)v;
+            ESP_LOGD(TAG, "%s: Loaded analog gain from NVS: %d", __func__, *gain_half_db);
+        } else if (err == ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGD(TAG, "%s: NVS key '%s' not found", __func__, TAS5805M_NVS_KEY_ANALOG_GAIN);
+        } else {
+            ESP_LOGW(TAG, "%s: Failed to read analog gain from NVS: %s", __func__, esp_err_to_name(err));
         }
         nvs_close(h);
+    } else {
+        ESP_LOGW(TAG, "%s: Failed to open NVS namespace '%s': %s", __func__, TAS5805M_NVS_NAMESPACE, esp_err_to_name(err));
     }
     
     xSemaphoreGive(tas5805m_settings_mutex);
@@ -129,6 +153,8 @@ esp_err_t tas5805m_settings_save_dac_mode(TAS5805M_DAC_MODE mode) {
             err = nvs_commit(h);
         }
         nvs_close(h);
+    } else {
+        ESP_LOGW(TAG, "%s: Failed to open NVS namespace '%s': %s", __func__, TAS5805M_NVS_NAMESPACE, esp_err_to_name(err));
     }
     
     xSemaphoreGive(tas5805m_settings_mutex);
@@ -160,8 +186,14 @@ esp_err_t tas5805m_settings_load_dac_mode(TAS5805M_DAC_MODE *mode) {
             *mode = (TAS5805M_DAC_MODE)v;
             ESP_LOGD(TAG, "%s: DAC mode from NVS: %d (%s)", __func__, (int)*mode,
                      *mode == TAS5805M_DAC_MODE_BTL ? "BTL" : "PBTL");
+        } else if (err == ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGD(TAG, "%s: NVS key '%s' not found", __func__, TAS5805M_NVS_KEY_DAC_MODE);
+        } else {
+            ESP_LOGW(TAG, "%s: Failed to read DAC mode from NVS: %s", __func__, esp_err_to_name(err));
         }
         nvs_close(h);
+    } else {
+        ESP_LOGW(TAG, "%s: Failed to open NVS namespace '%s': %s", __func__, TAS5805M_NVS_NAMESPACE, esp_err_to_name(err));
     }
     
     xSemaphoreGive(tas5805m_settings_mutex);
@@ -193,6 +225,8 @@ esp_err_t tas5805m_settings_save_modulation_mode(TAS5805M_MOD_MODE mode,
             err = nvs_commit(h);
         }
         nvs_close(h);
+    } else {
+        ESP_LOGW(TAG, "%s: Failed to open NVS namespace '%s': %s", __func__, TAS5805M_NVS_NAMESPACE, esp_err_to_name(err));
     }
     
     xSemaphoreGive(tas5805m_settings_mutex);
@@ -224,9 +258,13 @@ esp_err_t tas5805m_settings_load_modulation_mode(TAS5805M_MOD_MODE *mode,
         err = nvs_get_i32(h, TAS5805M_NVS_KEY_MOD_MODE, &v_mode);
         if (err == ESP_OK) {
             err = nvs_get_i32(h, TAS5805M_NVS_KEY_SW_FREQ, &v_freq);
+        } else if (err == ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGD(TAG, "%s: NVS key '%s' not found", __func__, TAS5805M_NVS_KEY_MOD_MODE);
         }
         if (err == ESP_OK) {
             err = nvs_get_i32(h, TAS5805M_NVS_KEY_BD_FREQ, &v_bd);
+        } else if (err == ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGD(TAG, "%s: NVS key '%s' not found", __func__, TAS5805M_NVS_KEY_SW_FREQ);
         }
         if (err == ESP_OK) {
             *mode = (TAS5805M_MOD_MODE)v_mode;
@@ -234,8 +272,12 @@ esp_err_t tas5805m_settings_load_modulation_mode(TAS5805M_MOD_MODE *mode,
             *bd_freq = (TAS5805M_BD_FREQ)v_bd;
             ESP_LOGD(TAG, "%s: Modulation mode from NVS: mode=%d, freq=%d, bd_freq=%d", 
                      __func__, (int)*mode, (int)*freq, (int)*bd_freq);
+        } else if (err != ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGW(TAG, "%s: Failed to read modulation mode from NVS: %s", __func__, esp_err_to_name(err));
         }
         nvs_close(h);
+    } else {
+        ESP_LOGW(TAG, "%s: Failed to open NVS namespace '%s': %s", __func__, TAS5805M_NVS_NAMESPACE, esp_err_to_name(err));
     }
     
     xSemaphoreGive(tas5805m_settings_mutex);
@@ -260,6 +302,8 @@ esp_err_t tas5805m_settings_save_mixer_mode(TAS5805M_MIXER_MODE mode) {
             err = nvs_commit(h);
         }
         nvs_close(h);
+    } else {
+        ESP_LOGW(TAG, "%s: Failed to open NVS namespace '%s': %s", __func__, TAS5805M_NVS_NAMESPACE, esp_err_to_name(err));
     }
 
     xSemaphoreGive(tas5805m_settings_mutex);
@@ -290,8 +334,78 @@ esp_err_t tas5805m_settings_load_mixer_mode(TAS5805M_MIXER_MODE *mode) {
         if (err == ESP_OK) {
             *mode = (TAS5805M_MIXER_MODE)v;
             ESP_LOGD(TAG, "%s: Mixer mode from NVS: %d", __func__, (int)*mode);
+        } else if (err == ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGD(TAG, "%s: NVS key '%s' not found", __func__, TAS5805M_NVS_KEY_MIXER_MODE);
+        } else {
+            ESP_LOGW(TAG, "%s: Failed to read mixer mode from NVS: %s", __func__, esp_err_to_name(err));
         }
         nvs_close(h);
+    } else {
+        ESP_LOGW(TAG, "%s: Failed to open NVS namespace '%s': %s", __func__, TAS5805M_NVS_NAMESPACE, esp_err_to_name(err));
+    }
+
+    xSemaphoreGive(tas5805m_settings_mutex);
+    return err;
+}
+
+/** Save EQ mode to NVS */
+esp_err_t tas5805m_settings_save_eq_mode(TAS5805M_EQ_MODE mode) {
+    ESP_LOGD(TAG, "%s: mode=%d", __func__, (int)mode);
+
+    if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (xSemaphoreTake(tas5805m_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(TAS5805M_NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        err = nvs_set_i32(h, TAS5805M_NVS_KEY_EQ_MODE, (int32_t)mode);
+        if (err == ESP_OK) {
+            err = nvs_commit(h);
+        }
+        nvs_close(h);
+    } else {
+        ESP_LOGW(TAG, "%s: Failed to open NVS namespace '%s': %s", __func__, TAS5805M_NVS_NAMESPACE, esp_err_to_name(err));
+    }
+
+    xSemaphoreGive(tas5805m_settings_mutex);
+
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "%s: EQ mode saved: %d", __func__, (int)mode);
+    } else {
+        ESP_LOGE(TAG, "%s: Failed to save EQ mode: %s", __func__, esp_err_to_name(err));
+    }
+
+    return err;
+}
+
+/** Load EQ mode from NVS */
+esp_err_t tas5805m_settings_load_eq_mode(TAS5805M_EQ_MODE *mode) {
+    if (!mode) return ESP_ERR_INVALID_ARG;
+    if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (xSemaphoreTake(tas5805m_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(TAS5805M_NVS_NAMESPACE, NVS_READONLY, &h);
+    if (err == ESP_OK) {
+        int32_t v = 0;
+        err = nvs_get_i32(h, TAS5805M_NVS_KEY_EQ_MODE, &v);
+        if (err == ESP_OK) {
+            *mode = (TAS5805M_EQ_MODE)v;
+            ESP_LOGD(TAG, "%s: EQ mode from NVS: %d", __func__, (int)*mode);
+        } else if (err == ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGD(TAG, "%s: NVS key '%s' not found", __func__, TAS5805M_NVS_KEY_EQ_MODE);
+        } else {
+            ESP_LOGW(TAG, "%s: Failed to read EQ mode from NVS: %s", __func__, esp_err_to_name(err));
+        }
+        nvs_close(h);
+    } else {
+        ESP_LOGW(TAG, "%s: Failed to open NVS namespace '%s': %s", __func__, TAS5805M_NVS_NAMESPACE, esp_err_to_name(err));
     }
 
     xSemaphoreGive(tas5805m_settings_mutex);
@@ -362,6 +476,16 @@ esp_err_t tas5805m_settings_get_json(char *json_out, size_t max_len) {
     cJSON_AddNumberToObject(root, "modulation_mode", (int)mod_mode);
     cJSON_AddNumberToObject(root, "sw_freq", (int)sw_freq);
     cJSON_AddNumberToObject(root, "bd_freq", (int)bd_freq);
+    
+    /* EQ mode - query driver when available, otherwise default to OFF */
+    TAS5805M_EQ_MODE eq_mode_val = TAS5805M_EQ_MODE_OFF;
+#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+    if (tas5805m_get_eq_mode(&eq_mode_val) != ESP_OK) {
+        eq_mode_val = TAS5805M_EQ_MODE_OFF;
+    }
+#endif
+    cJSON_AddNumberToObject(root, "eq_mode", (int)eq_mode_val);
+    cJSON_AddStringToObject(root, "eq_mode_name", tas5805m_eq_mode_to_string(eq_mode_val));
     /* Mixer mode from cached state */
     cJSON_AddNumberToObject(root, "mixer_mode", (int)dac_state.mixer_mode);
     cJSON_AddStringToObject(root, "mixer_mode_name", tas5805m_mixer_mode_to_string(dac_state.mixer_mode));
@@ -521,6 +645,28 @@ esp_err_t tas5805m_settings_set_from_json(const char *json_in) {
         }
     }
 
+    // Update EQ mode if present
+    cJSON *eq_mode_item = cJSON_GetObjectItem(root, "eq_mode");
+    if (cJSON_IsNumber(eq_mode_item)) {
+        TAS5805M_EQ_MODE new_eq = (TAS5805M_EQ_MODE)eq_mode_item->valueint;
+#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+        err = tas5805m_set_eq_mode(new_eq);
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "%s: Applied EQ mode %d (%s) to DAC", __func__, (int)new_eq, tas5805m_eq_mode_to_string(new_eq));
+            /* Persist EQ mode */
+            esp_err_t serr = tas5805m_settings_save_eq_mode(new_eq);
+            if (serr != ESP_OK) {
+                ESP_LOGW(TAG, "%s: Failed to persist EQ mode: %s", __func__, esp_err_to_name(serr));
+            }
+        } else {
+            ESP_LOGE(TAG, "%s: Failed to apply EQ mode: %s", __func__, esp_err_to_name(err));
+        }
+#else
+        ESP_LOGW(TAG, "%s: EQ support disabled in build; ignoring EQ mode change", __func__);
+        (void)new_eq;
+#endif
+    }
+
     cJSON_Delete(root);
     return err;
 }
@@ -568,6 +714,13 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
         sw_freq = SW_FREQ_768K;
         bd_freq = SW_FREQ_80K;
     }
+    /* EQ mode - query driver when available, otherwise default to OFF */
+    TAS5805M_EQ_MODE eq_mode_val = TAS5805M_EQ_MODE_OFF;
+#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+    if (tas5805m_get_eq_mode(&eq_mode_val) != ESP_OK) {
+        eq_mode_val = TAS5805M_EQ_MODE_OFF;
+    }
+#endif
 
     // Build schema JSON
     cJSON *root = cJSON_CreateObject();
@@ -829,6 +982,54 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     cJSON_AddItemToObject(dac_config_group, "parameters", dac_config_params);
     cJSON_AddItemToArray(groups, dac_config_group);
 
+    // ===== EQ Group =====
+    cJSON *eq_group = cJSON_CreateObject();
+    cJSON_AddStringToObject(eq_group, "name", "EQ");
+    cJSON_AddStringToObject(eq_group, "description", "Equalizer mode");
+
+    cJSON *eq_params = cJSON_CreateArray();
+
+    cJSON *eq_mode_param = cJSON_CreateObject();
+    cJSON_AddStringToObject(eq_mode_param, "key", "eq_mode");
+    cJSON_AddStringToObject(eq_mode_param, "name", "EQ Mode");
+    cJSON_AddStringToObject(eq_mode_param, "type", "enum");
+    cJSON_AddNumberToObject(eq_mode_param, "current", (int)eq_mode_val);
+
+    cJSON *eq_mode_values = cJSON_CreateArray();
+
+#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+    cJSON *eq_off = cJSON_CreateObject();
+    cJSON_AddNumberToObject(eq_off, "value", TAS5805M_EQ_MODE_OFF);
+    cJSON_AddStringToObject(eq_off, "name", "OFF");
+    cJSON_AddItemToArray(eq_mode_values, eq_off);
+
+    cJSON *eq_on = cJSON_CreateObject();
+    cJSON_AddNumberToObject(eq_on, "value", TAS5805M_EQ_MODE_ON);
+    cJSON_AddStringToObject(eq_on, "name", "ON");
+    cJSON_AddItemToArray(eq_mode_values, eq_on);
+
+    cJSON *eq_biamp = cJSON_CreateObject();
+    cJSON_AddNumberToObject(eq_biamp, "value", TAS5805M_EQ_MODE_BIAMP);
+    cJSON_AddStringToObject(eq_biamp, "name", "BI-AMP");
+    cJSON_AddItemToArray(eq_mode_values, eq_biamp);
+
+    cJSON *eq_biamp_off = cJSON_CreateObject();
+    cJSON_AddNumberToObject(eq_biamp_off, "value", TAS5805M_EQ_MODE_BIAMP_OFF);
+    cJSON_AddStringToObject(eq_biamp_off, "name", "BI-AMP (OFF)");
+    cJSON_AddItemToArray(eq_mode_values, eq_biamp_off);
+#else
+    /* EQ support disabled - only provide OFF value so UI shows a single readonly option */
+    cJSON *eq_off = cJSON_CreateObject();
+    cJSON_AddNumberToObject(eq_off, "value", TAS5805M_EQ_MODE_OFF);
+    cJSON_AddStringToObject(eq_off, "name", "OFF");
+    cJSON_AddItemToArray(eq_mode_values, eq_off);
+#endif
+
+    cJSON_AddItemToObject(eq_mode_param, "values", eq_mode_values);
+    cJSON_AddItemToArray(eq_params, eq_mode_param);
+    cJSON_AddItemToObject(eq_group, "parameters", eq_params);
+    cJSON_AddItemToArray(groups, eq_group);
+    
     // End groups
     cJSON_AddItemToObject(root, "groups", groups);
 
@@ -909,6 +1110,19 @@ esp_err_t tas5805m_settings_apply_all(void) {
         if (tas5805m_set_mixer_mode(mixer_mode) != ESP_OK) {
             ESP_LOGW(TAG, "%s: Failed to apply saved mixer mode", __func__);
         }
+    }
+
+    // Apply EQ mode (if persisted)
+    TAS5805M_EQ_MODE eq_mode;
+    if (tas5805m_settings_load_eq_mode(&eq_mode) == ESP_OK) {
+        ESP_LOGI(TAG, "%s: Restoring EQ mode=%d", __func__, (int)eq_mode);
+#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+        if (tas5805m_set_eq_mode(eq_mode) != ESP_OK) {
+            ESP_LOGW(TAG, "%s: Failed to apply saved EQ mode", __func__);
+        }
+#else
+        ESP_LOGW(TAG, "%s: EQ support disabled in build; ignoring persisted EQ mode", __func__);
+#endif
     }
 
     ESP_LOGI(TAG, "%s: Persisted settings application complete", __func__);
