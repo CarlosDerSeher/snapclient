@@ -45,8 +45,8 @@ static const pcm51xx_cfg_reg_t pcm51xx_init_seq[] = {
     {0x02, 0x00},  // DISABLE STBY
     {0x0d, 0x10},  // BCK as SRC for PLL
     {0x25, 0x08},  // IGNORE MISSING MCLK
-    {0x3d, 0x55},  // DIGITAL VOLUME L
-    {0x3e, 0x55},  // DIGITAL VOLUME R
+    {0x3d, 0x30},  // DIGITAL VOLUME L
+    {0x3e, 0x30},  // DIGITAL VOLUME R
 };
 
 #ifdef __cplusplus
