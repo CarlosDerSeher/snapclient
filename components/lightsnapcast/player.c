@@ -441,10 +441,32 @@ int start_player(snapcastSetting_t *setting) {
 
   tg0_timer_init();
 
-  ESP_LOGI(TAG, "reset Latency buffer");
+//  ESP_LOGI(TAG, "reset Latency buffer");
+//
+//  while(reset_latency_buffer()<0) {
+//    vTaskDelay(pdMS_TO_TICKS(10));
+//  }
+  TIMEFILTER_Reset(&latencyTimeFilter);
+  
+  // create message queue to inform task of changed settings
+  snapcastSettingQueueHandle = xQueueCreate(1, sizeof(uint8_t));
+  
+  if (pcmChkQHdl == NULL) 
+  {
+    snapcastSetting_t scSet;
+    memset(&scSet, 0, sizeof(snapcastSetting_t));
+    player_get_snapcast_settings(&scSet);
+    
+    int entries = ceil(((float)scSet.sr / (float)scSet.chkInFrames) *
+                        ((float)scSet.buf_ms / 1000));
 
-  while(reset_latency_buffer()<0) {
-    vTaskDelay(pdMS_TO_TICKS(10));
+    // some chunks are placed in DMA buffer
+    // so we can save a little RAM here
+    entries -= (i2sDmaBufMaxLen * i2sDmaBufCnt) / scSet.chkInFrames;
+
+    pcmChkQHdl = xQueueCreate(entries, sizeof(pcm_chunk_message_t *));
+
+    ESP_LOGI(TAG, "created new queue with %d", entries);
   }
 
   ESP_LOGI(TAG, "Start player_task");
@@ -577,7 +599,7 @@ int32_t player_send_snapcast_setting(snapcastSetting_t *setting) {
  */
 int32_t reset_latency_buffer(void) {
   // init diff buff median filter
-  TIMEFILTER_Reset(&latencyTimeFilter);
+  //TIMEFILTER_Reset(&latencyTimeFilter);
 
   if (latencyBufSemaphoreHandle == NULL) {
     ESP_LOGE(TAG, "reset_diff_buffer: latencyBufSemaphoreHandle == NULL");
@@ -1192,6 +1214,7 @@ int32_t insert_pcm_chunk(pcm_chunk_message_t *pcmChunk) {
 
     free_pcm_chunk(pcmChunk);
   }
+//free_pcm_chunk(pcmChunk);
 
   return 0;
 }
@@ -1249,8 +1272,7 @@ static void player_task(void *pvParameters) {
 
   //  stats_init();
 
-  // create message queue to inform task of changed settings
-  snapcastSettingQueueHandle = xQueueCreate(1, sizeof(uint8_t));
+   queueCreatedWithChkInFrames = scSet.chkInFrames;
 
   initialSync = 0;
   
@@ -1268,20 +1290,20 @@ static void player_task(void *pvParameters) {
   adjust_apll(0);
 #endif
 
-  if (pcmChkQHdl == NULL) {
-    int entries = ceil(((float)scSet.sr / (float)scSet.chkInFrames) *
-                        ((float)scSet.buf_ms / 1000));
-
-    // some chunks are placed in DMA buffer
-    // so we can save a little RAM here
-    entries -= (i2sDmaBufMaxLen * i2sDmaBufCnt) / scSet.chkInFrames;
-
-    queueCreatedWithChkInFrames = scSet.chkInFrames;
-
-    pcmChkQHdl = xQueueCreate(entries, sizeof(pcm_chunk_message_t *));
-
-    ESP_LOGI(TAG, "created new queue with %d", entries);
-  }
+//  if (pcmChkQHdl == NULL) {
+//    int entries = ceil(((float)scSet.sr / (float)scSet.chkInFrames) *
+//                        ((float)scSet.buf_ms / 1000));
+//
+//    // some chunks are placed in DMA buffer
+//    // so we can save a little RAM here
+//    entries -= (i2sDmaBufMaxLen * i2sDmaBufCnt) / scSet.chkInFrames;
+//
+//    queueCreatedWithChkInFrames = scSet.chkInFrames;
+//
+//    pcmChkQHdl = xQueueCreate(entries, sizeof(pcm_chunk_message_t *));
+//
+//    ESP_LOGI(TAG, "created new queue with %d", entries);
+//  }
   audio_set_mute(scSet.muted);
 
   // wait for early time syncs to be ready
@@ -1388,7 +1410,7 @@ static void player_task(void *pvParameters) {
       if (pcmChkQHdl != NULL) {
         ret = xQueueReceive(pcmChkQHdl, &chnk, pdMS_TO_TICKS(2000));
       } else {
-        // ESP_LOGE (TAG, "Couldn't get PCM chunk, pcm queue not created");
+         //ESP_LOGE (TAG, "Couldn't get PCM chunk, pcm queue not created");
 
         vTaskDelay(pdMS_TO_TICKS(100));
 
@@ -1444,7 +1466,7 @@ static void player_task(void *pvParameters) {
           while (1) {
             if (chnk == NULL) {
               if (pcmChkQHdl != NULL) {
-                ret = xQueueReceive(pcmChkQHdl, &chnk, pdMS_TO_TICKS(100));
+                ret = xQueueReceive(pcmChkQHdl, &chnk, pdMS_TO_TICKS(2000));
                 // if (ret != pdFAIL) {
                 //   ESP_LOGI(TAG, "got pcm chunk with size %d",
                 //            chnk->fragment->size);
@@ -1867,7 +1889,9 @@ static void player_task(void *pvParameters) {
                    age, shortMedian, miniMedian,
                    uxQueueMessagesWaiting(pcmChkQHdl), insertedSamplesCounter,
                    chunkDuration_us);
-
+          // ESP_LOGI(TAG, "%d, %lldus, %lldus, %lldus, q:%d", dir,
+          //         age, shortMedian, miniMedian,
+          //         uxQueueMessagesWaiting(pcmChkQHdl));
           // ESP_LOGI( TAG, "8b f %d b %d",
           // 		   heap_caps_get_free_size(MALLOC_CAP_8BIT |
           //           						   MALLOC_CAP_INTERNAL),

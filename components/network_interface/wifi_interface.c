@@ -14,6 +14,7 @@
 #include "esp_netif_types.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
+#include "esp_wifi_types.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
 #include "freertos/semphr.h"
@@ -177,7 +178,7 @@ void wifi_start(void) {
               .ssid = WIFI_SSID,
               .password = WIFI_PASSWORD,
               .sort_method = WIFI_CONNECT_AP_BY_SIGNAL,
-              .threshold.authmode = WIFI_AUTH_WPA2_WPA3_PSK,
+              .threshold.authmode = WIFI_AUTH_WPA2_PSK,
               .pmf_cfg = {.capable = true, .required = false},
           },
   };

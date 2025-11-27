@@ -113,11 +113,6 @@ int time_message_serialize(time_message_t *msg, char *data, uint32_t size);
 int time_message_deserialize(time_message_t *msg, const char *data,
                              uint32_t size);
 
-typedef struct client_info_s {
-  uint32_t size;
-  char *payload;
-} client_info_t;
-
 #ifdef __cplusplus
 }
 #endif
