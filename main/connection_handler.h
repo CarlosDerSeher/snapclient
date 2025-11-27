@@ -35,11 +35,7 @@ int receive_data(struct netbuf** firstNetBuf, bool isMuted, esp_netif_t* netif,
                  bool* first_receive, int rc1);
 int fill_buffer(bool* first_netbuf_processed, int* rc1,
                 struct netbuf* firstNetBuf, char** start, uint16_t* len);
-int connection_ensure_byte(connection_state_t* connection_state,
-                           struct netbuf** firstNetBuf, bool isMuted,
-                           esp_netif_t* netif, bool* first_receive, int* rc1,
-                           bool* first_netbuf_processed, char** start,
-                           uint16_t* len);
+int connection_ensure_byte(connection_t* connection);
 // Add other connection-related functions you plan to move here
 
 #endif  // __CONNECTION_HANDLER_H__

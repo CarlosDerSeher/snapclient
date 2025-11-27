@@ -1353,6 +1353,8 @@ static void http_get_task(void *pvParameters) {
 
     // state machine starts here     
 
+    connection.isMuted = &scSet.muted;
+
     connection.firstNetBuf = NULL;
     connection.first_receive = true;
     connection.first_netbuf_processed = false;
@@ -1361,8 +1363,7 @@ static void http_get_task(void *pvParameters) {
 
     // Main connection loop - state machine + data processing
     while (1) {
-      int result = connection_ensure_byte(&connection.state, &connection.firstNetBuf, scSet.muted, connection.netif,
-                                          &connection.first_receive, &connection.rc1, &connection.first_netbuf_processed, &connection.start, &connection.len);
+      int result = connection_ensure_byte(&connection);
 
       if (result != 0) {
         break; // restart connection
