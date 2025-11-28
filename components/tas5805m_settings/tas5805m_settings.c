@@ -62,6 +62,61 @@ static const char* tas5805m_eq_mode_to_string(TAS5805M_EQ_MODE mode) {
 #endif
 }
 
+/* Human readable names for the new EQ UI mode (defined in header) */
+const char *tas5805m_eq_ui_mode_to_string(TAS5805M_EQ_UI_MODE m) {
+    switch (m) {
+        case TAS5805M_EQ_UI_MODE_OFF: return "OFF";
+        case TAS5805M_EQ_UI_MODE_15_BAND: return "15-band";
+        case TAS5805M_EQ_UI_MODE_15_BAND_BIAMP: return "15-band (bi-amp)";
+        case TAS5805M_EQ_UI_MODE_PRESETS: return "EQ Presets";
+        default: return "Unknown";
+    }
+}
+
+/** Save UI mode to NVS */
+esp_err_t tas5805m_settings_save_eq_ui_mode(TAS5805M_EQ_UI_MODE mode) {
+    ESP_LOGD(TAG, "%s: mode=%d", __func__, (int)mode);
+    if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(tas5805m_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(TAS5805M_NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        err = nvs_set_i32(h, TAS5805M_NVS_KEY_EQ_UI_MODE, (int32_t)mode);
+        if (err == ESP_OK) err = nvs_commit(h);
+        nvs_close(h);
+    } else {
+        ESP_LOGW(TAG, "%s: Failed to open NVS namespace '%s': %s", __func__, TAS5805M_NVS_NAMESPACE, esp_err_to_name(err));
+    }
+    xSemaphoreGive(tas5805m_settings_mutex);
+    return err;
+}
+
+/** Load UI mode from NVS */
+esp_err_t tas5805m_settings_load_eq_ui_mode(TAS5805M_EQ_UI_MODE *mode) {
+    if (!mode) return ESP_ERR_INVALID_ARG;
+    if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(tas5805m_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(TAS5805M_NVS_NAMESPACE, NVS_READONLY, &h);
+    if (err == ESP_OK) {
+        int32_t v = 0;
+        err = nvs_get_i32(h, TAS5805M_NVS_KEY_EQ_UI_MODE, &v);
+        if (err == ESP_OK) {
+            *mode = (TAS5805M_EQ_UI_MODE)v;
+            ESP_LOGD(TAG, "%s: Loaded %s=%d from NVS", __func__, TAS5805M_NVS_KEY_EQ_UI_MODE, (int)*mode);
+        } else if (err == ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGD(TAG, "%s: NVS key '%s' not found", __func__, TAS5805M_NVS_KEY_EQ_UI_MODE);
+        } else {
+            ESP_LOGW(TAG, "%s: Failed to read '%s' from NVS: %s", __func__, TAS5805M_NVS_KEY_EQ_UI_MODE, esp_err_to_name(err));
+        }
+        nvs_close(h);
+    } else {
+        ESP_LOGW(TAG, "%s: Failed to open NVS namespace '%s': %s", __func__, TAS5805M_NVS_NAMESPACE, esp_err_to_name(err));
+    }
+    xSemaphoreGive(tas5805m_settings_mutex);
+    return err;
+}
+
 esp_err_t tas5805m_settings_init(void) {
     if (tas5805m_settings_mutex == NULL) {
         tas5805m_settings_mutex = xSemaphoreCreateMutex();
@@ -454,6 +509,67 @@ esp_err_t tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS ch, int band, int 
     return err;
 }
 
+/** Save EQ profile/preset for a specific channel */
+esp_err_t tas5805m_settings_save_eq_profile(TAS5805M_EQ_CHANNELS ch, TAS5805M_EQ_PROFILE profile) {
+    ESP_LOGD(TAG, "%s: ch=%d profile=%d", __func__, (int)ch, (int)profile);
+
+    if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (xSemaphoreTake(tas5805m_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    const char *key = (ch == TAS5805M_EQ_CHANNELS_LEFT) ? TAS5805M_NVS_KEY_EQ_PROFILE_L : TAS5805M_NVS_KEY_EQ_PROFILE_R;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(TAS5805M_NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        err = nvs_set_i32(h, key, (int32_t)profile);
+        if (err == ESP_OK) {
+            err = nvs_commit(h);
+        }
+        nvs_close(h);
+    } else {
+        ESP_LOGW(TAG, "%s: Failed to open NVS namespace '%s': %s", __func__, TAS5805M_NVS_NAMESPACE, esp_err_to_name(err));
+    }
+
+    xSemaphoreGive(tas5805m_settings_mutex);
+    return err;
+}
+
+/** Load EQ profile/preset for a specific channel */
+esp_err_t tas5805m_settings_load_eq_profile(TAS5805M_EQ_CHANNELS ch, TAS5805M_EQ_PROFILE *profile) {
+    if (!profile) return ESP_ERR_INVALID_ARG;
+    if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (xSemaphoreTake(tas5805m_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    const char *key = (ch == TAS5805M_EQ_CHANNELS_LEFT) ? TAS5805M_NVS_KEY_EQ_PROFILE_L : TAS5805M_NVS_KEY_EQ_PROFILE_R;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(TAS5805M_NVS_NAMESPACE, NVS_READONLY, &h);
+    if (err == ESP_OK) {
+        int32_t v = 0;
+        err = nvs_get_i32(h, key, &v);
+        if (err == ESP_OK) {
+            *profile = (TAS5805M_EQ_PROFILE)v;
+            ESP_LOGD(TAG, "%s: Loaded %s=%d from NVS", __func__, key, (int)*profile);
+        } else if (err == ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGD(TAG, "%s: NVS key '%s' not found", __func__, key);
+        } else {
+            ESP_LOGW(TAG, "%s: Failed to read '%s' from NVS: %s", __func__, key, esp_err_to_name(err));
+        }
+        nvs_close(h);
+    } else {
+        ESP_LOGW(TAG, "%s: Failed to open NVS namespace '%s': %s", __func__, TAS5805M_NVS_NAMESPACE, esp_err_to_name(err));
+    }
+
+    xSemaphoreGive(tas5805m_settings_mutex);
+    return err;
+}
+
 /** Load EQ mode from NVS */
 esp_err_t tas5805m_settings_load_eq_mode(TAS5805M_EQ_MODE *mode) {
     if (!mode) return ESP_ERR_INVALID_ARG;
@@ -559,6 +675,28 @@ esp_err_t tas5805m_settings_get_json(char *json_out, size_t max_len) {
 #endif
     cJSON_AddNumberToObject(root, "eq_mode", (int)eq_mode_val);
     cJSON_AddStringToObject(root, "eq_mode_name", tas5805m_eq_mode_to_string(eq_mode_val));
+    /* EQ UI mode (controls which UI elements to show) - prefer persisted value */
+    TAS5805M_EQ_UI_MODE ui_mode_val = TAS5805M_EQ_UI_MODE_OFF;
+    if (tas5805m_settings_load_eq_ui_mode(&ui_mode_val) != ESP_OK) {
+        /* derive from driver eq_mode if not persisted */
+        if (eq_mode_val == TAS5805M_EQ_MODE_OFF) ui_mode_val = TAS5805M_EQ_UI_MODE_OFF;
+        else if (eq_mode_val == TAS5805M_EQ_MODE_ON) ui_mode_val = TAS5805M_EQ_UI_MODE_15_BAND;
+        else ui_mode_val = TAS5805M_EQ_UI_MODE_15_BAND_BIAMP;
+    }
+    cJSON_AddNumberToObject(root, "eq_ui_mode", (int)ui_mode_val);
+    cJSON_AddStringToObject(root, "eq_ui_mode_name", tas5805m_eq_ui_mode_to_string(ui_mode_val));
+    /* EQ profile/preset per channel */
+#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+    {
+        TAS5805M_EQ_PROFILE prof_l = FLAT, prof_r = FLAT;
+        if (tas5805m_get_eq_profile_channel(TAS5805M_EQ_CHANNELS_LEFT, &prof_l) == ESP_OK) {
+            cJSON_AddNumberToObject(root, "eq_profile_l", (int)prof_l);
+        }
+        if (tas5805m_get_eq_profile_channel(TAS5805M_EQ_CHANNELS_RIGHT, &prof_r) == ESP_OK) {
+            cJSON_AddNumberToObject(root, "eq_profile_r", (int)prof_r);
+        }
+    }
+#endif
     /* Mixer mode from cached state */
     cJSON_AddNumberToObject(root, "mixer_mode", (int)dac_state.mixer_mode);
     cJSON_AddStringToObject(root, "mixer_mode_name", tas5805m_mixer_mode_to_string(dac_state.mixer_mode));
@@ -754,6 +892,110 @@ esp_err_t tas5805m_settings_set_from_json(const char *json_in) {
 #else
         ESP_LOGW(TAG, "%s: EQ support disabled in build; ignoring EQ mode change", __func__);
         (void)new_eq;
+#endif
+    }
+
+    // Update EQ UI selection if present. This controls which UI elements are shown
+    // and how values are applied/persisted (15-band vs presets etc.). We persist
+    // the UI selection in NVS and map it to the underlying driver EQ mode.
+    cJSON *eq_ui_item = cJSON_GetObjectItem(root, "eq_ui_mode");
+    if (cJSON_IsNumber(eq_ui_item)) {
+        TAS5805M_EQ_UI_MODE ui = (TAS5805M_EQ_UI_MODE)eq_ui_item->valueint;
+        ESP_LOGI(TAG, "%s: Requested EQ UI mode %d", __func__, (int)ui);
+
+        // Persist UI selection
+        esp_err_t uerr = tas5805m_settings_save_eq_ui_mode(ui);
+        if (uerr != ESP_OK) {
+            ESP_LOGW(TAG, "%s: Failed to persist EQ UI mode: %s", __func__, esp_err_to_name(uerr));
+        }
+
+#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+        TAS5805M_EQ_MODE drv = TAS5805M_EQ_MODE_OFF;
+        switch (ui) {
+            case TAS5805M_EQ_UI_MODE_OFF: drv = TAS5805M_EQ_MODE_OFF; break;
+            case TAS5805M_EQ_UI_MODE_15_BAND: drv = TAS5805M_EQ_MODE_ON; break;
+            case TAS5805M_EQ_UI_MODE_15_BAND_BIAMP: drv = TAS5805M_EQ_MODE_BIAMP; break;
+            case TAS5805M_EQ_UI_MODE_PRESETS: drv = TAS5805M_EQ_MODE_BIAMP; break;
+            default: drv = TAS5805M_EQ_MODE_OFF; break;
+        }
+
+        esp_err_t serr = tas5805m_set_eq_mode(drv);
+        if (serr == ESP_OK) {
+            ESP_LOGI(TAG, "%s: Applied driver EQ mode %d for UI selection %d", __func__, (int)drv, (int)ui);
+        } else {
+            ESP_LOGE(TAG, "%s: Failed to set driver EQ mode: %s", __func__, esp_err_to_name(serr));
+        }
+
+        // Immediately apply persisted data according to selected UI mode
+        if (ui == TAS5805M_EQ_UI_MODE_15_BAND) {
+            for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
+                int gain = 0;
+                if (tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_LEFT, band, &gain) == ESP_OK) {
+                    if (tas5805m_set_eq_gain_channel(TAS5805M_EQ_CHANNELS_LEFT, band, gain) == ESP_OK) {
+                        ESP_LOGI(TAG, "%s: Applied L band %d = %d (15-band)", __func__, band, gain);
+                    }
+                }
+            }
+        } else if (ui == TAS5805M_EQ_UI_MODE_15_BAND_BIAMP) {
+            for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
+                int gain = 0;
+                if (tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_LEFT, band, &gain) == ESP_OK) {
+                    tas5805m_set_eq_gain_channel(TAS5805M_EQ_CHANNELS_LEFT, band, gain);
+                }
+                if (tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_RIGHT, band, &gain) == ESP_OK) {
+                    tas5805m_set_eq_gain_channel(TAS5805M_EQ_CHANNELS_RIGHT, band, gain);
+                }
+            }
+        } else if (ui == TAS5805M_EQ_UI_MODE_PRESETS) {
+            TAS5805M_EQ_PROFILE prof = FLAT;
+            if (tas5805m_settings_load_eq_profile(TAS5805M_EQ_CHANNELS_LEFT, &prof) == ESP_OK) {
+                tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS_LEFT, prof);
+            }
+            if (tas5805m_settings_load_eq_profile(TAS5805M_EQ_CHANNELS_RIGHT, &prof) == ESP_OK) {
+                tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS_RIGHT, prof);
+            }
+        }
+#else
+        ESP_LOGW(TAG, "%s: EQ support disabled; ignoring eq_ui_mode change", __func__);
+#endif
+    }
+
+    // Update EQ profile/preset per channel if present
+    cJSON *eq_prof_l_item = cJSON_GetObjectItem(root, "eq_profile_l");
+    if (cJSON_IsNumber(eq_prof_l_item)) {
+        TAS5805M_EQ_PROFILE p = (TAS5805M_EQ_PROFILE)eq_prof_l_item->valueint;
+#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+        esp_err_t serr = tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS_LEFT, p);
+        if (serr == ESP_OK) {
+            ESP_LOGI(TAG, "%s: Applied EQ profile L = %d", __func__, (int)p);
+            esp_err_t perr = tas5805m_settings_save_eq_profile(TAS5805M_EQ_CHANNELS_LEFT, p);
+            if (perr != ESP_OK) {
+                ESP_LOGW(TAG, "%s: Failed to persist EQ profile L: %s", __func__, esp_err_to_name(perr));
+            }
+        } else {
+            ESP_LOGE(TAG, "%s: Failed to apply EQ profile L: %s", __func__, esp_err_to_name(serr));
+        }
+#else
+        ESP_LOGW(TAG, "%s: EQ support disabled; ignoring eq_profile_l", __func__);
+#endif
+    }
+
+    cJSON *eq_prof_r_item = cJSON_GetObjectItem(root, "eq_profile_r");
+    if (cJSON_IsNumber(eq_prof_r_item)) {
+        TAS5805M_EQ_PROFILE p = (TAS5805M_EQ_PROFILE)eq_prof_r_item->valueint;
+#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+        esp_err_t serr = tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS_RIGHT, p);
+        if (serr == ESP_OK) {
+            ESP_LOGI(TAG, "%s: Applied EQ profile R = %d", __func__, (int)p);
+            esp_err_t perr = tas5805m_settings_save_eq_profile(TAS5805M_EQ_CHANNELS_RIGHT, p);
+            if (perr != ESP_OK) {
+                ESP_LOGW(TAG, "%s: Failed to persist EQ profile R: %s", __func__, esp_err_to_name(perr));
+            }
+        } else {
+            ESP_LOGE(TAG, "%s: Failed to apply EQ profile R: %s", __func__, esp_err_to_name(serr));
+        }
+#else
+        ESP_LOGW(TAG, "%s: EQ support disabled; ignoring eq_profile_r", __func__);
 #endif
     }
 
@@ -1121,44 +1363,149 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
 
     cJSON *eq_params = cJSON_CreateArray();
 
-    cJSON *eq_mode_param = cJSON_CreateObject();
-    cJSON_AddStringToObject(eq_mode_param, "key", "eq_mode");
-    cJSON_AddStringToObject(eq_mode_param, "name", "EQ Mode");
-    cJSON_AddStringToObject(eq_mode_param, "type", "enum");
-    cJSON_AddNumberToObject(eq_mode_param, "current", (int)eq_mode_val);
+    // Replace legacy EQ mode with a UI-focused EQ selection that controls which UI elements are shown
+    cJSON *eq_ui_param = cJSON_CreateObject();
+    cJSON_AddStringToObject(eq_ui_param, "key", "eq_ui_mode");
+    cJSON_AddStringToObject(eq_ui_param, "name", "EQ Mode");
+    cJSON_AddStringToObject(eq_ui_param, "type", "enum");
 
-    cJSON *eq_mode_values = cJSON_CreateArray();
-
+    // Determine current UI mode: prefer persisted UI selection, otherwise derive from driver eq_mode
+    TAS5805M_EQ_UI_MODE cur_ui_mode = TAS5805M_EQ_UI_MODE_OFF;
+    if (tas5805m_settings_load_eq_ui_mode(&cur_ui_mode) != ESP_OK) {
+        // fallback: map driver eq_mode to a reasonable UI mode
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
-    cJSON *eq_off = cJSON_CreateObject();
-    cJSON_AddNumberToObject(eq_off, "value", TAS5805M_EQ_MODE_OFF);
-    cJSON_AddStringToObject(eq_off, "name", "OFF");
-    cJSON_AddItemToArray(eq_mode_values, eq_off);
-
-    cJSON *eq_on = cJSON_CreateObject();
-    cJSON_AddNumberToObject(eq_on, "value", TAS5805M_EQ_MODE_ON);
-    cJSON_AddStringToObject(eq_on, "name", "ON");
-    cJSON_AddItemToArray(eq_mode_values, eq_on);
-
-    cJSON *eq_biamp = cJSON_CreateObject();
-    cJSON_AddNumberToObject(eq_biamp, "value", TAS5805M_EQ_MODE_BIAMP);
-    cJSON_AddStringToObject(eq_biamp, "name", "BI-AMP");
-    cJSON_AddItemToArray(eq_mode_values, eq_biamp);
-
-    cJSON *eq_biamp_off = cJSON_CreateObject();
-    cJSON_AddNumberToObject(eq_biamp_off, "value", TAS5805M_EQ_MODE_BIAMP_OFF);
-    cJSON_AddStringToObject(eq_biamp_off, "name", "BI-AMP (OFF)");
-    cJSON_AddItemToArray(eq_mode_values, eq_biamp_off);
-#else
-    /* EQ support disabled - only provide OFF value so UI shows a single readonly option */
-    cJSON *eq_off = cJSON_CreateObject();
-    cJSON_AddNumberToObject(eq_off, "value", TAS5805M_EQ_MODE_OFF);
-    cJSON_AddStringToObject(eq_off, "name", "OFF");
-    cJSON_AddItemToArray(eq_mode_values, eq_off);
+        TAS5805M_EQ_MODE drv = TAS5805M_EQ_MODE_OFF;
+        if (tas5805m_get_eq_mode(&drv) == ESP_OK) {
+            if (drv == TAS5805M_EQ_MODE_OFF) cur_ui_mode = TAS5805M_EQ_UI_MODE_OFF;
+            else if (drv == TAS5805M_EQ_MODE_ON) cur_ui_mode = TAS5805M_EQ_UI_MODE_15_BAND;
+            else cur_ui_mode = TAS5805M_EQ_UI_MODE_15_BAND_BIAMP;
+        }
 #endif
+    }
 
-    cJSON_AddItemToObject(eq_mode_param, "values", eq_mode_values);
-    cJSON_AddItemToArray(eq_params, eq_mode_param);
+    cJSON_AddNumberToObject(eq_ui_param, "current", (int)cur_ui_mode);
+
+    cJSON *eq_ui_values = cJSON_CreateArray();
+    cJSON *v_off = cJSON_CreateObject();
+    cJSON_AddNumberToObject(v_off, "value", (int)TAS5805M_EQ_UI_MODE_OFF);
+    cJSON_AddStringToObject(v_off, "name", "OFF");
+    cJSON_AddItemToArray(eq_ui_values, v_off);
+
+    cJSON *v_15 = cJSON_CreateObject();
+    cJSON_AddNumberToObject(v_15, "value", (int)TAS5805M_EQ_UI_MODE_15_BAND);
+    cJSON_AddStringToObject(v_15, "name", "15-band");
+    cJSON_AddItemToArray(eq_ui_values, v_15);
+
+    cJSON *v_15_bi = cJSON_CreateObject();
+    cJSON_AddNumberToObject(v_15_bi, "value", (int)TAS5805M_EQ_UI_MODE_15_BAND_BIAMP);
+    cJSON_AddStringToObject(v_15_bi, "name", "15-band (bi-amp)");
+    cJSON_AddItemToArray(eq_ui_values, v_15_bi);
+
+    cJSON *v_preset = cJSON_CreateObject();
+    cJSON_AddNumberToObject(v_preset, "value", (int)TAS5805M_EQ_UI_MODE_PRESETS);
+    cJSON_AddStringToObject(v_preset, "name", "EQ Presets");
+    cJSON_AddItemToArray(eq_ui_values, v_preset);
+
+    cJSON_AddItemToObject(eq_ui_param, "values", eq_ui_values);
+    cJSON_AddItemToArray(eq_params, eq_ui_param);
+    
+    // EQ Preset / Profile per channel
+#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+    {
+        TAS5805M_EQ_PROFILE cur_prof_l = FLAT, cur_prof_r = FLAT;
+        if (tas5805m_get_eq_profile_channel(TAS5805M_EQ_CHANNELS_LEFT, &cur_prof_l) != ESP_OK) cur_prof_l = FLAT;
+        if (tas5805m_get_eq_profile_channel(TAS5805M_EQ_CHANNELS_RIGHT, &cur_prof_r) != ESP_OK) cur_prof_r = FLAT;
+
+        cJSON *prof_l_param = cJSON_CreateObject();
+        cJSON_AddStringToObject(prof_l_param, "key", "eq_profile_l");
+        cJSON_AddStringToObject(prof_l_param, "name", "EQ Preset (L)");
+        cJSON_AddStringToObject(prof_l_param, "type", "enum");
+        cJSON_AddNumberToObject(prof_l_param, "current", (int)cur_prof_l);
+
+        cJSON *prof_l_values = cJSON_CreateArray();
+        cJSON *v;
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", FLAT); cJSON_AddStringToObject(v, "name", "Flat"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_60HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 60 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_70HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 70 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_80HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 80 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_90HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 90 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_100HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 100 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_110HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 110 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_120HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 120 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_130HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 130 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_140HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 140 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_150HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 150 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_60HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 60 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_70HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 70 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_80HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 80 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_90HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 90 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_100HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 100 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_110HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 110 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_120HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 120 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_130HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 130 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_140HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 140 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_150HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 150 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+
+        cJSON_AddItemToObject(prof_l_param, "values", prof_l_values);
+        cJSON_AddItemToArray(eq_params, prof_l_param);
+
+        // Right channel
+        cJSON *prof_r_param = cJSON_CreateObject();
+        cJSON_AddStringToObject(prof_r_param, "key", "eq_profile_r");
+        cJSON_AddStringToObject(prof_r_param, "name", "EQ Preset (R)");
+        cJSON_AddStringToObject(prof_r_param, "type", "enum");
+        cJSON_AddNumberToObject(prof_r_param, "current", (int)cur_prof_r);
+
+        // reuse same values array content for right channel
+        cJSON *prof_r_values = cJSON_CreateArray();
+        // clone by creating new objects (same entries)
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", FLAT); cJSON_AddStringToObject(v, "name", "Flat"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_60HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 60 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_70HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 70 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_80HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 80 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_90HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 90 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_100HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 100 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_110HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 110 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_120HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 120 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_130HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 130 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_140HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 140 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_150HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 150 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_60HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 60 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_70HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 70 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_80HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 80 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_90HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 90 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_100HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 100 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_110HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 110 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_120HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 120 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_130HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 130 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_140HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 140 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_150HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 150 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+
+        cJSON_AddItemToObject(prof_r_param, "values", prof_r_values);
+        cJSON_AddItemToArray(eq_params, prof_r_param);
+    }
+#else
+    // If EQ support disabled, provide readonly placeholders for presets
+    cJSON *prof_l_param = cJSON_CreateObject();
+    cJSON_AddStringToObject(prof_l_param, "key", "eq_profile_l");
+    cJSON_AddStringToObject(prof_l_param, "name", "EQ Preset (L)");
+    cJSON_AddStringToObject(prof_l_param, "type", "enum");
+    cJSON_AddNumberToObject(prof_l_param, "current", (int)FLAT);
+    cJSON *prof_l_vals = cJSON_CreateArray();
+    cJSON *pv = cJSON_CreateObject(); cJSON_AddNumberToObject(pv, "value", FLAT); cJSON_AddStringToObject(pv, "name", "Flat"); cJSON_AddItemToArray(prof_l_vals, pv);
+    cJSON_AddItemToObject(prof_l_param, "values", prof_l_vals);
+    cJSON_AddItemToArray(eq_params, prof_l_param);
+
+    cJSON *prof_r_param = cJSON_CreateObject();
+    cJSON_AddStringToObject(prof_r_param, "key", "eq_profile_r");
+    cJSON_AddStringToObject(prof_r_param, "name", "EQ Preset (R)");
+    cJSON_AddStringToObject(prof_r_param, "type", "enum");
+    cJSON_AddNumberToObject(prof_r_param, "current", (int)FLAT);
+    cJSON *prof_r_vals = cJSON_CreateArray();
+    pv = cJSON_CreateObject(); cJSON_AddNumberToObject(pv, "value", FLAT); cJSON_AddStringToObject(pv, "name", "Flat"); cJSON_AddItemToArray(prof_r_vals, pv);
+    cJSON_AddItemToObject(prof_r_param, "values", prof_r_vals);
+    cJSON_AddItemToArray(eq_params, prof_r_param);
+#endif
     cJSON_AddItemToObject(eq_group, "parameters", eq_params);
     /* Add per-band sliders for left and right channels (if EQ supported) */
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
@@ -1310,22 +1657,66 @@ esp_err_t tas5805m_settings_apply_all(void) {
     }
 
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
-    // Restore per-band EQ gains for both channels if persisted
-    for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
-        int gain = 0;
-        if (tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_LEFT, band, &gain) == ESP_OK) {
-            if (tas5805m_set_eq_gain_channel(TAS5805M_EQ_CHANNELS_LEFT, band, gain) != ESP_OK) {
-                ESP_LOGW(TAG, "%s: Failed to apply saved EQ gain L band %d", __func__, band);
-            } else {
-                ESP_LOGI(TAG, "%s: Restored EQ gain L band %d = %d", __func__, band, gain);
+    // Restore EQ based on persisted UI selection (eq_ui_mode). If no UI selection
+    // is persisted, derive a reasonable default from the saved driver EQ mode.
+    TAS5805M_EQ_UI_MODE ui_mode = TAS5805M_EQ_UI_MODE_OFF;
+    if (tas5805m_settings_load_eq_ui_mode(&ui_mode) != ESP_OK) {
+        // derive from saved eq_mode
+        if (eq_mode == TAS5805M_EQ_MODE_OFF) ui_mode = TAS5805M_EQ_UI_MODE_OFF;
+        else if (eq_mode == TAS5805M_EQ_MODE_ON) ui_mode = TAS5805M_EQ_UI_MODE_15_BAND;
+        else ui_mode = TAS5805M_EQ_UI_MODE_15_BAND_BIAMP;
+    }
+
+    ESP_LOGI(TAG, "%s: Restoring EQ using UI mode %d (%s)", __func__, (int)ui_mode, tas5805m_eq_ui_mode_to_string(ui_mode));
+
+    if (ui_mode == TAS5805M_EQ_UI_MODE_OFF) {
+        // nothing to restore
+    } else if (ui_mode == TAS5805M_EQ_UI_MODE_15_BAND) {
+        // Apply left-channel per-band gains
+        for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
+            int gain = 0;
+            if (tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_LEFT, band, &gain) == ESP_OK) {
+                if (tas5805m_set_eq_gain_channel(TAS5805M_EQ_CHANNELS_LEFT, band, gain) != ESP_OK) {
+                    ESP_LOGW(TAG, "%s: Failed to apply saved EQ gain L band %d", __func__, band);
+                } else {
+                    ESP_LOGI(TAG, "%s: Restored EQ gain L band %d = %d", __func__, band, gain);
+                }
             }
         }
-
-        if (tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_RIGHT, band, &gain) == ESP_OK) {
-            if (tas5805m_set_eq_gain_channel(TAS5805M_EQ_CHANNELS_RIGHT, band, gain) != ESP_OK) {
-                ESP_LOGW(TAG, "%s: Failed to apply saved EQ gain R band %d", __func__, band);
+    } else if (ui_mode == TAS5805M_EQ_UI_MODE_15_BAND_BIAMP) {
+        // Apply both channels per-band gains
+        for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
+            int gain = 0;
+            if (tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_LEFT, band, &gain) == ESP_OK) {
+                if (tas5805m_set_eq_gain_channel(TAS5805M_EQ_CHANNELS_LEFT, band, gain) != ESP_OK) {
+                    ESP_LOGW(TAG, "%s: Failed to apply saved EQ gain L band %d", __func__, band);
+                } else {
+                    ESP_LOGI(TAG, "%s: Restored EQ gain L band %d = %d", __func__, band, gain);
+                }
+            }
+            if (tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_RIGHT, band, &gain) == ESP_OK) {
+                if (tas5805m_set_eq_gain_channel(TAS5805M_EQ_CHANNELS_RIGHT, band, gain) != ESP_OK) {
+                    ESP_LOGW(TAG, "%s: Failed to apply saved EQ gain R band %d", __func__, band);
+                } else {
+                    ESP_LOGI(TAG, "%s: Restored EQ gain R band %d = %d", __func__, band, gain);
+                }
+            }
+        }
+    } else if (ui_mode == TAS5805M_EQ_UI_MODE_PRESETS) {
+        // Apply persisted EQ profiles for both channels
+        TAS5805M_EQ_PROFILE prof = FLAT;
+        if (tas5805m_settings_load_eq_profile(TAS5805M_EQ_CHANNELS_LEFT, &prof) == ESP_OK) {
+            if (tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS_LEFT, prof) != ESP_OK) {
+                ESP_LOGW(TAG, "%s: Failed to apply saved EQ profile L", __func__);
             } else {
-                ESP_LOGI(TAG, "%s: Restored EQ gain R band %d = %d", __func__, band, gain);
+                ESP_LOGI(TAG, "%s: Restored EQ profile L = %d", __func__, (int)prof);
+            }
+        }
+        if (tas5805m_settings_load_eq_profile(TAS5805M_EQ_CHANNELS_RIGHT, &prof) == ESP_OK) {
+            if (tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS_RIGHT, prof) != ESP_OK) {
+                ESP_LOGW(TAG, "%s: Failed to apply saved EQ profile R", __func__);
+            } else {
+                ESP_LOGI(TAG, "%s: Restored EQ profile R = %d", __func__, (int)prof);
             }
         }
     }

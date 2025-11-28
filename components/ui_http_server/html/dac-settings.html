@@ -268,6 +268,9 @@
       <input id="poll-interval" type="range" min="0" max="10" step="1" value="2" aria-label="Polling interval seconds">
       <span id="poll-interval-value" style="font-size:12px; color:#666; width:36px; text-align:right;">2s</span>
     </div>
+    <div style="margin-left:16px; display:flex; align-items:center; gap:10px;">
+      <button id="eq-reset-btn" title="Reset all EQ bands to 0 dB" style="padding:8px 12px; border-radius:6px; border:none; background:#ff6b6b; color:white; cursor:pointer;">Reset EQ</button>
+    </div>
   </div>
   
   <div id="app">
@@ -456,6 +459,25 @@
 
       container.innerHTML = '';
 
+      // Determine EQ UI mode (used to show/hide EQ controls)
+      let uiMode = null;
+      // Prefer value from currentSettings
+      if (currentSettings && typeof currentSettings.eq_ui_mode !== 'undefined') {
+        uiMode = currentSettings.eq_ui_mode;
+      } else {
+        // Fallback: check schema param
+        for (const g of schema.groups) {
+          if (!g.parameters) continue;
+          for (const p of g.parameters) {
+            if (p.key === 'eq_ui_mode') {
+              uiMode = p.current;
+              break;
+            }
+          }
+          if (uiMode !== null) break;
+        }
+      }
+
       // Render each group
       for (const group of schema.groups) {
         const groupDiv = document.createElement('div');
@@ -470,6 +492,30 @@
         
         // Render parameters in this group
         for (const param of group.parameters) {
+          // Conditionally hide/show EQ-related parameters based on uiMode
+          if (param && typeof param.key === 'string') {
+            // per-band sliders: keys start with 'eq_gain_'
+            if (param.key.startsWith('eq_gain_')) {
+              if (uiMode === null || uiMode === undefined) {
+                // if unknown, show nothing; safe default: hide
+                continue;
+              }
+              if (uiMode === 0) { // OFF
+                continue;
+              }
+              if (uiMode === 1) { // 15-band (left only)
+                if (!param.key.startsWith('eq_gain_l_')) continue;
+              }
+              if (uiMode === 3) { // PRESETS -> hide band sliders
+                continue;
+              }
+              // uiMode === 2 => show both
+            }
+            // presets keys: eq_profile_l / eq_profile_r -> only show for PRESETS
+            if (param.key === 'eq_profile_l' || param.key === 'eq_profile_r') {
+              if (uiMode !== 3) continue;
+            }
+          }
           const controlDiv = document.createElement('div');
           controlDiv.className = 'parameter-control';
           
@@ -614,8 +660,46 @@
       }
     }
 
+    // Reset all EQ bands to zero (0 dB) and send to backend
+    async function resetEQ() {
+      if (!schema) return;
+      if (!confirm('Reset all EQ bands to 0 dB for both channels?')) return;
+
+      // Build payload with all eq_gain_* keys set to 0
+      const data = {};
+      for (const group of schema.groups) {
+        if (!group.parameters) continue;
+        for (const param of group.parameters) {
+          if (typeof param.key === 'string' && param.key.startsWith('eq_gain_')) {
+            data[param.key] = 0;
+          }
+        }
+      }
+
+      if (Object.keys(data).length === 0) {
+        alert('No EQ parameters found in schema.');
+        return;
+      }
+
+      try {
+        const resp = await postRequest('/api/dac/settings', data);
+        if (!resp.ok) throw new Error('Failed to reset EQ');
+        // Refresh current settings and UI
+        await loadCurrentSettings();
+        renderUI();
+        alert('EQ reset to 0 dB applied');
+      } catch (err) {
+        console.error('Error resetting EQ:', err);
+        alert('Failed to reset EQ.');
+      }
+    }
+
     // Initialize on page load
-    document.addEventListener('DOMContentLoaded', loadSchema);
+    document.addEventListener('DOMContentLoaded', () => {
+      loadSchema();
+      const btn = document.getElementById('eq-reset-btn');
+      if (btn) btn.addEventListener('click', resetEQ);
+    });
     
     // Stop polling when page is unloaded
     window.addEventListener('beforeunload', stopPolling);

@@ -35,6 +35,28 @@ extern "C" {
 // EQ per-band gain keys prefix (final key will be e.g. "eq_gain_l_0" or "eq_gain_r_3")
 #define TAS5805M_NVS_KEY_EQ_GAIN_L_PREFIX "eq_gain_l_"
 #define TAS5805M_NVS_KEY_EQ_GAIN_R_PREFIX "eq_gain_r_"
+// EQ profile/preset keys for left/right channels
+#define TAS5805M_NVS_KEY_EQ_PROFILE_L  "eq_profile_l"
+#define TAS5805M_NVS_KEY_EQ_PROFILE_R  "eq_profile_r"
+// EQ UI mode (controls which UI elements are shown and how values are applied)
+#define TAS5805M_NVS_KEY_EQ_UI_MODE    "eq_ui_mode"
+
+/** EQ UI modes exposed to the settings UI. These control visibility and apply behavior.
+ *  Defined here so the settings module owns the UI contract. Values are persisted to NVS.
+ */
+typedef enum {
+    TAS5805M_EQ_UI_MODE_OFF = 0,
+    TAS5805M_EQ_UI_MODE_15_BAND = 1,
+    TAS5805M_EQ_UI_MODE_15_BAND_BIAMP = 2,
+    TAS5805M_EQ_UI_MODE_PRESETS = 3,
+} TAS5805M_EQ_UI_MODE;
+
+/** Convert an EQ UI mode to human-readable name (for schema name fields) */
+const char *tas5805m_eq_ui_mode_to_string(TAS5805M_EQ_UI_MODE m);
+
+/** Save/Load the UI mode selection to NVS */
+esp_err_t tas5805m_settings_save_eq_ui_mode(TAS5805M_EQ_UI_MODE mode);
+esp_err_t tas5805m_settings_load_eq_ui_mode(TAS5805M_EQ_UI_MODE *mode);
 
 // Digital Volume Settings (in 0.5dB steps) - kept for UI scaling/display
 #define TAS5805M_DIGITAL_VOL_MIN    -207    // -103.5 dB
@@ -86,6 +108,11 @@ esp_err_t tas5805m_settings_load_eq_mode(TAS5805M_EQ_MODE *mode);
 esp_err_t tas5805m_settings_save_eq_gain(TAS5805M_EQ_CHANNELS ch, int band, int gain_db);
 /** Load per-band EQ gain for a channel from NVS */
 esp_err_t tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS ch, int band, int *gain_db);
+
+/** Save EQ profile/preset for a specific channel to NVS */
+esp_err_t tas5805m_settings_save_eq_profile(TAS5805M_EQ_CHANNELS ch, TAS5805M_EQ_PROFILE profile);
+/** Load EQ profile/preset for a specific channel from NVS */
+esp_err_t tas5805m_settings_load_eq_profile(TAS5805M_EQ_CHANNELS ch, TAS5805M_EQ_PROFILE *profile);
 
 /** Get current TAS5805M settings as a JSON string */
 esp_err_t tas5805m_settings_get_json(char *json_out, size_t max_len);
