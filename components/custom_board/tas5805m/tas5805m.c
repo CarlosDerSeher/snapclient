@@ -29,6 +29,7 @@
 #include "esp_log.h"
 #include "i2c_bus.h"
 #include "tas5805m_reg_cfg.h"
+#include <math.h>
 
 static const char *TAG = "TAS5805M";
 
@@ -44,6 +45,8 @@ static TAS5805_STATE tas5805m_state = {
   .volume = 0,
   .state = TAS5805M_CTRL_PLAY,
   .mixer_mode = MIXER_STEREO,
+  .channel_gain_l = 0,
+  .channel_gain_r = 0,
 };
 
 /* Default I2C config */
@@ -610,6 +613,65 @@ esp_err_t tas5805m_set_mixer_gain(TAS5805M_MIXER_CHANNELS channel, uint32_t gain
   return ret;
 }
 
+
+// Set output channel volume using mixer gain lookup table
+esp_err_t tas5805m_set_channel_gain(TAS5805M_EQ_CHANNELS channel, int8_t gain_db)
+{
+  ESP_LOGD(TAG, "%s: Setting channel %d volume to %d dB", __func__, channel, gain_db);
+
+  if (gain_db < TAS5805M_MIXER_VALUE_MINDB || gain_db > TAS5805M_MIXER_VALUE_MAXDB) {
+    ESP_LOGE(TAG, "%s: Invalid gain_db %d, must be between %d and %d", __func__, gain_db, TAS5805M_MIXER_VALUE_MINDB, TAS5805M_MIXER_VALUE_MAXDB);
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  /* Convert dB to linear gain and then to Q9.23 register format */
+  float linear = powf(10.0f, ((float)gain_db) / 20.0f);
+  uint32_t reg_value = tas5805m_float_to_q9_23(linear);
+
+  uint8_t reg;
+  if (channel == TAS5805M_EQ_CHANNELS_RIGHT) {
+    reg = TAS5805M_REG_RIGHT_VOLUME;
+  } else {
+    // Default to left for any other value (matches other EQ channel helpers)
+    reg = TAS5805M_REG_LEFT_VOLUME;
+  }
+
+  TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_5, TAS5805M_REG_BOOK_5_VOLUME_PAGE);
+  int ret = tas5805m_write_bytes(&reg, 1, (uint8_t *)&reg_value, sizeof(reg_value));
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "%s: Failed to write volume register 0x%02x: %s", __func__, reg, esp_err_to_name(ret));
+  } else {
+    ESP_LOGD(TAG, "%s: Wrote volume register 0x%02x with value 0x%08x", __func__, reg, reg_value);
+  }
+
+  TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_CONTROL_PORT, TAS5805M_REG_PAGE_ZERO);
+  if (ret == ESP_OK) {
+    if (channel == TAS5805M_EQ_CHANNELS_RIGHT) {
+      tas5805m_state.channel_gain_r = gain_db;
+    } else {
+      tas5805m_state.channel_gain_l = gain_db;
+    }
+  }
+
+  return ret;
+}
+
+esp_err_t tas5805m_get_channel_gain(TAS5805M_EQ_CHANNELS channel, int8_t *gain_db)
+{
+  if (gain_db == NULL) {
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  if (channel == TAS5805M_EQ_CHANNELS_RIGHT) {
+    *gain_db = tas5805m_state.channel_gain_r;
+  } else {
+    *gain_db = tas5805m_state.channel_gain_l;
+  }
+
+  ESP_LOGV(TAG, "%s: Returning cached channel %d gain %d dB", __func__, channel, *gain_db);
+  return ESP_OK;
+}
+
 esp_err_t tas5805m_clear_faults()
 {
   ESP_LOGD(TAG, "%s: Clearing faults", __func__);
@@ -886,3 +948,40 @@ esp_err_t tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS channel, TAS5805M
 }
 
 #endif /* CONFIG_DAC_TAS5805M_EQ_SUPPORT */
+
+/* -------------------------
+   Q9.23 conversions
+   ------------------------- */
+
+float tas5805m_q9_23_to_float(uint32_t raw)
+{
+    uint32_t val = tas5805m_swap_endian_32(raw);
+    int32_t signed_val = (int32_t)val;
+    float result = (float)signed_val / 8388608.0f; // 2^23
+    ESP_LOGD(TAG, "%s: raw=0x%08X, signed_val=%d -> result=%f",
+             __func__, raw, signed_val, result);
+    return result;
+}
+
+uint32_t tas5805m_float_to_q9_23(float value)
+{
+    if (value > 255.999999f) value = 255.999999f;
+    if (value < -256.0f)     value = -256.0f;
+
+    int32_t fixed_val = (int32_t)(value * (1 << 23));
+    uint32_t le_val = tas5805m_swap_endian_32((uint32_t)fixed_val);
+
+    ESP_LOGD(TAG, "%s: value=%f -> fixed_val=%d, le_val=0x%08X",
+             __func__, value, fixed_val, le_val);
+
+    return le_val;
+}
+
+// Utility: swap endian for 32-bit values
+uint32_t tas5805m_swap_endian_32(uint32_t val)
+{
+    return ((val & 0xFF) << 24) |
+           ((val & 0xFF00) << 8) |
+           ((val & 0xFF0000) >> 8) |
+           ((val >> 24) & 0xFF);
+}

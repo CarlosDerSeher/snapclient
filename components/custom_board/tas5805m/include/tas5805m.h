@@ -55,6 +55,10 @@ typedef struct {
 	TAS5805M_CTRL_STATE state;
 	TAS5805M_MIXER_MODE mixer_mode;
 
+	/* Cached per-output channel gain in dB (-24..24), default 0 dB */
+	int8_t channel_gain_l;
+	int8_t channel_gain_r;
+
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
 	int8_t eq_gain_l[TAS5805M_EQ_BANDS];
 	int8_t eq_gain_r[TAS5805M_EQ_BANDS];
@@ -290,6 +294,23 @@ esp_err_t tas5805m_set_mixer_gain(TAS5805M_MIXER_CHANNELS channel,
 								  uint32_t gain);
 
 /**
+ * @brief Set the mixer gain of the TAS5805M
+ * (4-bytes value, representing decimal in 9.23 format)
+ *
+ * @param channel: The channel to set the gain for
+ * @param gain: The gain to set
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_FAIL
+ */
+esp_err_t tas5805m_set_channel_gain(TAS5805M_EQ_CHANNELS channel,
+								   int8_t gain_db);
+
+/** Get cached per-output channel gain (dB) */
+esp_err_t tas5805m_get_channel_gain(TAS5805M_EQ_CHANNELS channel, int8_t *gain_db);
+
+/**
  * @brief Get the faults of the TAS5805M
  *
  * @param fault: Pointer to the fault struct
@@ -435,6 +456,30 @@ esp_err_t tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS channel,
 										  TAS5805M_EQ_PROFILE profile);
 
 #endif /* CONFIG_DAC_TAS5805M_EQ_SUPPORT */
+
+/**
+ * @brief Swap the endianness of a 32-bit integer.
+ *
+ * @param val Input 32-bit integer.
+ * @return 32-bit integer with swapped endianness.
+ */
+uint32_t tas5805m_swap_endian_32(uint32_t val);
+
+/**
+ * @brief Convert a Q9.23 fixed-point value to a float.
+ *
+ * @param raw Q9.23 value as a 32-bit unsigned integer.
+ * @return float-precision floating point representation.
+ */
+float tas5805m_q9_23_to_float(uint32_t raw);
+
+/**
+ * @brief Convert a float to a Q9.23 fixed-point value.
+ *
+ * @param value float-precision floating point input.
+ * @return Q9.23 fixed-point value as a 32-bit unsigned integer.
+ */
+uint32_t tas5805m_float_to_q9_23(float value);
 
 #ifdef __cplusplus
 }

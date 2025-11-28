@@ -40,6 +40,9 @@ extern "C" {
 #define TAS5805M_NVS_KEY_EQ_PROFILE_R  "eq_profile_r"
 // EQ UI mode (controls which UI elements are shown and how values are applied)
 #define TAS5805M_NVS_KEY_EQ_UI_MODE    "eq_ui_mode"
+// Channel gain NVS keys (single value per output channel, in dB)
+#define TAS5805M_NVS_KEY_CHANNEL_GAIN_L "channel_gain_l"
+#define TAS5805M_NVS_KEY_CHANNEL_GAIN_R "channel_gain_r"
 
 /** EQ UI modes exposed to the settings UI. These control visibility and apply behavior.
  *  Defined here so the settings module owns the UI contract. Values are persisted to NVS.
@@ -113,6 +116,11 @@ esp_err_t tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS ch, int band, int 
 esp_err_t tas5805m_settings_save_eq_profile(TAS5805M_EQ_CHANNELS ch, TAS5805M_EQ_PROFILE profile);
 /** Load EQ profile/preset for a specific channel from NVS */
 esp_err_t tas5805m_settings_load_eq_profile(TAS5805M_EQ_CHANNELS ch, TAS5805M_EQ_PROFILE *profile);
+
+/** Save per-output channel gain (single value per channel, in dB) */
+esp_err_t tas5805m_settings_save_channel_gain(TAS5805M_EQ_CHANNELS ch, int gain_db);
+/** Load per-output channel gain (single value per channel, in dB) */
+esp_err_t tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS ch, int *gain_db);
 
 /** Get current TAS5805M settings as a JSON string */
 esp_err_t tas5805m_settings_get_json(char *json_out, size_t max_len);

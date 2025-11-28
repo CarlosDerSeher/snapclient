@@ -570,6 +570,67 @@ esp_err_t tas5805m_settings_load_eq_profile(TAS5805M_EQ_CHANNELS ch, TAS5805M_EQ
     return err;
 }
 
+/** Save per-output channel gain (single value per channel, in dB) */
+esp_err_t tas5805m_settings_save_channel_gain(TAS5805M_EQ_CHANNELS ch, int gain_db) {
+    ESP_LOGD(TAG, "%s: ch=%d gain=%d", __func__, (int)ch, gain_db);
+
+    if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (xSemaphoreTake(tas5805m_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    const char *key = (ch == TAS5805M_EQ_CHANNELS_LEFT) ? TAS5805M_NVS_KEY_CHANNEL_GAIN_L : TAS5805M_NVS_KEY_CHANNEL_GAIN_R;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(TAS5805M_NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        err = nvs_set_i32(h, key, (int32_t)gain_db);
+        if (err == ESP_OK) {
+            err = nvs_commit(h);
+        }
+        nvs_close(h);
+    } else {
+        ESP_LOGW(TAG, "%s: Failed to open NVS namespace '%s': %s", __func__, TAS5805M_NVS_NAMESPACE, esp_err_to_name(err));
+    }
+
+    xSemaphoreGive(tas5805m_settings_mutex);
+    return err;
+}
+
+/** Load per-output channel gain (single value per channel, in dB) */
+esp_err_t tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS ch, int *gain_db) {
+    if (!gain_db) return ESP_ERR_INVALID_ARG;
+    if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (xSemaphoreTake(tas5805m_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    const char *key = (ch == TAS5805M_EQ_CHANNELS_LEFT) ? TAS5805M_NVS_KEY_CHANNEL_GAIN_L : TAS5805M_NVS_KEY_CHANNEL_GAIN_R;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(TAS5805M_NVS_NAMESPACE, NVS_READONLY, &h);
+    if (err == ESP_OK) {
+        int32_t v = 0;
+        err = nvs_get_i32(h, key, &v);
+        if (err == ESP_OK) {
+            *gain_db = (int)v;
+            ESP_LOGD(TAG, "%s: Loaded %s=%d from NVS", __func__, key, *gain_db);
+        } else if (err == ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGD(TAG, "%s: NVS key '%s' not found", __func__, key);
+        } else {
+            ESP_LOGW(TAG, "%s: Failed to read '%s' from NVS: %s", __func__, key, esp_err_to_name(err));
+        }
+        nvs_close(h);
+    } else {
+        ESP_LOGW(TAG, "%s: Failed to open NVS namespace '%s': %s", __func__, TAS5805M_NVS_NAMESPACE, esp_err_to_name(err));
+    }
+
+    xSemaphoreGive(tas5805m_settings_mutex);
+    return err;
+}
+
 /** Load EQ mode from NVS */
 esp_err_t tas5805m_settings_load_eq_mode(TAS5805M_EQ_MODE *mode) {
     if (!mode) return ESP_ERR_INVALID_ARG;
@@ -694,6 +755,16 @@ esp_err_t tas5805m_settings_get_json(char *json_out, size_t max_len) {
         }
         if (tas5805m_get_eq_profile_channel(TAS5805M_EQ_CHANNELS_RIGHT, &prof_r) == ESP_OK) {
             cJSON_AddNumberToObject(root, "eq_profile_r", (int)prof_r);
+        }
+
+        /* Channel gain (left/right) for presets UI */
+        int ch_gain = 0;
+        int8_t chg = 0;
+        if (tas5805m_get_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, &chg) == ESP_OK) {
+            cJSON_AddNumberToObject(root, "channel_gain_l", (int)chg);
+        }
+        if (tas5805m_get_channel_gain(TAS5805M_EQ_CHANNELS_RIGHT, &chg) == ESP_OK) {
+            cJSON_AddNumberToObject(root, "channel_gain_r", (int)chg);
         }
     }
 #endif
@@ -996,6 +1067,45 @@ esp_err_t tas5805m_settings_set_from_json(const char *json_in) {
         }
 #else
         ESP_LOGW(TAG, "%s: EQ support disabled; ignoring eq_profile_r", __func__);
+#endif
+    }
+
+    /* Channel gain (L/R) handling for presets UI */
+    cJSON *ch_gain_l_item = cJSON_GetObjectItem(root, TAS5805M_NVS_KEY_CHANNEL_GAIN_L);
+    if (cJSON_IsNumber(ch_gain_l_item)) {
+        int gain = ch_gain_l_item->valueint;
+#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+        esp_err_t serr = tas5805m_set_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, (int8_t)gain);
+        if (serr == ESP_OK) {
+            ESP_LOGI(TAG, "%s: Applied Channel Gain L = %d dB", __func__, gain);
+            esp_err_t perr = tas5805m_settings_save_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, gain);
+            if (perr != ESP_OK) {
+                ESP_LOGW(TAG, "%s: Failed to persist Channel Gain L: %s", __func__, esp_err_to_name(perr));
+            }
+        } else {
+            ESP_LOGE(TAG, "%s: Failed to apply Channel Gain L: %s", __func__, esp_err_to_name(serr));
+        }
+#else
+        ESP_LOGW(TAG, "%s: EQ support disabled; ignoring channel_gain_l", __func__);
+#endif
+    }
+
+    cJSON *ch_gain_r_item = cJSON_GetObjectItem(root, TAS5805M_NVS_KEY_CHANNEL_GAIN_R);
+    if (cJSON_IsNumber(ch_gain_r_item)) {
+        int gain = ch_gain_r_item->valueint;
+#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+        esp_err_t serr = tas5805m_set_channel_gain(TAS5805M_EQ_CHANNELS_RIGHT, (int8_t)gain);
+        if (serr == ESP_OK) {
+            ESP_LOGI(TAG, "%s: Applied Channel Gain R = %d dB", __func__, gain);
+            esp_err_t perr = tas5805m_settings_save_channel_gain(TAS5805M_EQ_CHANNELS_RIGHT, gain);
+            if (perr != ESP_OK) {
+                ESP_LOGW(TAG, "%s: Failed to persist Channel Gain R: %s", __func__, esp_err_to_name(perr));
+            }
+        } else {
+            ESP_LOGE(TAG, "%s: Failed to apply Channel Gain R: %s", __func__, esp_err_to_name(serr));
+        }
+#else
+        ESP_LOGW(TAG, "%s: EQ support disabled; ignoring channel_gain_r", __func__);
 #endif
     }
 
@@ -1356,6 +1466,46 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     cJSON_AddItemToObject(dac_config_group, "parameters", dac_config_params);
     cJSON_AddItemToArray(groups, dac_config_group);
 
+    // ===== Channel Gain Group (always visible) =====
+    {
+        cJSON *ch_group = cJSON_CreateObject();
+        cJSON_AddStringToObject(ch_group, "name", "Mixer Gain");
+        cJSON_AddStringToObject(ch_group, "description", "Mixer gain");
+
+        cJSON *ch_params = cJSON_CreateArray();
+
+        int8_t cur_ch_l = 0, cur_ch_r = 0;
+        if (tas5805m_get_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, &cur_ch_l) != ESP_OK) cur_ch_l = 0;
+        if (tas5805m_get_channel_gain(TAS5805M_EQ_CHANNELS_RIGHT, &cur_ch_r) != ESP_OK) cur_ch_r = 0;
+
+        cJSON *ch_l_param = cJSON_CreateObject();
+        cJSON_AddStringToObject(ch_l_param, "key", TAS5805M_NVS_KEY_CHANNEL_GAIN_L);
+        cJSON_AddStringToObject(ch_l_param, "name", "Channel Gain (L)");
+        cJSON_AddStringToObject(ch_l_param, "type", "range");
+        cJSON_AddStringToObject(ch_l_param, "unit", "dB");
+        cJSON_AddNumberToObject(ch_l_param, "min", TAS5805M_MIXER_VALUE_MINDB);
+        cJSON_AddNumberToObject(ch_l_param, "max", TAS5805M_MIXER_VALUE_MAXDB);
+        cJSON_AddNumberToObject(ch_l_param, "step", 1);
+        cJSON_AddNumberToObject(ch_l_param, "default", 0);
+        cJSON_AddNumberToObject(ch_l_param, "current", (int)cur_ch_l);
+        cJSON_AddItemToArray(ch_params, ch_l_param);
+
+        cJSON *ch_r_param = cJSON_CreateObject();
+        cJSON_AddStringToObject(ch_r_param, "key", TAS5805M_NVS_KEY_CHANNEL_GAIN_R);
+        cJSON_AddStringToObject(ch_r_param, "name", "Channel Gain (R)");
+        cJSON_AddStringToObject(ch_r_param, "type", "range");
+        cJSON_AddStringToObject(ch_r_param, "unit", "dB");
+        cJSON_AddNumberToObject(ch_r_param, "min", TAS5805M_MIXER_VALUE_MINDB);
+        cJSON_AddNumberToObject(ch_r_param, "max", TAS5805M_MIXER_VALUE_MAXDB);
+        cJSON_AddNumberToObject(ch_r_param, "step", 1);
+        cJSON_AddNumberToObject(ch_r_param, "default", 0);
+        cJSON_AddNumberToObject(ch_r_param, "current", (int)cur_ch_r);
+        cJSON_AddItemToArray(ch_params, ch_r_param);
+
+        cJSON_AddItemToObject(ch_group, "parameters", ch_params);
+        cJSON_AddItemToArray(groups, ch_group);
+    }
+
     // ===== EQ Group =====
     cJSON *eq_group = cJSON_CreateObject();
     cJSON_AddStringToObject(eq_group, "name", "EQ");
@@ -1483,6 +1633,8 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
 
         cJSON_AddItemToObject(prof_r_param, "values", prof_r_values);
         cJSON_AddItemToArray(eq_params, prof_r_param);
+
+    
     }
 #else
     // If EQ support disabled, provide readonly placeholders for presets
@@ -1717,6 +1869,22 @@ esp_err_t tas5805m_settings_apply_all(void) {
                 ESP_LOGW(TAG, "%s: Failed to apply saved EQ profile R", __func__);
             } else {
                 ESP_LOGI(TAG, "%s: Restored EQ profile R = %d", __func__, (int)prof);
+            }
+        }
+        /* Restore per-output channel gain values (if any) */
+        int ch_gain = 0;
+        if (tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, &ch_gain) == ESP_OK) {
+            if (tas5805m_set_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, (int8_t)ch_gain) != ESP_OK) {
+                ESP_LOGW(TAG, "%s: Failed to apply saved Channel Gain L", __func__);
+            } else {
+                ESP_LOGI(TAG, "%s: Restored Channel Gain L = %d dB", __func__, ch_gain);
+            }
+        }
+        if (tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS_RIGHT, &ch_gain) == ESP_OK) {
+            if (tas5805m_set_channel_gain(TAS5805M_EQ_CHANNELS_RIGHT, (int8_t)ch_gain) != ESP_OK) {
+                ESP_LOGW(TAG, "%s: Failed to apply saved Channel Gain R", __func__);
+            } else {
+                ESP_LOGI(TAG, "%s: Restored Channel Gain R = %d dB", __func__, ch_gain);
             }
         }
     }
