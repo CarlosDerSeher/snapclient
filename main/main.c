@@ -1050,28 +1050,38 @@ int process_data(
     char** serverSettingsString,
     char** codecString,
     char** codecPayload,
-    char** start,
-    uint16_t* len
+    connection_t* connection
 ){
+
   switch (parser->state) {
     // decode base message
     case BASE_MESSAGE_STATE: {
-      if (parse_base_message(parser, base_message_rx, *start) == PARSER_COMPLETE) {
+      int result = connection_ensure_byte(connection);
+      if (result != 0) {
+        return -2;  // restart connection
+      }
+
+      if (parse_base_message(parser, base_message_rx, connection->start) == PARSER_COMPLETE) {
         time_sync_data->now = esp_timer_get_time();
 
         base_message_rx->received.sec = time_sync_data->now / 1000000;
         base_message_rx->received.usec = time_sync_data->now - base_message_rx->received.sec * 1000000;
       }
-      (*len)--;
-      (*start)++;
+      connection->len--;
+      connection->start++;
       break;
     }
 
     // decode typed message
     case TYPED_MESSAGE_STATE: {
+      int result = connection_ensure_byte(connection);
+      if (result != 0) {
+        return -2;  // restart connection
+      }
+
       switch (base_message_rx->type) {
         case SNAPCAST_MESSAGE_WIRE_CHUNK: {
-          switch (parse_wire_chunk_message(parser, base_message_rx, start, len, offset, *received_codec_header,
+          switch (parse_wire_chunk_message(parser, base_message_rx, &connection->start, &connection->len, offset, *received_codec_header,
                                        *codec, pcmData, wire_chnk, payloadOffset, tmpData, decoderChunk, payloadDataShift)) {
             case PARSER_COMPLETE: {
               if (handle_chunk_message(*codec, scSet, pcmData, wire_chnk) != 0) {
@@ -1091,7 +1101,7 @@ int process_data(
         }
 
         case SNAPCAST_MESSAGE_CODEC_HEADER: {
-          switch (parse_codec_header_message(parser, start, len, typedMsgLen, offset, received_codec_header,
+          switch (parse_codec_header_message(parser, &connection->start, &connection->len, typedMsgLen, offset, received_codec_header,
                                              codecString, codec, codecPayload)) {
             case PARSER_COMPLETE: {
               if (codec_header_received(codecPayload, *typedMsgLen, *codec, scSet, time_sync_data) != 0) {
@@ -1112,7 +1122,7 @@ int process_data(
 
         case SNAPCAST_MESSAGE_SERVER_SETTINGS: {
           if (parse_sever_settings_message(parser, base_message_rx,
-                                               start, len, typedMsgLen, offset,
+                                               &connection->start, &connection->len, typedMsgLen, offset,
                                                serverSettingsString) == PARSER_COMPLETE) {
             if (server_settings_msg_received(*serverSettingsString, scSet) != 0){
               return -1;
@@ -1124,14 +1134,14 @@ int process_data(
         }
 
         case SNAPCAST_MESSAGE_TIME: {
-          if (parse_time_message(parser, base_message_rx, time_message_rx, start, len) == PARSER_COMPLETE){ 
+          if (parse_time_message(parser, base_message_rx, time_message_rx, &connection->start, &connection->len) == PARSER_COMPLETE){ 
             time_sync_msg_received(base_message_rx, time_message_rx, time_sync_data, *received_codec_header);
           }
           break;
         }
 
         default: {
-          parse_unknown_message(parser, base_message_rx, start, len);
+          parse_unknown_message(parser, base_message_rx, &connection->start, &connection->len);
           break;
         }
       }
@@ -1363,19 +1373,15 @@ static void http_get_task(void *pvParameters) {
 
     // Main connection loop - state machine + data processing
     while (1) {
-      int result = connection_ensure_byte(&connection);
-
-      if (result != 0) {
-        break; // restart connection
-      }
-      
-      // Process data only when state machine is OK
-      if (process_data(&parser, &base_message_rx, &time_sync_data, &time_message_rx, 
-                      &received_codec_header, &codec, &scSet, &pcmData, &wire_chnk,
-                      &offset, &payloadOffset, &tmpData, &decoderChunk, &payloadDataShift,
-                      &typedMsgLen, &serverSettingsString, &codecString, &codecPayload,
-                      &connection.start, &connection.len) != 0) {
-        return; // critical error in data processing
+      int result = process_data(&parser, &base_message_rx, &time_sync_data, &time_message_rx, 
+                                &received_codec_header, &codec, &scSet, &pcmData, &wire_chnk,
+                                &offset, &payloadOffset, &tmpData, &decoderChunk, &payloadDataShift,
+                                &typedMsgLen, &serverSettingsString, &codecString, &codecPayload,
+                                &connection);
+      if (result == -1) { 
+        return;  // critical error in data processing
+      } else if (result == -2) {
+        break;  // restart connection
       }
     }
   }
