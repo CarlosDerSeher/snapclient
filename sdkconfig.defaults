@@ -1,3 +1,5 @@
+# Default snapclint settings
+#
 # This file was generated using idf.py save-defconfig. It can be edited manually.
 # Espressif IoT Development Framework (ESP-IDF) 5.5.1 Project Minimal Configuration
 #

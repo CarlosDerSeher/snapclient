@@ -78,7 +78,7 @@ int32_t player_send_snapcast_setting(snapcastSetting_t *setting);
 int8_t player_get_snapcast_settings(snapcastSetting_t *setting);
 
 int32_t reset_latency_buffer(void);
-int32_t latency_buffer_full(bool *is_full, TickType_t wait);
+int32_t latency_buffer_full(bool *is_full);
 int32_t get_diff_to_server(int64_t *tDiff, int64_t now);
 int32_t server_now(int64_t *sNow, int64_t *diff2Server);
 
