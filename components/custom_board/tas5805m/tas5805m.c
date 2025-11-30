@@ -194,6 +194,13 @@ esp_err_t tas5805m_init() {
   ESP_LOGW(TAG, "%s: Setting to HI Z", __func__);
 
   ESP_ERROR_CHECK(tas5805m_set_state(TAS5805M_CTRL_HI_Z));
+  
+  // Send RESET register flag to reset all registers to default state
+	esp_err_t ret = tas5805m_write_byte(TAS5805M_RESET_CTRL_REGISTER, TAS5805M_RESET_CONTROL_PORT | TAS5805M_RESET_DSP);
+  if (ret != ESP_OK) {
+    ESP_LOGW(TAG, "%s: Failed to set RESET flag: %s", __func__, esp_err_to_name(ret));
+  }
+
   vTaskDelay(10 / portTICK_PERIOD_MS);
   if (ret != ESP_OK) {
     ESP_LOGW(TAG, "%s: Set DAC state failed", __func__);

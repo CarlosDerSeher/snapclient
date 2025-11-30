@@ -17,6 +17,47 @@ static const char *TAG = "tas5805m_settings";
 
 // Mutex for thread-safe NVS access
 static SemaphoreHandle_t tas5805m_settings_mutex = NULL;
+// Whether persisted settings have been restored already
+static bool tas5805m_settings_restored = false;
+// Whether the polling task has been started
+static bool tas5805m_settings_poll_started = false;
+
+// Background polling task: waits for TAS5805M to enter PLAY state and then
+// triggers a one-time settings application. Exits after a timeout.
+static void tas5805m_poll_for_play_task(void *arg)
+{
+    (void)arg;
+    const TickType_t total_timeout = pdMS_TO_TICKS(10000); // 10s total
+    const TickType_t poll_interval = pdMS_TO_TICKS(200);
+    TickType_t start = xTaskGetTickCount();
+
+    ESP_LOGI(TAG, "%s: Polling for codec PLAY state (timeout %u ms)", __func__, (unsigned int)pdTICKS_TO_MS(total_timeout));
+
+    while ((xTaskGetTickCount() - start) < total_timeout) {
+        TAS5805_STATE st;
+        if (tas5805m_get_state(&st) == ESP_OK) {
+            if ((st.state & TAS5805M_CTRL_PLAY) == TAS5805M_CTRL_PLAY) {
+                ESP_LOGI(TAG, "%s: Codec entered PLAY — applying persisted settings", __func__);
+                // Call apply_all (it is safe to call from task context)
+                esp_err_t r = tas5805m_settings_apply_all();
+                if (r == ESP_OK) {
+                    tas5805m_settings_restored = true;
+                } else {
+                    ESP_LOGW(TAG, "%s: tas5805m_settings_apply_all() returned %s", __func__, esp_err_to_name(r));
+                }
+                break;
+            }
+        }
+        vTaskDelay(poll_interval);
+    }
+
+    if (!tas5805m_settings_restored) {
+        ESP_LOGW(TAG, "%s: Timed out waiting for codec PLAY state — persisted settings not applied", __func__);
+    }
+
+    tas5805m_settings_poll_started = false;
+    vTaskDelete(NULL);
+}
 
 /**
  * Convert TAS5805M_CTRL_STATE enum to human-readable string
@@ -127,6 +168,18 @@ esp_err_t tas5805m_settings_init(void) {
     }
     
     ESP_LOGI(TAG, "%s: TAS5805M settings manager initialized", __func__);
+    /* Start polling task to detect codec START/PLAY and apply persisted
+       settings once codec is actually running (I2S clocks present). This
+       avoids requiring the driver to call into settings directly. */
+    if (!tas5805m_settings_restored && !tas5805m_settings_poll_started) {
+        BaseType_t tx = xTaskCreate(tas5805m_poll_for_play_task, "tas5805m_poll_play", 4096, NULL, tskIDLE_PRIORITY + 2, NULL);
+        if (tx == pdPASS) {
+            tas5805m_settings_poll_started = true;
+            ESP_LOGD(TAG, "%s: Started polling task for codec PLAY", __func__);
+        } else {
+            ESP_LOGW(TAG, "%s: Failed to start polling task; persisted settings may not be applied automatically", __func__);
+        }
+    }
     return ESP_OK;
 }
 

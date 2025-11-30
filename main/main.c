@@ -2713,10 +2713,6 @@ void app_main(void) {
 
     vTaskDelay(portMAX_DELAY);
   }
-  // Apply persisted TAS5805M settings now that the codec has been initialized
-  if (tas5805m_settings_apply_all() != ESP_OK) {
-    ESP_LOGW(TAG, "Failed to apply persisted TAS5805M settings at boot");
-  }
 
   audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_DECODE,
                        AUDIO_HAL_CTRL_STOP);
@@ -2765,6 +2761,13 @@ void app_main(void) {
 
   init_snapcast(audioQHdl);
   init_player(i2s_pin_config0, I2S_NUM_0);
+
+  #ifdef CONFIG_DAC_TAS5805M
+  // Apply persisted TAS5805M settings now that the codec has been initialized
+  if (tas5805m_settings_apply_all() != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to apply persisted TAS5805M settings at boot");
+  }
+  #endif
 
   // ensure there is no noise from DAC
   {
