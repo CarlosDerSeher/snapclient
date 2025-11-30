@@ -64,8 +64,7 @@ static uint32_t apll_corr_predefine[][6] = {{0, 0, 0, 0, 0, 0},
                                             {0, 0, 0, 0, 0, 0}};
 
 static SemaphoreHandle_t latencyBufSemaphoreHandle = NULL;
-
-static bool latencyBuffFull = 0;
+static SemaphoreHandle_t latencyBufFullSemaphoreHandle = NULL;
 
 static gptimer_handle_t gptimer = NULL;
 
@@ -361,6 +360,12 @@ int deinit_player(void) {
     latencyBufSemaphoreHandle = NULL;
   }
 
+  if (latencyBufFullSemaphoreHandle != NULL) {
+    vSemaphoreDelete(latencyBufFullSemaphoreHandle);
+    latencyBufFullSemaphoreHandle = NULL;
+  }
+
+
   tg0_timer_deinit();
 
   ESP_LOGI(TAG, "deinit player done");
@@ -406,6 +411,11 @@ int init_player(i2s_std_gpio_config_t pin_config0_, i2s_port_t i2sNum_) {
     latencyBufSemaphoreHandle = xSemaphoreCreateMutex();
   }
 
+  if (latencyBufFullSemaphoreHandle == NULL) {
+    latencyBufFullSemaphoreHandle = xSemaphoreCreateBinary();
+  }
+  xSemaphoreTake(latencyBufFullSemaphoreHandle, 0);
+
   // init diff buff median filter
   TIMEFILTER_Init(&latencyTimeFilter, 0.01, 0.0, 1.001, 0.75, 100);
 
@@ -441,12 +451,13 @@ int start_player(snapcastSetting_t *setting) {
 
   tg0_timer_init();
 
-//  ESP_LOGI(TAG, "reset Latency buffer");
-//
-//  while(reset_latency_buffer()<0) {
-//    vTaskDelay(pdMS_TO_TICKS(10));
-//  }
-  TIMEFILTER_Reset(&latencyTimeFilter);
+#if CONFIG_PM_ENABLE
+  ESP_LOGI(TAG, "reset Latency buffer");
+
+  while(reset_latency_buffer()<0) {
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+#endif
   
   // create message queue to inform task of changed settings
   snapcastSettingQueueHandle = xQueueCreate(1, sizeof(uint8_t));
@@ -521,7 +532,7 @@ int32_t player_latency_insert(int64_t newValue, int64_t max_error, int64_t time_
   double drift_ = latencyTimeFilter.drift_;
   if (xSemaphoreTake(latencyBufSemaphoreHandle, pdMS_TO_TICKS(0)) == pdTRUE) {
     if (TIMEFILTER_isFull(&latencyTimeFilter, LATENCY_TIME_FILTER_FULL)) {
-      latencyBuffFull = true;
+      xSemaphoreGive(latencyBufFullSemaphoreHandle);
       //ESP_LOGI(TAG, "offset: %fus, diff: %lld", offset_, newValue - (uint64_t)offset_);
     }
     //else {
@@ -599,16 +610,15 @@ int32_t player_send_snapcast_setting(snapcastSetting_t *setting) {
  */
 int32_t reset_latency_buffer(void) {
   // init diff buff median filter
-  //TIMEFILTER_Reset(&latencyTimeFilter);
+  TIMEFILTER_Reset(&latencyTimeFilter);
 
   if (latencyBufSemaphoreHandle == NULL) {
     ESP_LOGE(TAG, "reset_diff_buffer: latencyBufSemaphoreHandle == NULL");
 
     return -2;
   }
-
+  xSemaphoreTake(latencyBufFullSemaphoreHandle, pdMS_TO_TICKS(10));
   if (xSemaphoreTake(latencyBufSemaphoreHandle, pdMS_TO_TICKS(100)) == pdTRUE) {
-    latencyBuffFull = false;
     latencyToServer = 0;
     latencyDrift = 0;
     latencyLastUpdate = 0;
@@ -626,27 +636,8 @@ int32_t reset_latency_buffer(void) {
 /**
  *
  */
-int32_t latency_buffer_full(bool *is_full, TickType_t wait) {
-  if (!is_full) {
-    return -3;
-  }
-
-  if (latencyBufSemaphoreHandle == NULL) {
-    ESP_LOGE(TAG, "latency_buffer_full: latencyBufSemaphoreHandle == NULL");
-
-    return -2;
-  }
-
-  if (xSemaphoreTake(latencyBufSemaphoreHandle, wait) == pdFALSE) {
-    // ESP_LOGW(TAG, "latency_buffer_full: can't take semaphore");
-
-    return -1;
-  }
-
-  *is_full = latencyBuffFull;
-
-  xSemaphoreGive(latencyBufSemaphoreHandle);
-
+int32_t latency_buffer_full(bool *is_full) {
+  *is_full = TIMEFILTER_isFull(&latencyTimeFilter, LATENCY_TIME_FILTER_FULL);
   return 0;
 }
 
@@ -1188,9 +1179,7 @@ int32_t insert_pcm_chunk(pcm_chunk_message_t *pcmChunk) {
     return -2;
   }
 
-  bool isFull = false;
-  latency_buffer_full(&isFull, pdMS_TO_TICKS(100));
-  if (isFull == false) {
+  if (TIMEFILTER_isFull(&latencyTimeFilter, LATENCY_TIME_FILTER_FULL) == false) {
     free_pcm_chunk(pcmChunk);
 
     //    ESP_LOGW(TAG, "%s: wait for initial latency measurement to finish",
@@ -1272,7 +1261,7 @@ static void player_task(void *pvParameters) {
 
   //  stats_init();
 
-   queueCreatedWithChkInFrames = scSet.chkInFrames;
+  queueCreatedWithChkInFrames = scSet.chkInFrames;
 
   initialSync = 0;
   
@@ -1307,21 +1296,14 @@ static void player_task(void *pvParameters) {
   audio_set_mute(scSet.muted);
 
   // wait for early time syncs to be ready
+  xSemaphoreTake(latencyBufFullSemaphoreHandle, portMAX_DELAY);
+  xSemaphoreGive(latencyBufFullSemaphoreHandle);
   while (1) {
-    bool is_full = false;
     int64_t tDiff;
-    int tmp = latency_buffer_full(&is_full, pdMS_TO_TICKS(1));
-    if (tmp == 0) {
-      if (is_full == false) {
-        vTaskDelay(pdMS_TO_TICKS(10));
-        //ESP_LOGW(TAG, "diff buffer not full");
-      } else {
-        if (get_diff_to_server(&tDiff, esp_timer_get_time())==0) {
-          break;
-        }
-      }
+    if (get_diff_to_server(&tDiff, esp_timer_get_time())==0) {
+      break;
     }
-    vTaskDelay(pdMS_TO_TICKS(1));
+    vTaskDelay(pdMS_TO_TICKS(10));
   }
 
   while (1) {

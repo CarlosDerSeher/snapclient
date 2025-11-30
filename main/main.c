@@ -838,7 +838,7 @@ static void http_get_task(void *pvParameters) {
         time_sync_msg_cb(NULL);
         lastTimeSyncSent = now;
         
-        ESP_LOGI(TAG, "time sync sent after %lluus", timeout);
+        // ESP_LOGI(TAG, "time sync sent after %lluus", timeout);
       }
       // start receive
       rc2 = netconn_recv(lwipNetconn, &firstNetBuf);
@@ -2508,7 +2508,7 @@ static void http_get_task(void *pvParameters) {
 //                          }
 
                           bool is_full = false;
-                          latency_buffer_full(&is_full, portMAX_DELAY);
+                          latency_buffer_full(&is_full);
                           if ((is_full == true) &&
                               (timeout < NORMAL_SYNC_LATENCY_BUF)) {
                             timeout = NORMAL_SYNC_LATENCY_BUF;
