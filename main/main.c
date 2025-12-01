@@ -1074,13 +1074,12 @@ int process_data(
 
     // decode typed message
     case TYPED_MESSAGE_STATE: {
-      int result = connection_ensure_byte(connection);
-      if (result != 0) {
-        return -2;  // restart connection
-      }
-
       switch (base_message_rx->type) {
         case SNAPCAST_MESSAGE_WIRE_CHUNK: {
+          int result = connection_ensure_byte(connection);
+          if (result != 0) {
+            return -2;  // restart connection
+          }
           switch (parse_wire_chunk_message(parser, base_message_rx, &connection->start, &connection->len, offset, *received_codec_header,
                                        *codec, pcmData, wire_chnk, payloadOffset, tmpData, decoderChunk, payloadDataShift)) {
             case PARSER_COMPLETE: {
@@ -1104,6 +1103,10 @@ int process_data(
         }
 
         case SNAPCAST_MESSAGE_CODEC_HEADER: {
+          int result = connection_ensure_byte(connection);
+          if (result != 0) {
+            return -2;  // restart connection
+          }
           switch (parse_codec_header_message(parser, &connection->start, &connection->len, typedMsgLen, offset, received_codec_header,
                                              codecString, codec, codecPayload)) {
             case PARSER_COMPLETE: {
@@ -1127,6 +1130,10 @@ int process_data(
         }
 
         case SNAPCAST_MESSAGE_SERVER_SETTINGS: {
+          int result = connection_ensure_byte(connection);
+          if (result != 0) {
+            return -2;  // restart connection
+          }
           if (parse_sever_settings_message(parser, base_message_rx,
                                                &connection->start, &connection->len, typedMsgLen, offset,
                                                serverSettingsString) == PARSER_COMPLETE) {
@@ -1140,6 +1147,10 @@ int process_data(
         }
 
         case SNAPCAST_MESSAGE_TIME: {
+          int result = connection_ensure_byte(connection);
+          if (result != 0) {
+            return -2;  // restart connection
+          }
           if (parse_time_message(parser, base_message_rx, time_message_rx, &connection->start, &connection->len) == PARSER_COMPLETE){ 
             time_sync_msg_received(base_message_rx, time_message_rx, time_sync_data, *received_codec_header);
           }
@@ -1147,7 +1158,9 @@ int process_data(
         }
 
         default: {
-          parse_unknown_message(parser, base_message_rx, &connection->start, &connection->len);
+          if (parse_unknown_message(parser, base_message_rx) == PARSER_CONNECTION_ERROR){
+            return -2;
+          }
           break;
         }
       }

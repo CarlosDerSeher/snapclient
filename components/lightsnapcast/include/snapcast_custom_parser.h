@@ -101,9 +101,7 @@ parser_return_state_t parse_time_message(snapcast_custom_parser_t* parser,
                                          char** start, uint16_t* len);
 
 
-void parse_unknown_message(snapcast_custom_parser_t* parser,
-                           base_message_t* base_message_rx,
-                           char** start,
-                           uint16_t* len);
+parser_return_state_t parse_unknown_message(snapcast_custom_parser_t* parser,
+                                            base_message_t* base_message_rx);
 
 #endif  // __SNAPCAST_CUSTOM_PARSER_H__

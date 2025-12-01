@@ -1028,20 +1028,16 @@ parser_return_state_t parse_time_message(snapcast_custom_parser_t* parser,
   return PARSER_INCOMPLETE; // no callback
 }
 
-void parse_unknown_message(snapcast_custom_parser_t* parser,
-                           base_message_t* base_message_rx,
-                           char** start,
-                           uint16_t* len) {
-  parser->typedMsgCurrentPos++;
-  (*start)++;
-  // currentPos++;
-  (*len)--;
-
-  if (parser->typedMsgCurrentPos >= base_message_rx->size) {
-    ESP_LOGI(TAG, "done unknown typed message %d",
-             base_message_rx->type);
-
-    parser_reset_state(parser);
-
+parser_return_state_t parse_unknown_message(snapcast_custom_parser_t* parser,
+                                            base_message_t* base_message_rx) {
+  // For unknown messages, we need to consume all remaining bytes
+  char dummy_byte;
+  for (uint32_t i = 0; i < base_message_rx->size; i++) {
+    READ_BYTE(parser, dummy_byte);
   }
+
+  ESP_LOGI(TAG, "done unknown typed message %d", base_message_rx->type);
+
+  parser_reset_state(parser);
+  return PARSER_COMPLETE;
 }
