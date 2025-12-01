@@ -1130,19 +1130,16 @@ int process_data(
         }
 
         case SNAPCAST_MESSAGE_SERVER_SETTINGS: {
-          int result = connection_ensure_byte(connection);
-          if (result != 0) {
-            return -2;  // restart connection
-          }
-          if (parse_sever_settings_message(parser, base_message_rx,
-                                               &connection->start, &connection->len, typedMsgLen, offset,
-                                               serverSettingsString) == PARSER_COMPLETE) {
+          parser_return_state_t result = parse_sever_settings_message(parser, base_message_rx, serverSettingsString);
+          if (result == PARSER_COMPLETE) {
             if (server_settings_msg_received(*serverSettingsString, scSet) != 0){
               return -1;
             }
             free(*serverSettingsString);
             *serverSettingsString = NULL;
-          }
+          } else if (result == PARSER_CONNECTION_ERROR) {
+            return -2;
+          } // could also be "incomplete", i.e. ignore content
           break;
         }
 

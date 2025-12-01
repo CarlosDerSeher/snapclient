@@ -86,13 +86,9 @@ parser_return_state_t parse_codec_header_message(snapcast_custom_parser_t* parse
                                                  codec_type_t* codec,
                                                  char** codecPayload);
 
-parser_return_state_t parse_sever_settings_message(snapcast_custom_parser_t *parser,
-                                                   base_message_t* base_message_rx,
-                                                   char** start,
-                                                   uint16_t* len,
-                                                   uint32_t* typedMsgLen,
-                                                   uint32_t* offset,
-                                                   char** serverSettingsString);
+parser_return_state_t parse_sever_settings_message(
+    snapcast_custom_parser_t* parser, base_message_t* base_message_rx,
+    char** serverSettingsString);
 
 
 parser_return_state_t parse_time_message(snapcast_custom_parser_t* parser,
