@@ -1147,13 +1147,12 @@ int process_data(
         }
 
         case SNAPCAST_MESSAGE_TIME: {
-          int result = connection_ensure_byte(connection);
-          if (result != 0) {
-            return -2;  // restart connection
-          }
-          if (parse_time_message(parser, base_message_rx, time_message_rx, &connection->start, &connection->len) == PARSER_COMPLETE){ 
+          parser_return_state_t result = parse_time_message(parser, base_message_rx, time_message_rx);
+          if (result == PARSER_COMPLETE){
             time_sync_msg_received(base_message_rx, time_message_rx, time_sync_data, *received_codec_header);
-          }
+          } else if (result == PARSER_CONNECTION_ERROR) {
+            return -2;
+          } // could also be "incomplete", i.e. ignore content
           break;
         }
 

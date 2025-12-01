@@ -97,8 +97,7 @@ parser_return_state_t parse_sever_settings_message(snapcast_custom_parser_t *par
 
 parser_return_state_t parse_time_message(snapcast_custom_parser_t* parser,
                                          base_message_t* base_message_rx,
-                                         time_message_t* time_message_rx,
-                                         char** start, uint16_t* len);
+                                         time_message_t* time_message_rx);
 
 
 parser_return_state_t parse_unknown_message(snapcast_custom_parser_t* parser,

@@ -880,152 +880,19 @@ parser_return_state_t parse_sever_settings_message(snapcast_custom_parser_t *par
 
 parser_return_state_t parse_time_message(snapcast_custom_parser_t* parser,
                                          base_message_t* base_message_rx,
-                                         time_message_t* time_message_rx,
-                                         char** start, uint16_t* len) {
-  switch (parser->internalState) {
-    case 0: {
-      time_message_rx->latency.sec = **start;
+                                         time_message_t* time_message_rx) {
+  READ_TIMESTAMP(parser, time_message_rx->latency);
+  parser_reset_state(parser);
 
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 1: {
-      time_message_rx->latency.sec |= (int32_t)**start << 8;
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 2: {
-      time_message_rx->latency.sec |= (int32_t)**start << 16;
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 3: {
-      time_message_rx->latency.sec |= (int32_t)**start << 24;
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 4: {
-      time_message_rx->latency.usec = **start;
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 5: {
-      time_message_rx->latency.usec |= (int32_t)**start << 8;
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 6: {
-      time_message_rx->latency.usec |= (int32_t)**start << 16;
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 7: {
-      time_message_rx->latency.usec |= (int32_t)**start << 24;
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-      if (parser->typedMsgCurrentPos >= base_message_rx->size) {
-        // ESP_LOGI(TAG, "done time message");
-
-        parser_reset_state(parser);
-
-        return PARSER_COMPLETE; // do callback
-
-      } else {
-        ESP_LOGE(TAG,
-                 "error time message, this "
-                 "shouldn't happen! %d %ld",
-                 parser->typedMsgCurrentPos, base_message_rx->size);
-
-        parser_reset_state(parser);
-
-      }
-
-      break;
-    }
-
-    default: {
-      ESP_LOGE(TAG,
-               "time message decoder shouldn't "
-               "get here %d %ld %ld",
-               parser->typedMsgCurrentPos, base_message_rx->size,
-               parser->internalState);
-
-      break;
-    }
+  if (base_message_rx->size < 8) { // TODO: how to handle this case? Do we NEED to check?
+    ESP_LOGE(TAG,
+             "error time message, this shouldn't happen! %d %ld",
+             8, base_message_rx->size);
+    return PARSER_INCOMPLETE;  // use this return value as "ignore"
   }
-  return PARSER_INCOMPLETE; // no callback
+
+  // ESP_LOGI(TAG, "done time message");
+  return PARSER_COMPLETE;  // do callback
 }
 
 parser_return_state_t parse_unknown_message(snapcast_custom_parser_t* parser,
