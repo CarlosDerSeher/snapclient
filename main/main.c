@@ -1030,7 +1030,12 @@ int handle_chunk_message(codec_type_t codec, snapcastSetting_t* scSet,
   return 0;
 }
 
-
+/*
+ * returns:
+ * 0 if a message was (partially) processed sucessfully
+ * -1 if a critial error occured
+ * -2 if network needs restart
+ */
 int process_data(
     snapcast_custom_parser_t* parser,
     base_message_t* base_message_rx,
@@ -1056,19 +1061,15 @@ int process_data(
   switch (parser->state) {
     // decode base message
     case BASE_MESSAGE_STATE: {
-      int result = connection_ensure_byte(connection);
-      if (result != 0) {
-        return -2;  // restart connection
-      }
-
-      if (parse_base_message(parser, base_message_rx, connection->start) == PARSER_COMPLETE) {
+      if (parse_base_message(parser, base_message_rx, &connection->start, &connection->len, (buffer_refill_function_t)connection_ensure_byte, connection) == PARSER_COMPLETE) {
         time_sync_data->now = esp_timer_get_time();
 
         base_message_rx->received.sec = time_sync_data->now / 1000000;
         base_message_rx->received.usec = time_sync_data->now - base_message_rx->received.sec * 1000000;
+      } else {  // PARSER_CONNECTION_ERROR (only these two cases for base message)
+        return -2;  // restart connection
       }
-      connection->len--;
-      connection->start++;
+
       break;
     }
 
@@ -1096,6 +1097,9 @@ int process_data(
               // need more data
               return 0;
             }
+            case PARSER_CONNECTION_ERROR: {
+              return -2;
+            }
           }
           break;
         }
@@ -1111,6 +1115,9 @@ int process_data(
             }
             case PARSER_CRITICAL_ERROR: {
               return -1;
+            }
+            case PARSER_CONNECTION_ERROR: {
+              return -2;
             }
             case PARSER_INCOMPLETE: {
               // need more data

@@ -2,7 +2,7 @@
 
 #include "esp_log.h"
 
-static const char *TAG = "SNAPCAST_CUSTOM_PARSER";
+static const char* TAG = "SNAPCAST_CUSTOM_PARSER";
 
 void parser_reset_state(snapcast_custom_parser_t* parser) {
   parser->state = BASE_MESSAGE_STATE;
@@ -10,141 +10,153 @@ void parser_reset_state(snapcast_custom_parser_t* parser) {
   parser->typedMsgCurrentPos = 0;
 }
 
-parser_return_state_t parse_base_message(snapcast_custom_parser_t *parser,
-                                         base_message_t *base_message_rx, const char *start) {
-  switch (parser->internalState) {
-    case 0:
-      base_message_rx->type = *start & 0xFF;
-      parser->internalState++;
-      break;
-
-    case 1:
-      base_message_rx->type |= (*start & 0xFF) << 8;
-      parser->internalState++;
-      break;
-
-    case 2:
-      base_message_rx->id = *start & 0xFF;
-      parser->internalState++;
-      break;
-
-    case 3:
-      base_message_rx->id |= (*start & 0xFF) << 8;
-      parser->internalState++;
-      break;
-
-    case 4:
-      base_message_rx->refersTo = *start & 0xFF;
-      parser->internalState++;
-      break;
-
-    case 5:
-      base_message_rx->refersTo |= (*start & 0xFF) << 8;
-      parser->internalState++;
-      break;
-
-    case 6:
-      base_message_rx->sent.sec = *start & 0xFF;
-      parser->internalState++;
-      break;
-
-    case 7:
-      base_message_rx->sent.sec |= (*start & 0xFF) << 8;
-      parser->internalState++;
-      break;
-
-    case 8:
-      base_message_rx->sent.sec |= (*start & 0xFF) << 16;
-      parser->internalState++;
-      break;
-
-    case 9:
-      base_message_rx->sent.sec |= (*start & 0xFF) << 24;
-      parser->internalState++;
-      break;
-
-    case 10:
-      base_message_rx->sent.usec = *start & 0xFF;
-      parser->internalState++;
-      break;
-
-    case 11:
-      base_message_rx->sent.usec |= (*start & 0xFF) << 8;
-      parser->internalState++;
-      break;
-
-    case 12:
-      base_message_rx->sent.usec |= (*start & 0xFF) << 16;
-      parser->internalState++;
-      break;
-
-    case 13:
-      base_message_rx->sent.usec |= (*start & 0xFF) << 24;
-      parser->internalState++;
-      break;
-
-    case 14:
-      base_message_rx->received.sec = *start & 0xFF;
-      parser->internalState++;
-      break;
-
-    case 15:
-      base_message_rx->received.sec |= (*start & 0xFF) << 8;
-      parser->internalState++;
-      break;
-
-    case 16:
-      base_message_rx->received.sec |= (*start & 0xFF) << 16;
-      parser->internalState++;
-      break;
-
-    case 17:
-      base_message_rx->received.sec |= (*start & 0xFF) << 24;
-      parser->internalState++;
-      break;
-
-    case 18:
-      base_message_rx->received.usec = *start & 0xFF;
-      parser->internalState++;
-      break;
-
-    case 19:
-      base_message_rx->received.usec |= (*start & 0xFF) << 8;
-      parser->internalState++;
-      break;
-
-    case 20:
-      base_message_rx->received.usec |= (*start & 0xFF) << 16;
-      parser->internalState++;
-      break;
-
-    case 21:
-      base_message_rx->received.usec |= (*start & 0xFF) << 24;
-      parser->internalState++;
-      break;
-
-    case 22:
-      base_message_rx->size = *start & 0xFF;
-      parser->internalState++;
-      break;
-
-    case 23:
-      base_message_rx->size |= (*start & 0xFF) << 8;
-      parser->internalState++;
-      break;
-
-    case 24:
-      base_message_rx->size |= (*start & 0xFF) << 16;
-      parser->internalState++;
-      break;
-
-    case 25:
-      base_message_rx->size |= (*start & 0xFF) << 24;
-      parser_reset_state(parser);
-      parser->state = TYPED_MESSAGE_STATE;
-      return PARSER_COMPLETE;
+parser_return_state_t parse_base_message(
+    snapcast_custom_parser_t* parser, base_message_t* base_message_rx,
+    char** start, uint16_t* len, buffer_refill_function_t refill_function,
+    void* connection_data) {
+  while (1) {
+    int result = refill_function(connection_data);
+    if (result != 0) {
+      return PARSER_CONNECTION_ERROR;  // restart connection
+    }
+    switch (parser->internalState) {
+      case 0:
+        base_message_rx->type = **start & 0xFF;
+        parser->internalState++;
+        break;
+    
+      case 1:
+        base_message_rx->type |= (**start & 0xFF) << 8;
+        parser->internalState++;
+        break;
+    
+      case 2:
+        base_message_rx->id = **start & 0xFF;
+        parser->internalState++;
+        break;
+    
+      case 3:
+        base_message_rx->id |= (**start & 0xFF) << 8;
+        parser->internalState++;
+        break;
+    
+      case 4:
+        base_message_rx->refersTo = **start & 0xFF;
+        parser->internalState++;
+        break;
+    
+      case 5:
+        base_message_rx->refersTo |= (**start & 0xFF) << 8;
+        parser->internalState++;
+        break;
+    
+      case 6:
+        base_message_rx->sent.sec = **start & 0xFF;
+        parser->internalState++;
+        break;
+    
+      case 7:
+        base_message_rx->sent.sec |= (**start & 0xFF) << 8;
+        parser->internalState++;
+        break;
+    
+      case 8:
+        base_message_rx->sent.sec |= (**start & 0xFF) << 16;
+        parser->internalState++;
+        break;
+    
+      case 9:
+        base_message_rx->sent.sec |= (**start & 0xFF) << 24;
+        parser->internalState++;
+        break;
+    
+      case 10:
+        base_message_rx->sent.usec = **start & 0xFF;
+        parser->internalState++;
+        break;
+    
+      case 11:
+        base_message_rx->sent.usec |= (**start & 0xFF) << 8;
+        parser->internalState++;
+        break;
+    
+      case 12:
+        base_message_rx->sent.usec |= (**start & 0xFF) << 16;
+        parser->internalState++;
+        break;
+    
+      case 13:
+        base_message_rx->sent.usec |= (**start & 0xFF) << 24;
+        parser->internalState++;
+        break;
+    
+      case 14:
+        base_message_rx->received.sec = **start & 0xFF;
+        parser->internalState++;
+        break;
+    
+      case 15:
+        base_message_rx->received.sec |= (**start & 0xFF) << 8;
+        parser->internalState++;
+        break;
+    
+      case 16:
+        base_message_rx->received.sec |= (**start & 0xFF) << 16;
+        parser->internalState++;
+        break;
+    
+      case 17:
+        base_message_rx->received.sec |= (**start & 0xFF) << 24;
+        parser->internalState++;
+        break;
+    
+      case 18:
+        base_message_rx->received.usec = **start & 0xFF;
+        parser->internalState++;
+        break;
+    
+      case 19:
+        base_message_rx->received.usec |= (**start & 0xFF) << 8;
+        parser->internalState++;
+        break;
+    
+      case 20:
+        base_message_rx->received.usec |= (**start & 0xFF) << 16;
+        parser->internalState++;
+        break;
+    
+      case 21:
+        base_message_rx->received.usec |= (**start & 0xFF) << 24;
+        parser->internalState++;
+        break;
+    
+      case 22:
+        base_message_rx->size = **start & 0xFF;
+        parser->internalState++;
+        break;
+    
+      case 23:
+        base_message_rx->size |= (**start & 0xFF) << 8;
+        parser->internalState++;
+        break;
+    
+      case 24:
+        base_message_rx->size |= (**start & 0xFF) << 16;
+        parser->internalState++;
+        break;
+    
+      case 25:
+        base_message_rx->size |= (**start & 0xFF) << 24;
+        parser_reset_state(parser);
+        parser->state = TYPED_MESSAGE_STATE;
+        (*len)--;
+        (*start)++;
+        return PARSER_COMPLETE;
+    }
+    // parsing incomplete
+    (*len)--;
+    (*start)++;
   }
-  return PARSER_INCOMPLETE;
 }
 
 
