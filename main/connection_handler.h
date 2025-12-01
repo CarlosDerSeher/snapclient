@@ -31,11 +31,9 @@ typedef struct {
 
 // Function declarations for connection handling
 void setup_network(esp_netif_t** netif);
-int receive_data(struct netbuf** firstNetBuf, bool isMuted, esp_netif_t* netif,
-                 bool* first_receive, int rc1);
-int fill_buffer(bool* first_netbuf_processed, int* rc1,
-                struct netbuf* firstNetBuf, char** start, uint16_t* len);
+
 int connection_ensure_byte(connection_t* connection);
-// Add other connection-related functions you plan to move here
+
+int connection_get_byte(connection_t* connection, char* buffer);
 
 #endif  // __CONNECTION_HANDLER_H__

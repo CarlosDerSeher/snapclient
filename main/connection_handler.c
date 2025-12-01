@@ -196,8 +196,8 @@ void setup_network(esp_netif_t** netif) {
   }
 }
 
-int receive_data(struct netbuf** firstNetBuf, bool isMuted, esp_netif_t* netif,
-                 bool* first_receive, int rc1) {
+static int receive_data(struct netbuf** firstNetBuf, bool isMuted,
+                        esp_netif_t* netif, bool* first_receive, int rc1) {
   // delete old netbuf. Restart connection if required
   if (*first_receive) {
     *first_receive = false;
@@ -260,8 +260,9 @@ int receive_data(struct netbuf** firstNetBuf, bool isMuted, esp_netif_t* netif,
   return 0;
 }
 
-int fill_buffer(bool* first_netbuf_processed, int* rc1,
-                struct netbuf* firstNetBuf, char** start, uint16_t* len) {
+static int fill_buffer(bool* first_netbuf_processed, int* rc1,
+                       struct netbuf* firstNetBuf, char** start,
+                       uint16_t* len) {
   while (1) {
     // currentPos = 0;
     if (!*first_netbuf_processed) {
@@ -287,6 +288,7 @@ int fill_buffer(bool* first_netbuf_processed, int* rc1,
   return 0;  // not reached, defensive programming
 }
 
+// TODO: make static
 int connection_ensure_byte(connection_t* connection) {
   // iterate until we could read data
   while (1) {
@@ -325,8 +327,20 @@ int connection_ensure_byte(connection_t* connection) {
       }
 
       case CONNECTION_RESTART_REQUIRED: {
+        // This case should remain separate.
+        // This way, calling the function again will always just yield -1
         return -1;
       }
     }
   }
+}
+
+int connection_get_byte(connection_t* connection, char* buffer) {
+  if (connection_ensure_byte(connection) != 0) {
+    return -1;
+  }
+  *buffer = *(connection->start);
+  connection->start++;
+  connection->len--;
+  return 0;
 }

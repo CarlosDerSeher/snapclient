@@ -1061,9 +1061,8 @@ int process_data(
   switch (parser->state) {
     // decode base message
     case BASE_MESSAGE_STATE: {
-      if (parse_base_message(parser, base_message_rx, &connection->start, &connection->len, (buffer_refill_function_t)connection_ensure_byte, connection) == PARSER_COMPLETE) {
+      if (parse_base_message(parser, base_message_rx) == PARSER_COMPLETE) {
         time_sync_data->now = esp_timer_get_time();
-
         base_message_rx->received.sec = time_sync_data->now / 1000000;
         base_message_rx->received.usec = time_sync_data->now - base_message_rx->received.sec * 1000000;
       } else {  // PARSER_CONNECTION_ERROR (only these two cases for base message)
@@ -1377,6 +1376,10 @@ static void http_get_task(void *pvParameters) {
     connection.first_netbuf_processed = false;
 
     connection.state = CONNECTION_INITIALIZED;
+
+
+    parser.get_byte_context = &connection;
+    parser.get_byte_function = (get_byte_callback_t)(&connection_get_byte);
 
     // Main connection loop - state machine + data processing
     while (1) {

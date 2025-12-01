@@ -18,7 +18,13 @@ typedef struct decoderData_s {
 } decoderData_t;
 
 
+typedef int (*get_byte_callback_t)(void* connection_data, char* buffer);
+typedef int (*buffer_refill_function_t)(void* connection_data);  // TODO: remove
+
+
 typedef struct {
+  get_byte_callback_t get_byte_function;
+  void* get_byte_context;
   uint32_t state;  // BASE_MESSAGE_STATE or TYPED_MESSAGE_STATE
   uint32_t internalState;
   size_t typedMsgCurrentPos;
@@ -28,10 +34,8 @@ typedef enum {
   PARSER_COMPLETE = 0,
   PARSER_INCOMPLETE,
   PARSER_CRITICAL_ERROR,
-  PARSER_CONNECTION_ERROR
+  PARSER_CONNECTION_ERROR,
 } parser_return_state_t;
-
-typedef int (*buffer_refill_function_t)(void* connection_data);
 
 typedef int (*wire_chunk_callback_t)(codec_type_t codec,
                                   void* scSet,
@@ -56,8 +60,7 @@ typedef int (*codec_header_callback_t)(char** codecPayload,
 void parser_reset_state(snapcast_custom_parser_t* parser);
 
 parser_return_state_t parse_base_message(snapcast_custom_parser_t *parser,
-                                         base_message_t *base_message_rx, char **start, uint16_t* len,
-                                         buffer_refill_function_t refill_function, void* connection_data);
+                                         base_message_t *base_message_rx);
 
 parser_return_state_t parse_wire_chunk_message(snapcast_custom_parser_t* parser,
                                                base_message_t* base_message_rx,

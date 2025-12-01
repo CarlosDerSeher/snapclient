@@ -2,6 +2,54 @@
 
 #include "esp_log.h"
 
+// MACROS for reading from connection
+#define READ_BYTE(parser, dest) \
+  do { \
+    char _byte; \
+    if ((parser)->get_byte_function((parser)->get_byte_context, &_byte) != 0) { \
+      return PARSER_CONNECTION_ERROR; \
+    } \
+    (dest) = _byte; \
+  } while(0)
+
+#define READ_UINT16_LE(parser, dest) \
+  do { \
+    char _bytes[2]; \
+    if ((parser)->get_byte_function((parser)->get_byte_context, &_bytes[0]) != 0 || \
+        (parser)->get_byte_function((parser)->get_byte_context, &_bytes[1]) != 0) { \
+      return PARSER_CONNECTION_ERROR; \
+    } \
+    (dest) = (_bytes[0] & 0xFF) | ((_bytes[1] & 0xFF) << 8); \
+  } while(0)
+
+#define READ_UINT32_LE(parser, dest) \
+  do { \
+    char _bytes[4]; \
+    for (int _i = 0; _i < 4; _i++) { \
+      if ((parser)->get_byte_function((parser)->get_byte_context, &_bytes[_i]) != 0) { \
+        return PARSER_CONNECTION_ERROR; \
+      } \
+    } \
+    (dest) = (_bytes[0] & 0xFF) | ((_bytes[1] & 0xFF) << 8) | \
+             ((_bytes[2] & 0xFF) << 16) | ((_bytes[3] & 0xFF) << 24); \
+  } while(0)
+
+#define READ_TIMESTAMP(parser, ts) \
+  do { \
+    READ_UINT32_LE(parser, (ts).sec); \
+    READ_UINT32_LE(parser, (ts).usec); \
+  } while(0)
+
+#define READ_DATA(parser, dest, len) \
+  do { \
+    for (uint32_t _i = 0; _i < (len); _i++) { \
+      if ((parser)->get_byte_function((parser)->get_byte_context, &(dest)[_i]) != 0) { \
+        return PARSER_CONNECTION_ERROR; \
+      } \
+    } \
+  } while(0)
+
+
 static const char* TAG = "SNAPCAST_CUSTOM_PARSER";
 
 void parser_reset_state(snapcast_custom_parser_t* parser) {
@@ -10,153 +58,18 @@ void parser_reset_state(snapcast_custom_parser_t* parser) {
   parser->typedMsgCurrentPos = 0;
 }
 
-parser_return_state_t parse_base_message(
-    snapcast_custom_parser_t* parser, base_message_t* base_message_rx,
-    char** start, uint16_t* len, buffer_refill_function_t refill_function,
-    void* connection_data) {
-  while (1) {
-    int result = refill_function(connection_data);
-    if (result != 0) {
-      return PARSER_CONNECTION_ERROR;  // restart connection
-    }
-    switch (parser->internalState) {
-      case 0:
-        base_message_rx->type = **start & 0xFF;
-        parser->internalState++;
-        break;
-    
-      case 1:
-        base_message_rx->type |= (**start & 0xFF) << 8;
-        parser->internalState++;
-        break;
-    
-      case 2:
-        base_message_rx->id = **start & 0xFF;
-        parser->internalState++;
-        break;
-    
-      case 3:
-        base_message_rx->id |= (**start & 0xFF) << 8;
-        parser->internalState++;
-        break;
-    
-      case 4:
-        base_message_rx->refersTo = **start & 0xFF;
-        parser->internalState++;
-        break;
-    
-      case 5:
-        base_message_rx->refersTo |= (**start & 0xFF) << 8;
-        parser->internalState++;
-        break;
-    
-      case 6:
-        base_message_rx->sent.sec = **start & 0xFF;
-        parser->internalState++;
-        break;
-    
-      case 7:
-        base_message_rx->sent.sec |= (**start & 0xFF) << 8;
-        parser->internalState++;
-        break;
-    
-      case 8:
-        base_message_rx->sent.sec |= (**start & 0xFF) << 16;
-        parser->internalState++;
-        break;
-    
-      case 9:
-        base_message_rx->sent.sec |= (**start & 0xFF) << 24;
-        parser->internalState++;
-        break;
-    
-      case 10:
-        base_message_rx->sent.usec = **start & 0xFF;
-        parser->internalState++;
-        break;
-    
-      case 11:
-        base_message_rx->sent.usec |= (**start & 0xFF) << 8;
-        parser->internalState++;
-        break;
-    
-      case 12:
-        base_message_rx->sent.usec |= (**start & 0xFF) << 16;
-        parser->internalState++;
-        break;
-    
-      case 13:
-        base_message_rx->sent.usec |= (**start & 0xFF) << 24;
-        parser->internalState++;
-        break;
-    
-      case 14:
-        base_message_rx->received.sec = **start & 0xFF;
-        parser->internalState++;
-        break;
-    
-      case 15:
-        base_message_rx->received.sec |= (**start & 0xFF) << 8;
-        parser->internalState++;
-        break;
-    
-      case 16:
-        base_message_rx->received.sec |= (**start & 0xFF) << 16;
-        parser->internalState++;
-        break;
-    
-      case 17:
-        base_message_rx->received.sec |= (**start & 0xFF) << 24;
-        parser->internalState++;
-        break;
-    
-      case 18:
-        base_message_rx->received.usec = **start & 0xFF;
-        parser->internalState++;
-        break;
-    
-      case 19:
-        base_message_rx->received.usec |= (**start & 0xFF) << 8;
-        parser->internalState++;
-        break;
-    
-      case 20:
-        base_message_rx->received.usec |= (**start & 0xFF) << 16;
-        parser->internalState++;
-        break;
-    
-      case 21:
-        base_message_rx->received.usec |= (**start & 0xFF) << 24;
-        parser->internalState++;
-        break;
-    
-      case 22:
-        base_message_rx->size = **start & 0xFF;
-        parser->internalState++;
-        break;
-    
-      case 23:
-        base_message_rx->size |= (**start & 0xFF) << 8;
-        parser->internalState++;
-        break;
-    
-      case 24:
-        base_message_rx->size |= (**start & 0xFF) << 16;
-        parser->internalState++;
-        break;
-    
-      case 25:
-        base_message_rx->size |= (**start & 0xFF) << 24;
-        parser_reset_state(parser);
-        parser->state = TYPED_MESSAGE_STATE;
-        (*len)--;
-        (*start)++;
-        return PARSER_COMPLETE;
-    }
-    // parsing incomplete
-    (*len)--;
-    (*start)++;
-  }
+parser_return_state_t parse_base_message(snapcast_custom_parser_t* parser,
+                                         base_message_t* base_message_rx) {
+  READ_UINT16_LE(parser, base_message_rx->type);
+  READ_UINT16_LE(parser, base_message_rx->id);
+  READ_UINT16_LE(parser, base_message_rx->refersTo);
+  READ_TIMESTAMP(parser, base_message_rx->sent);
+  READ_TIMESTAMP(parser, base_message_rx->received);
+  READ_UINT32_LE(parser, base_message_rx->size);
+
+  parser_reset_state(parser);
+  parser->state = TYPED_MESSAGE_STATE;
+  return PARSER_COMPLETE;
 }
 
 
