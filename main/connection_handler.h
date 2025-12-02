@@ -32,8 +32,6 @@ typedef struct {
 // Function declarations for connection handling
 void setup_network(esp_netif_t** netif);
 
-int connection_ensure_byte(connection_t* connection);
-
 int connection_get_byte(connection_t* connection, char* buffer);
 
 #endif  // __CONNECTION_HANDLER_H__

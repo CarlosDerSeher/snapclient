@@ -288,8 +288,7 @@ static int fill_buffer(bool* first_netbuf_processed, int* rc1,
   return 0;  // not reached, defensive programming
 }
 
-// TODO: make static
-int connection_ensure_byte(connection_t* connection) {
+static int connection_ensure_byte(connection_t* connection) {
   // iterate until we could read data
   while (1) {
     switch (connection->state) {
