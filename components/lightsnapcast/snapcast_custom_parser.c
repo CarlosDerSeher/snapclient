@@ -54,8 +54,6 @@ static const char* TAG = "SNAPCAST_CUSTOM_PARSER";
 
 void parser_reset_state(snapcast_custom_parser_t* parser) {
   parser->state = BASE_MESSAGE_STATE;
-  parser->internalState = 0;
-  parser->typedMsgCurrentPos = 0;
 }
 
 parser_return_state_t parse_base_message(snapcast_custom_parser_t* parser,
@@ -67,7 +65,6 @@ parser_return_state_t parse_base_message(snapcast_custom_parser_t* parser,
   READ_TIMESTAMP(parser, base_message_rx->received);
   READ_UINT32_LE(parser, base_message_rx->size);
 
-  parser_reset_state(parser);
   parser->state = TYPED_MESSAGE_STATE;
   return PARSER_COMPLETE;
 }

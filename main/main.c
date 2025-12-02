@@ -1046,12 +1046,7 @@ int process_data(
     snapcastSetting_t* scSet,
     pcm_chunk_message_t** pcmData,
     wire_chunk_message_t* wire_chnk,
-    uint32_t* offset,
-    uint32_t* payloadOffset,
-    uint32_t* tmpData,
     decoderData_t* decoderChunk,
-    int32_t* payloadDataShift,
-    uint32_t* typedMsgLen,
     char** serverSettingsString,
     char** codecString,
     char** codecPayload
@@ -1099,10 +1094,11 @@ int process_data(
         }
 
         case SNAPCAST_MESSAGE_CODEC_HEADER: {
-          switch (parse_codec_header_message(parser, typedMsgLen, received_codec_header,
+          uint32_t typedMsgLen = 0;
+          switch (parse_codec_header_message(parser, &typedMsgLen, received_codec_header,
                                              codecString, codec, codecPayload)) {
             case PARSER_COMPLETE: {
-              if (codec_header_received(codecPayload, *typedMsgLen, *codec, scSet, time_sync_data) != 0) {
+              if (codec_header_received(codecPayload, typedMsgLen, *codec, scSet, time_sync_data) != 0) {
                 return -1;
               }
               break;
@@ -1362,13 +1358,6 @@ static void http_get_task(void *pvParameters) {
 
     parser_reset_state(&parser);
 
-    //    size_t currentPos = 0;
-    uint32_t typedMsgLen = 0;
-    uint32_t offset = 0;
-    uint32_t payloadOffset = 0;
-    uint32_t tmpData = 0;
-    int32_t payloadDataShift = 0;
-
     // state machine starts here     
 
     connection.isMuted = &scSet.muted;
@@ -1387,8 +1376,7 @@ static void http_get_task(void *pvParameters) {
     while (1) {
       int result = process_data(&parser, &base_message_rx, &time_sync_data, &time_message_rx, 
                                 &received_codec_header, &codec, &scSet, &pcmData, &wire_chnk,
-                                &offset, &payloadOffset, &tmpData, &decoderChunk, &payloadDataShift,
-                                &typedMsgLen, &serverSettingsString, &codecString, &codecPayload);
+                                &decoderChunk, &serverSettingsString, &codecString, &codecPayload);
       if (result == -1) { 
         return;  // critical error in data processing
       } else if (result == -2) {

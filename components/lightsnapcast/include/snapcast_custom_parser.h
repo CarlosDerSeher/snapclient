@@ -19,15 +19,11 @@ typedef struct decoderData_s {
 
 
 typedef int (*get_byte_callback_t)(void* connection_data, char* buffer);
-typedef int (*buffer_refill_function_t)(void* connection_data);  // TODO: remove
-
 
 typedef struct {
   get_byte_callback_t get_byte_function;
   void* get_byte_context;
   uint32_t state;  // BASE_MESSAGE_STATE or TYPED_MESSAGE_STATE
-  uint32_t internalState;
-  size_t typedMsgCurrentPos;
 } snapcast_custom_parser_t;
 
 typedef enum {
@@ -37,30 +33,10 @@ typedef enum {
   PARSER_CONNECTION_ERROR,
 } parser_return_state_t;
 
-typedef int (*wire_chunk_callback_t)(codec_type_t codec,
-                                  void* scSet,
-                                  pcm_chunk_message_t** pcmData,
-                                  wire_chunk_message_t* wire_chnk); 
-
-// Callback function type for time sync message completion
-typedef void (*time_sync_callback_t)(base_message_t *base_message_rx,
-                                    time_message_t *time_message_rx,
-                                    void *time_sync_data,
-                                    bool received_codec_header);
-
-typedef int (*server_settings_callback_t)(char* serverSettingsString, void* scSet);
-
-typedef int (*codec_header_callback_t)(char** codecPayload,
-                                  uint32_t typedMsgLen,
-                                  codec_type_t codec,
-                                  snapcastSetting_t* scSet,
-                                  void* time_sync_data);
-
-
 void parser_reset_state(snapcast_custom_parser_t* parser);
 
-parser_return_state_t parse_base_message(snapcast_custom_parser_t *parser,
-                                         base_message_t *base_message_rx);
+parser_return_state_t parse_base_message(snapcast_custom_parser_t* parser,
+                                         base_message_t* base_message_rx);
 
 parser_return_state_t parse_wire_chunk_message(snapcast_custom_parser_t* parser,
                                                base_message_t* base_message_rx,
@@ -79,11 +55,9 @@ parser_return_state_t parse_sever_settings_message(
     snapcast_custom_parser_t* parser, base_message_t* base_message_rx,
     char** serverSettingsString);
 
-
 parser_return_state_t parse_time_message(snapcast_custom_parser_t* parser,
                                          base_message_t* base_message_rx,
                                          time_message_t* time_message_rx);
-
 
 parser_return_state_t parse_unknown_message(snapcast_custom_parser_t* parser,
                                             base_message_t* base_message_rx);
