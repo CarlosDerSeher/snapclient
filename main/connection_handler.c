@@ -45,7 +45,7 @@ void setup_network(esp_netif_t** netif) {
       bool ethUp = network_is_netif_up(eth_netif);
 
       if (ethUp) {
-        netif = eth_netif;
+        *netif = eth_netif;
 
         break;
       }
