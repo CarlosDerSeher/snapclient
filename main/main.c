@@ -1080,8 +1080,9 @@ int process_data(
           if (result != 0) {
             return -2;  // restart connection
           }
-          switch (parse_wire_chunk_message(parser, base_message_rx, &connection->start, &connection->len, offset, *received_codec_header,
-                                       *codec, pcmData, wire_chnk, payloadOffset, tmpData, decoderChunk, payloadDataShift)) {
+          switch (parse_wire_chunk_message(parser, base_message_rx,
+                                           *received_codec_header, *codec,
+                                           pcmData, wire_chnk, decoderChunk)) {
             case PARSER_COMPLETE: {
               if (handle_chunk_message(*codec, scSet, pcmData, wire_chnk) != 0) {
                 return -1;

@@ -76,345 +76,113 @@ parser_return_state_t parse_base_message(snapcast_custom_parser_t* parser,
 
 parser_return_state_t parse_wire_chunk_message(snapcast_custom_parser_t* parser,
                                                base_message_t* base_message_rx,
-                                               char** start,
-                                               uint16_t* len,
-                                               uint32_t* offset,
                                                bool received_codec_header,
                                                codec_type_t codec,
                                                pcm_chunk_message_t** pcmData,
                                                wire_chunk_message_t* wire_chnk,
-                                               uint32_t* payloadOffset,
-                                               uint32_t* tmpData,
-                                               decoderData_t* decoderChunk,
-                                               int32_t* payloadDataShift) {
-  switch (parser->internalState) {
-    case 0: {
-      wire_chnk->timestamp.sec = **start & 0xFF;
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 1: {
-      wire_chnk->timestamp.sec |= (**start & 0xFF) << 8;
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 2: {
-      wire_chnk->timestamp.sec |= (**start & 0xFF) << 16;
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 3: {
-      wire_chnk->timestamp.sec |= (**start & 0xFF) << 24;
-
-      // ESP_LOGI(TAG,
-      // "wire chunk time sec: %d",
-      // wire_chnk->timestamp.sec);
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 4: {
-      wire_chnk->timestamp.usec = (**start & 0xFF);
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 5: {
-      wire_chnk->timestamp.usec |= (**start & 0xFF) << 8;
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 6: {
-      wire_chnk->timestamp.usec |= (**start & 0xFF) << 16;
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 7: {
-      wire_chnk->timestamp.usec |= (**start & 0xFF) << 24;
-
-      // ESP_LOGI(TAG,
-      // "wire chunk time usec: %d",
-      // wire_chnk->timestamp.usec);
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 8: {
-      wire_chnk->size = (**start & 0xFF);
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 9: {
-      wire_chnk->size |= (**start & 0xFF) << 8;
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 10: {
-      wire_chnk->size |= (**start & 0xFF) << 16;
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 11: {
-      wire_chnk->size |= (**start & 0xFF) << 24;
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      // TODO: we could use wire chunk directly maybe?
-      decoderChunk->bytes = wire_chnk->size;
-      while (!decoderChunk->inData) {
-        decoderChunk->inData =
-            (uint8_t *)malloc(decoderChunk->bytes);
-        if (!decoderChunk->inData) {
-          ESP_LOGW(TAG,
-                   "malloc decoderChunk->inData failed, wait "
-                   "1ms and try again");
-
-          vTaskDelay(pdMS_TO_TICKS(1));
-        }
-      }
-
-      *payloadOffset = 0;
-
-#if 0
-       ESP_LOGI(TAG, "chunk with size: %u, at time %ld.%ld",
-    		   	   	   	   	 wire_chnk->size,
-                             wire_chnk->timestamp.sec,
-                             wire_chnk->timestamp.usec);
-#endif
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 12: {
-      size_t tmp_size;
-
-      if ((base_message_rx->size - parser->typedMsgCurrentPos) <= *len) {
-        tmp_size = base_message_rx->size - parser->typedMsgCurrentPos;
-      } else {
-        tmp_size = *len;
-      }
-
-      if (received_codec_header == true) {
-        switch (codec) {
-          case OPUS:
-          case FLAC: {
-            memcpy(&decoderChunk->inData[*payloadOffset], *start, tmp_size);
-            *payloadOffset += tmp_size;
-            decoderChunk->outData = NULL;
-            decoderChunk->type = SNAPCAST_MESSAGE_WIRE_CHUNK;
-
-            break;
-          }
-
-          case PCM: {
-            size_t _tmp = tmp_size;
-
-            *offset = 0;
-
-            if (*pcmData == NULL) {
-              if (allocate_pcm_chunk_memory(pcmData, wire_chnk->size) < 0) {
-                *pcmData = NULL;
-              }
-
-              *tmpData = 0;
-              *payloadDataShift = 3;
-              *payloadOffset = 0;
-            }
-
-            while (_tmp--) {
-              *tmpData |= ((uint32_t)(*start)[(*offset)++]
-                          << (8 * *payloadDataShift));
-
-              (*payloadDataShift)--;
-              if (*payloadDataShift < 0) {
-                *payloadDataShift = 3;
-
-                if ((*pcmData) && ((*pcmData)->fragment->payload)) {
-                  volatile uint32_t *sample;
-                  uint8_t dummy1;
-                  uint32_t dummy2 = 0;
-
-                  // TODO: find a more
-                  // clever way to do this,
-                  // best would be to
-                  // actually store it the
-                  // right way in the first
-                  // place
-                  dummy1 = *tmpData >> 24;
-                  dummy2 |= (uint32_t)dummy1 << 16;
-                  dummy1 = *tmpData >> 16;
-                  dummy2 |= (uint32_t)dummy1 << 24;
-                  dummy1 = *tmpData >> 8;
-                  dummy2 |= (uint32_t)dummy1 << 0;
-                  dummy1 = *tmpData >> 0;
-                  dummy2 |= (uint32_t)dummy1 << 8;
-                  *tmpData = dummy2;
-
-                  sample = (volatile uint32_t *)(&(
-                      (*pcmData)->fragment
-                          ->payload[*payloadOffset]));
-                  *sample = (volatile uint32_t)*tmpData;
-
-                  *payloadOffset += 4;
-                }
-
-                *tmpData = 0;
-              }
-            }
-
-            break;
-          }
-
-          default: {
-            ESP_LOGE(TAG, "Decoder (1) not supported");
-
-            return PARSER_CRITICAL_ERROR;
-
-            break;
-          }
-        }
-      }
-
-      parser->typedMsgCurrentPos += tmp_size;
-      *start += tmp_size;
-      // currentPos += tmp_size;
-      *len -= tmp_size;
-
-      if (parser->typedMsgCurrentPos >= base_message_rx->size) {
-        if (received_codec_header == true) {
-          parser_reset_state(parser);
-          return PARSER_COMPLETE;
-        }
-
-        parser_reset_state(parser);
-      }
-
-      break;
-    }
-
-    default: {
-      ESP_LOGE(TAG,
-               "wire chunk decoder "
-               "shouldn't get here");
-
-      break;
+                                               decoderData_t* decoderChunk) {
+
+  READ_TIMESTAMP(parser, wire_chnk->timestamp);
+  READ_UINT32_LE(parser, wire_chnk->size);
+
+  // TODO: we could use wire chunk directly maybe?
+  decoderChunk->bytes = wire_chnk->size;
+  while (!decoderChunk->inData) {
+    decoderChunk->inData = (uint8_t*)malloc(decoderChunk->bytes);
+    if (!decoderChunk->inData) {
+      ESP_LOGW(TAG,
+               "malloc decoderChunk->inData failed, wait "
+               "1ms and try again");
+
+      vTaskDelay(pdMS_TO_TICKS(1));
     }
   }
-  return PARSER_INCOMPLETE;
+
+  uint32_t payloadOffset = 0;
+  uint32_t tmpData = 0;
+  int32_t payloadDataShift = 0;
+  size_t tmp_size = base_message_rx->size - 12;
+
+  if (received_codec_header == true) {
+    switch (codec) {
+      case OPUS:
+      case FLAC: {
+        READ_DATA(parser, (char*)decoderChunk->inData, tmp_size);
+        payloadOffset += tmp_size;
+        decoderChunk->outData = NULL;
+        decoderChunk->type = SNAPCAST_MESSAGE_WIRE_CHUNK;
+
+        break;
+      }
+
+      case PCM: {
+        size_t _tmp = tmp_size;
+
+        if (*pcmData == NULL) {
+          if (allocate_pcm_chunk_memory(pcmData, wire_chnk->size) < 0) {
+            *pcmData = NULL;
+          }
+
+          tmpData = 0;
+          payloadDataShift = 3;
+          payloadOffset = 0;
+        }
+
+        while (_tmp--) {
+          char tmp_val;
+          READ_BYTE(parser, tmp_val);
+          tmpData |= ((uint32_t)tmp_val << (8 * payloadDataShift));
+
+          payloadDataShift--;
+          if (payloadDataShift < 0) {
+            payloadDataShift = 3;
+
+            if ((*pcmData) && ((*pcmData)->fragment->payload)) {
+              volatile uint32_t* sample;
+              uint8_t dummy1;
+              uint32_t dummy2 = 0;
+
+              // TODO: find a more
+              // clever way to do this,
+              // best would be to
+              // actually store it the
+              // right way in the first
+              // place
+              dummy1 = tmpData >> 24;
+              dummy2 |= (uint32_t)dummy1 << 16;
+              dummy1 = tmpData >> 16;
+              dummy2 |= (uint32_t)dummy1 << 24;
+              dummy1 = tmpData >> 8;
+              dummy2 |= (uint32_t)dummy1 << 0;
+              dummy1 = tmpData >> 0;
+              dummy2 |= (uint32_t)dummy1 << 8;
+              tmpData = dummy2;
+
+              sample = (volatile uint32_t *)(&((*pcmData)->fragment->payload[payloadOffset]));
+              *sample = (volatile uint32_t)tmpData;
+
+              payloadOffset += 4;
+            }
+
+            tmpData = 0;
+          }
+        }
+
+        break;
+      }
+      default: {
+        ESP_LOGE(TAG, "Decoder (1) not supported");
+        return PARSER_CRITICAL_ERROR;
+      }
+    }
+  }
+
+  parser_reset_state(parser);
+  if (received_codec_header == true) {
+    return PARSER_COMPLETE;
+  } else {
+    return PARSER_INCOMPLETE;  // TODO: right return value?
+  }
 }
 
 parser_return_state_t parse_codec_header_message(
