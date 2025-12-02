@@ -417,278 +417,79 @@ parser_return_state_t parse_wire_chunk_message(snapcast_custom_parser_t* parser,
   return PARSER_INCOMPLETE;
 }
 
-parser_return_state_t parse_codec_header_message(snapcast_custom_parser_t* parser,
-                                                 char** start,
-                                                 uint16_t* len,
-                                                 uint32_t* typedMsgLen,
-                                                 uint32_t* offset,
-                                                 bool* received_codec_header,
-                                                 char** codecString,
-                                                 codec_type_t* codec,
-                                                 char** codecPayload) {
-switch (parser->internalState) {
-    case 0: {
-      *received_codec_header = false;
-
-      *typedMsgLen = **start & 0xFF;
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 1: {
-      *typedMsgLen |= (**start & 0xFF) << 8;
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 2: {
-      *typedMsgLen |= (**start & 0xFF) << 16;
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 3: {
-      *typedMsgLen |= (**start & 0xFF) << 24;
-
-      if (*codecString) {
-        free(*codecString);
-        *codecString = NULL;
-      }
-
-      *codecString =
-          malloc(*typedMsgLen + 1);  // allocate memory for
-                                     // codec string
-      if (*codecString == NULL) {
-        ESP_LOGE(TAG,
-                 "couldn't get memory "
-                 "for codec string");
-
-        return PARSER_CRITICAL_ERROR;
-      }
-
-      *offset = 0;
-      // ESP_LOGI(TAG,
-      // "codec header string is %d long",
-      // *typedMsgLen);
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 4: {
-      if (*len >= *typedMsgLen) {
-        memcpy(&(*codecString)[*offset], *start, *typedMsgLen);
-
-        *offset += *typedMsgLen;
-
-        parser->typedMsgCurrentPos += *typedMsgLen;
-        *start += *typedMsgLen;
-        // currentPos += *typedMsgLen;
-        *len -= *typedMsgLen;
-      } else {
-        memcpy(&(*codecString)[*offset], *start, *typedMsgLen);
-
-        *offset += *len;
-
-        parser->typedMsgCurrentPos += *len;
-        *start += *len;
-        // currentPos += *len;
-        *len -= *len;
-      }
-
-      if (*offset == *typedMsgLen) {
-        // NULL terminate string
-        (*codecString)[*typedMsgLen] = 0;
-
-        // ESP_LOGI (TAG, "got codec string: %s", tmp);
-
-        if (strcmp(*codecString, "opus") == 0) {
-          *codec = OPUS;
-        } else if (strcmp(*codecString, "flac") == 0) {
-          *codec = FLAC;
-        } else if (strcmp(*codecString, "pcm") == 0) {
-          *codec = PCM;
-        } else {
-          *codec = NONE;
-
-          ESP_LOGI(TAG, "Codec : %s not supported",
-                   *codecString);
-          ESP_LOGI(TAG,
-                   "Change encoder codec to "
-                   "opus, flac or pcm in "
-                   "/etc/snapserver.conf on "
-                   "server");
-
-          return PARSER_CRITICAL_ERROR;
-        }
-
-        free(*codecString);
-        *codecString = NULL;
-
-        parser->internalState++;
-      }
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 5: {
-      *typedMsgLen = **start & 0xFF;
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 6: {
-      *typedMsgLen |= (**start & 0xFF) << 8;
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 7: {
-      *typedMsgLen |= (**start & 0xFF) << 16;
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 8: {
-      *typedMsgLen |= (**start & 0xFF) << 24;
-
-      if (*codecPayload) {
-        free(*codecPayload);
-        *codecPayload = NULL;
-      }
-
-      *codecPayload = malloc(*typedMsgLen);  // allocate memory
-                                           // for codec payload
-      if (*codecPayload == NULL) {
-        ESP_LOGE(TAG,
-                 "couldn't get memory "
-                 "for codec payload");
-
-        return PARSER_CRITICAL_ERROR;
-      }
-
-      *offset = 0;
-
-      parser->typedMsgCurrentPos++;
-      (*start)++;
-      // currentPos++;
-      (*len)--;
-
-      parser->internalState++;
-
-      if (*len == 0) {
-        break;
-      }
-    }
-
-    case 9: {
-      if (*len >= *typedMsgLen) {
-        memcpy(&(*codecPayload)[*offset], *start, *typedMsgLen);
-
-        *offset += *typedMsgLen;
-
-        parser->typedMsgCurrentPos += *typedMsgLen;
-        *start += *typedMsgLen;
-        // currentPos += *typedMsgLen;
-        *len -= *typedMsgLen;
-      } else {
-        memcpy(&(*codecPayload)[*offset], *start, *len);
-
-        *offset += *len;
-
-        parser->typedMsgCurrentPos += *len;
-        *start += *len;
-        // currentPos += *len;
-        *len -= *len;
-      }
-
-      if (*offset == *typedMsgLen) {
-        *received_codec_header = true;
-
-        // parser->typedMsgCurrentPos previously wasn't reset here, but this can be changed without different behavior
-        // because the next base message will reset the parser state anyway.
-        parser_reset_state(parser);
-
-        // Handle codec header payload
-        return PARSER_COMPLETE;
-      }
-
-      break;
-    }
-
-    default: {
-      ESP_LOGE(TAG,
-               "codec header decoder "
-               "shouldn't get here");
-
-      break;
-    }
+parser_return_state_t parse_codec_header_message(
+    snapcast_custom_parser_t* parser, uint32_t* typedMsgLen,
+    bool* received_codec_header, char** codecString, codec_type_t* codec,
+    char** codecPayload) {
+  *received_codec_header = false;
+
+  READ_UINT32_LE(parser, *typedMsgLen);
+
+  if (*codecString) {
+    free(*codecString);
+    *codecString = NULL;
   }
-  return PARSER_INCOMPLETE;
+
+  *codecString = malloc(*typedMsgLen + 1);  // allocate memory for
+                                            // codec string
+  if (*codecString == NULL) {
+    ESP_LOGE(TAG, "couldn't get memory for codec string");
+    return PARSER_CRITICAL_ERROR;
+  }
+
+  READ_DATA(parser, *codecString, *typedMsgLen);
+
+  // NULL terminate string
+  (*codecString)[*typedMsgLen] = 0;
+
+  // ESP_LOGI (TAG, "got codec string: %s", tmp);
+
+  if (strcmp(*codecString, "opus") == 0) {
+    *codec = OPUS;
+  } else if (strcmp(*codecString, "flac") == 0) {
+    *codec = FLAC;
+  } else if (strcmp(*codecString, "pcm") == 0) {
+    *codec = PCM;
+  } else {
+    *codec = NONE;
+
+    ESP_LOGI(TAG, "Codec : %s not supported", *codecString);
+    ESP_LOGI(TAG,
+             "Change encoder codec to "
+             "opus, flac or pcm in "
+             "/etc/snapserver.conf on "
+             "server");
+
+    return PARSER_CRITICAL_ERROR;
+  }
+
+  free(*codecString);
+  *codecString = NULL;
+
+  //
+  READ_UINT32_LE(parser, *typedMsgLen);
+
+  if (*codecPayload) {
+    free(*codecPayload);
+    *codecPayload = NULL;
+  }
+
+  *codecPayload = malloc(*typedMsgLen);  // allocate memory
+                                         // for codec payload
+  if (*codecPayload == NULL) {
+    ESP_LOGE(TAG,
+             "couldn't get memory "
+             "for codec payload");
+
+    return PARSER_CRITICAL_ERROR;
+  }
+
+  READ_DATA(parser, *codecPayload, *typedMsgLen);
+
+  *received_codec_header = true;
+
+  parser_reset_state(parser);
+  return PARSER_COMPLETE;
 }
 
 parser_return_state_t parse_sever_settings_message(

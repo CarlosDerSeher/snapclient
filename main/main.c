@@ -1107,7 +1107,7 @@ int process_data(
           if (result != 0) {
             return -2;  // restart connection
           }
-          switch (parse_codec_header_message(parser, &connection->start, &connection->len, typedMsgLen, offset, received_codec_header,
+          switch (parse_codec_header_message(parser, typedMsgLen, received_codec_header,
                                              codecString, codec, codecPayload)) {
             case PARSER_COMPLETE: {
               if (codec_header_received(codecPayload, *typedMsgLen, *codec, scSet, time_sync_data) != 0) {
@@ -1122,6 +1122,7 @@ int process_data(
               return -2;
             }
             case PARSER_INCOMPLETE: {
+              // should not happen
               // need more data
               break;
             }
