@@ -1054,8 +1054,7 @@ int process_data(
     uint32_t* typedMsgLen,
     char** serverSettingsString,
     char** codecString,
-    char** codecPayload,
-    connection_t* connection
+    char** codecPayload
 ){
 
   switch (parser->state) {
@@ -1076,10 +1075,6 @@ int process_data(
     case TYPED_MESSAGE_STATE: {
       switch (base_message_rx->type) {
         case SNAPCAST_MESSAGE_WIRE_CHUNK: {
-          int result = connection_ensure_byte(connection);
-          if (result != 0) {
-            return -2;  // restart connection
-          }
           switch (parse_wire_chunk_message(parser, base_message_rx,
                                            *received_codec_header, *codec,
                                            pcmData, wire_chnk, decoderChunk)) {
@@ -1104,10 +1099,6 @@ int process_data(
         }
 
         case SNAPCAST_MESSAGE_CODEC_HEADER: {
-          int result = connection_ensure_byte(connection);
-          if (result != 0) {
-            return -2;  // restart connection
-          }
           switch (parse_codec_header_message(parser, typedMsgLen, received_codec_header,
                                              codecString, codec, codecPayload)) {
             case PARSER_COMPLETE: {
@@ -1397,8 +1388,7 @@ static void http_get_task(void *pvParameters) {
       int result = process_data(&parser, &base_message_rx, &time_sync_data, &time_message_rx, 
                                 &received_codec_header, &codec, &scSet, &pcmData, &wire_chnk,
                                 &offset, &payloadOffset, &tmpData, &decoderChunk, &payloadDataShift,
-                                &typedMsgLen, &serverSettingsString, &codecString, &codecPayload,
-                                &connection);
+                                &typedMsgLen, &serverSettingsString, &codecString, &codecPayload);
       if (result == -1) { 
         return;  // critical error in data processing
       } else if (result == -2) {
