@@ -27,13 +27,11 @@ static bool tas5805m_settings_poll_started = false;
 static void tas5805m_poll_for_play_task(void *arg)
 {
     (void)arg;
-    const TickType_t total_timeout = pdMS_TO_TICKS(10000); // 10s total
     const TickType_t poll_interval = pdMS_TO_TICKS(200);
-    TickType_t start = xTaskGetTickCount();
 
-    ESP_LOGI(TAG, "%s: Polling for codec PLAY state (timeout %u ms)", __func__, (unsigned int)pdTICKS_TO_MS(total_timeout));
+    ESP_LOGI(TAG, "%s: Polling for codec PLAY state (no timeout)", __func__);
 
-    while ((xTaskGetTickCount() - start) < total_timeout) {
+    for (;;) {
         TAS5805_STATE st;
         if (tas5805m_get_state(&st) == ESP_OK) {
             if ((st.state & TAS5805M_CTRL_PLAY) == TAS5805M_CTRL_PLAY) {
@@ -49,10 +47,6 @@ static void tas5805m_poll_for_play_task(void *arg)
             }
         }
         vTaskDelay(poll_interval);
-    }
-
-    if (!tas5805m_settings_restored) {
-        ESP_LOGW(TAG, "%s: Timed out waiting for codec PLAY state — persisted settings not applied", __func__);
     }
 
     tas5805m_settings_poll_started = false;
@@ -168,6 +162,41 @@ esp_err_t tas5805m_settings_init(void) {
     }
     
     ESP_LOGI(TAG, "%s: TAS5805M settings manager initialized", __func__);
+    /* Apply settings that are safe to write immediately (don't require the
+       full DAC I2S clocks to be running). These values may be applied by
+       hardware/driver even if the DAC isn't fully started and therefore
+       should be attempted here so UI changes take effect quickly. */
+    {
+        int ana_gain = 0;
+        if (tas5805m_settings_load_analog_gain(&ana_gain) == ESP_OK) {
+            uint8_t gain = (uint8_t)ana_gain;
+            if (tas5805m_set_again(gain) == ESP_OK) {
+                ESP_LOGI(TAG, "%s: Applied persisted analog gain=%d", __func__, gain);
+            } else {
+                ESP_LOGW(TAG, "%s: Failed to apply persisted analog gain=%d", __func__, gain);
+            }
+        }
+
+        TAS5805M_DAC_MODE dm;
+        if (tas5805m_settings_load_dac_mode(&dm) == ESP_OK) {
+            if (tas5805m_set_dac_mode(dm) == ESP_OK) {
+                ESP_LOGI(TAG, "%s: Applied persisted DAC mode=%d", __func__, (int)dm);
+            } else {
+                ESP_LOGW(TAG, "%s: Failed to apply persisted DAC mode=%d", __func__, (int)dm);
+            }
+        }
+
+        TAS5805M_MOD_MODE mm;
+        TAS5805M_SW_FREQ sf;
+        TAS5805M_BD_FREQ bf;
+        if (tas5805m_settings_load_modulation_mode(&mm, &sf, &bf) == ESP_OK) {
+            if (tas5805m_set_modulation_mode(mm, sf, bf) == ESP_OK) {
+                ESP_LOGI(TAG, "%s: Applied persisted modulation mode=%d sw=%d bd=%d", __func__, (int)mm, (int)sf, (int)bf);
+            } else {
+                ESP_LOGW(TAG, "%s: Failed to apply persisted modulation mode=%d sw=%d bd=%d", __func__, (int)mm, (int)sf, (int)bf);
+            }
+        }
+    }
     /* Start polling task to detect codec START/PLAY and apply persisted
        settings once codec is actually running (I2S clocks present). This
        avoids requiring the driver to call into settings directly. */

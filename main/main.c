@@ -2764,8 +2764,8 @@ void app_main(void) {
 
   #ifdef CONFIG_DAC_TAS5805M
   // Apply persisted TAS5805M settings now that the codec has been initialized
-  if (tas5805m_settings_apply_all() != ESP_OK) {
-    ESP_LOGW(TAG, "Failed to apply persisted TAS5805M settings at boot");
+  if (tas5805m_settings_init() != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to init persisted TAS5805M settings");
   }
   #endif
 
