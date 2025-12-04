@@ -13,6 +13,18 @@
 #include "freertos/semphr.h"
 #include "cJSON.h"
 
+/* When EQ support is disabled at build time the driver headers may not
+ * declare EQ-related constants such as TAS5805M_EQ_BANDS. The settings
+ * module intentionally keeps persistence and UI helpers compiled even
+ * when driver EQ support is disabled; provide a safe fallback value so
+ * those helpers still build without pulling in the driver headers.
+ */
+#if !defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+#ifndef TAS5805M_EQ_BANDS
+#define TAS5805M_EQ_BANDS 0
+#endif
+#endif
+
 static const char *TAG = "tas5805m_settings";
 
 // Mutex for thread-safe NVS access
@@ -1622,7 +1634,7 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     cJSON_AddNumberToObject(v_off, "value", (int)TAS5805M_EQ_UI_MODE_OFF);
     cJSON_AddStringToObject(v_off, "name", "OFF");
     cJSON_AddItemToArray(eq_ui_values, v_off);
-
+#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
     cJSON *v_15 = cJSON_CreateObject();
     cJSON_AddNumberToObject(v_15, "value", (int)TAS5805M_EQ_UI_MODE_15_BAND);
     cJSON_AddStringToObject(v_15, "name", "15-band");
@@ -1637,6 +1649,12 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     cJSON_AddNumberToObject(v_preset, "value", (int)TAS5805M_EQ_UI_MODE_PRESETS);
     cJSON_AddStringToObject(v_preset, "name", "EQ Presets");
     cJSON_AddItemToArray(eq_ui_values, v_preset);
+#else
+    /* When EQ support is disabled expose only OFF and mark the control readonly
+     * so the UI shows the section but doesn't allow changing it.
+     */
+    cJSON_AddBoolToObject(eq_ui_param, "readonly", true);
+#endif
 
     cJSON_AddItemToObject(eq_ui_param, "values", eq_ui_values);
     cJSON_AddItemToArray(eq_params, eq_ui_param);
