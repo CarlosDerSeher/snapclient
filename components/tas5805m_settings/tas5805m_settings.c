@@ -1637,6 +1637,7 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     cJSON *eq_group = cJSON_CreateObject();
     cJSON_AddStringToObject(eq_group, "name", "EQ");
     cJSON_AddStringToObject(eq_group, "description", "Equalizer mode");
+    cJSON_AddStringToObject(eq_group, "layout", "eq-controls");
 
     cJSON *eq_params = cJSON_CreateArray();
 
@@ -1792,8 +1793,23 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     cJSON_AddItemToArray(eq_params, prof_r_param);
 #endif
     cJSON_AddItemToObject(eq_group, "parameters", eq_params);
+    cJSON_AddItemToArray(groups, eq_group);
+    
     /* Add per-band sliders for left and right channels (if EQ supported) */
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+    // Create sub-groups for left and right channel EQ bands
+    cJSON *eq_bands_left = cJSON_CreateObject();
+    cJSON_AddStringToObject(eq_bands_left, "name", "Left channel");
+    cJSON_AddStringToObject(eq_bands_left, "layout", "eq-bands");
+    cJSON_AddStringToObject(eq_bands_left, "channel", "left");
+    cJSON *eq_bands_left_params = cJSON_CreateArray();
+
+    cJSON *eq_bands_right = cJSON_CreateObject();
+    cJSON_AddStringToObject(eq_bands_right, "name", "Right Channel");
+    cJSON_AddStringToObject(eq_bands_right, "layout", "eq-bands");
+    cJSON_AddStringToObject(eq_bands_right, "channel", "right");
+    cJSON *eq_bands_right_params = cJSON_CreateArray();
+
     for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
         int cur_l = 0, cur_r = 0;
         // Try to read current value from driver; if unavailable, fall back to persisted NVS value
@@ -1819,37 +1835,44 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
 
         cJSON *param_l = cJSON_CreateObject();
         cJSON_AddStringToObject(param_l, "key", key_l);
-    // Name uses frequency and channel: "<freq> (L)"
-    char name_l[48];
-    snprintf(name_l, sizeof(name_l), "%s (L)", freq_label);
-    cJSON_AddStringToObject(param_l, "name", name_l);
+        cJSON_AddStringToObject(param_l, "name", freq_label);
         cJSON_AddStringToObject(param_l, "type", "range");
         cJSON_AddStringToObject(param_l, "unit", "dB");
         cJSON_AddStringToObject(param_l, "label", freq_label);
+        cJSON_AddStringToObject(param_l, "layout", "vertical");
+        cJSON_AddStringToObject(param_l, "channel", "L");
+        cJSON_AddNumberToObject(param_l, "band", band);
         cJSON_AddNumberToObject(param_l, "min", TAS5805M_EQ_MIN_DB);
         cJSON_AddNumberToObject(param_l, "max", TAS5805M_EQ_MAX_DB);
         cJSON_AddNumberToObject(param_l, "step", 1);
         cJSON_AddNumberToObject(param_l, "default", 0);
         cJSON_AddNumberToObject(param_l, "current", cur_l);
-        cJSON_AddItemToArray(eq_params, param_l);
+        cJSON_AddItemToArray(eq_bands_left_params, param_l);
 
         cJSON *param_r = cJSON_CreateObject();
         cJSON_AddStringToObject(param_r, "key", key_r);
-    char name_r[48];
-    snprintf(name_r, sizeof(name_r), "%s (R)", freq_label);
-    cJSON_AddStringToObject(param_r, "name", name_r);
+        cJSON_AddStringToObject(param_r, "name", freq_label);
         cJSON_AddStringToObject(param_r, "type", "range");
         cJSON_AddStringToObject(param_r, "unit", "dB");
         cJSON_AddStringToObject(param_r, "label", freq_label);
+        cJSON_AddStringToObject(param_r, "layout", "vertical");
+        cJSON_AddStringToObject(param_r, "channel", "R");
+        cJSON_AddNumberToObject(param_r, "band", band);
         cJSON_AddNumberToObject(param_r, "min", TAS5805M_EQ_MIN_DB);
         cJSON_AddNumberToObject(param_r, "max", TAS5805M_EQ_MAX_DB);
         cJSON_AddNumberToObject(param_r, "step", 1);
         cJSON_AddNumberToObject(param_r, "default", 0);
         cJSON_AddNumberToObject(param_r, "current", cur_r);
-        cJSON_AddItemToArray(eq_params, param_r);
+        cJSON_AddItemToArray(eq_bands_right_params, param_r);
     }
+
+    cJSON_AddItemToObject(eq_bands_left, "parameters", eq_bands_left_params);
+    cJSON_AddItemToObject(eq_bands_right, "parameters", eq_bands_right_params);
+    
+    // Add EQ band sub-groups to main groups array (after EQ group)
+    cJSON_AddItemToArray(groups, eq_bands_left);
+    cJSON_AddItemToArray(groups, eq_bands_right);
 #endif
-    cJSON_AddItemToArray(groups, eq_group);
     
     // End groups
     cJSON_AddItemToObject(root, "groups", groups);

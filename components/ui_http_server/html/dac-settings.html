@@ -255,6 +255,82 @@
         transform: scale(0.8);
       }
     }
+
+    /* EQ Bands Layout - Vertical Sliders */
+    .eq-bands-container {
+      display: flex;
+      flex-direction: row;
+      gap: 8px;
+      padding: 20px;
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      overflow-x: auto;
+      margin-bottom: 20px;
+    }
+
+    .eq-band-slider {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-width: 43px;
+      gap: 8px;
+    }
+
+    .eq-band-slider .slider-label {
+      font-size: 11px;
+      color: #666;
+      font-weight: 500;
+      text-align: center;
+      white-space: nowrap;
+      writing-mode: horizontal-tb;
+    }
+
+    .eq-band-slider .slider-value {
+      font-size: 13px;
+      color: #007bff;
+      font-weight: bold;
+      min-height: 20px;
+      text-align: center;
+    }
+
+    .eq-band-slider input[type="range"] {
+      -webkit-appearance: slider-vertical;
+      writing-mode: bt-lr;
+      width: 8px;
+      height: 200px;
+      background: #ddd;
+      border-radius: 4px;
+      outline: none;
+      margin: 10px 0;
+    }
+
+    .eq-band-slider input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #007bff;
+      cursor: pointer;
+    }
+
+    .eq-band-slider input[type="range"]::-moz-range-thumb {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #007bff;
+      cursor: pointer;
+      border: none;
+    }
+
+    .eq-bands-header {
+      font-size: 18px;
+      font-weight: bold;
+      color: #333;
+      margin-bottom: 10px;
+      padding: 0 20px;
+    }
   </style>
 </head>
 <body>
@@ -480,6 +556,64 @@
 
       // Render each group
       for (const group of schema.groups) {
+        // Check if this is an EQ bands group (vertical sliders layout)
+        if (group.layout === 'eq-bands') {
+          // Conditionally show/hide based on uiMode
+          let showGroup = false;
+          if (uiMode === 1 && group.channel === 'left') showGroup = true; // 15-band: left only (shown as "Both channels")
+          if (uiMode === 2) showGroup = true; // 15-band bi-amp: both channels
+          
+          if (!showGroup) continue;
+          
+          // Render EQ bands as vertical sliders
+          const bandsHeader = document.createElement('div');
+          bandsHeader.className = 'eq-bands-header';
+          bandsHeader.textContent = group.name;
+          container.appendChild(bandsHeader);
+          
+          const bandsContainer = document.createElement('div');
+          bandsContainer.className = 'eq-bands-container';
+          
+          for (const param of group.parameters) {
+            const bandSlider = document.createElement('div');
+            bandSlider.className = 'eq-band-slider';
+            
+            const label = document.createElement('div');
+            label.className = 'slider-label';
+            label.textContent = param.name;
+            
+            const slider = document.createElement('input');
+            slider.type = 'range';
+            slider.id = param.key;
+            slider.min = param.min;
+            slider.max = param.max;
+            slider.step = param.step || 1;
+            slider.value = param.current || param.default || 0;
+            slider.orient = 'vertical';
+            
+            const valueDisplay = document.createElement('div');
+            valueDisplay.className = 'slider-value';
+            valueDisplay.id = `${param.key}-value`;
+            valueDisplay.textContent = `${param.current || param.default || 0} ${param.unit || ''}`;
+            
+            slider.addEventListener('input', (e) => {
+              valueDisplay.textContent = `${e.target.value} ${param.unit || ''}`;
+            });
+            
+            slider.addEventListener('change', (e) => {
+              handleParameterChange(param.key, parseInt(e.target.value));
+            });
+            
+            bandSlider.appendChild(label);
+            bandSlider.appendChild(slider);
+            bandSlider.appendChild(valueDisplay);
+            bandsContainer.appendChild(bandSlider);
+          }
+          
+          container.appendChild(bandsContainer);
+          continue; // Skip normal group rendering
+        }
+        
         const groupDiv = document.createElement('div');
         groupDiv.className = 'group-container';
         
@@ -492,6 +626,9 @@
         
         // Render parameters in this group
         for (const param of group.parameters) {
+          // Skip parameters that are now handled by eq-bands layout
+          if (param && param.layout === 'vertical') continue;
+          
           // Conditionally hide/show EQ-related parameters based on uiMode
           if (param && typeof param.key === 'string') {
             // per-band sliders: keys start with 'eq_gain_'
