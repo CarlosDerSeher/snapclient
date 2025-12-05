@@ -5,6 +5,8 @@
 
 #include "tas5805m_settings.h"
 
+#if CONFIG_DAC_TAS5805M
+
 #include <string.h>
 #include "esp_log.h"
 #include "nvs_flash.h"
@@ -47,13 +49,13 @@ static void tas5805m_poll_for_play_task(void *arg)
         TAS5805_STATE st;
         if (tas5805m_get_state(&st) == ESP_OK) {
             if ((st.state & TAS5805M_CTRL_PLAY) == TAS5805M_CTRL_PLAY) {
-                ESP_LOGI(TAG, "%s: Codec entered PLAY — applying persisted settings", __func__);
-                // Call apply_all (it is safe to call from task context)
-                esp_err_t r = tas5805m_settings_apply_all();
+                ESP_LOGI(TAG, "%s: Codec entered PLAY — applying delayed persisted settings", __func__);
+                // Call delayed apply (requires codec to be running)
+                esp_err_t r = tas5805m_settings_apply_delayed();
                 if (r == ESP_OK) {
                     tas5805m_settings_restored = true;
                 } else {
-                    ESP_LOGW(TAG, "%s: tas5805m_settings_apply_all() returned %s", __func__, esp_err_to_name(r));
+                    ESP_LOGW(TAG, "%s: tas5805m_settings_apply_delayed() returned %s", __func__, esp_err_to_name(r));
                 }
                 break;
             }
@@ -174,40 +176,11 @@ esp_err_t tas5805m_settings_init(void) {
     }
     
     ESP_LOGI(TAG, "%s: TAS5805M settings manager initialized", __func__);
-    /* Apply settings that are safe to write immediately (don't require the
-       full DAC I2S clocks to be running). These values may be applied by
-       hardware/driver even if the DAC isn't fully started and therefore
-       should be attempted here so UI changes take effect quickly. */
-    {
-        int ana_gain = 0;
-        if (tas5805m_settings_load_analog_gain(&ana_gain) == ESP_OK) {
-            uint8_t gain = (uint8_t)ana_gain;
-            if (tas5805m_set_again(gain) == ESP_OK) {
-                ESP_LOGI(TAG, "%s: Applied persisted analog gain=%d", __func__, gain);
-            } else {
-                ESP_LOGW(TAG, "%s: Failed to apply persisted analog gain=%d", __func__, gain);
-            }
-        }
-
-        TAS5805M_DAC_MODE dm;
-        if (tas5805m_settings_load_dac_mode(&dm) == ESP_OK) {
-            if (tas5805m_set_dac_mode(dm) == ESP_OK) {
-                ESP_LOGI(TAG, "%s: Applied persisted DAC mode=%d", __func__, (int)dm);
-            } else {
-                ESP_LOGW(TAG, "%s: Failed to apply persisted DAC mode=%d", __func__, (int)dm);
-            }
-        }
-
-        TAS5805M_MOD_MODE mm;
-        TAS5805M_SW_FREQ sf;
-        TAS5805M_BD_FREQ bf;
-        if (tas5805m_settings_load_modulation_mode(&mm, &sf, &bf) == ESP_OK) {
-            if (tas5805m_set_modulation_mode(mm, sf, bf) == ESP_OK) {
-                ESP_LOGI(TAG, "%s: Applied persisted modulation mode=%d sw=%d bd=%d", __func__, (int)mm, (int)sf, (int)bf);
-            } else {
-                ESP_LOGW(TAG, "%s: Failed to apply persisted modulation mode=%d sw=%d bd=%d", __func__, (int)mm, (int)sf, (int)bf);
-            }
-        }
+    /* Apply early settings that are safe to write before the codec starts
+       (DAC mode, analog gain, modulation mode, mixer mode). Use the
+       dedicated helper so callers and init share the same behavior. */
+    if (tas5805m_settings_apply_early() != ESP_OK) {
+        ESP_LOGD(TAG, "%s: Early settings apply reported errors (continuing)", __func__);
     }
     /* Start polling task to detect codec START/PLAY and apply persisted
        settings once codec is actually running (I2S clocks present). This
@@ -844,21 +817,51 @@ esp_err_t tas5805m_settings_get_json(char *json_out, size_t max_len) {
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
     {
         TAS5805M_EQ_PROFILE prof_l = FLAT, prof_r = FLAT;
-        if (tas5805m_get_eq_profile_channel(TAS5805M_EQ_CHANNELS_LEFT, &prof_l) == ESP_OK) {
-            cJSON_AddNumberToObject(root, "eq_profile_l", (int)prof_l);
-        }
-        if (tas5805m_get_eq_profile_channel(TAS5805M_EQ_CHANNELS_RIGHT, &prof_r) == ESP_OK) {
-            cJSON_AddNumberToObject(root, "eq_profile_r", (int)prof_r);
-        }
+        if (tas5805m_settings_restored) {
+            if (tas5805m_get_eq_profile_channel(TAS5805M_EQ_CHANNELS_LEFT, &prof_l) == ESP_OK) {
+                cJSON_AddNumberToObject(root, "eq_profile_l", (int)prof_l);
+            } else {
+                if (tas5805m_settings_load_eq_profile(TAS5805M_EQ_CHANNELS_LEFT, &prof_l) == ESP_OK) {
+                    cJSON_AddNumberToObject(root, "eq_profile_l", (int)prof_l);
+                }
+            }
 
-        /* Channel gain (left/right) for presets UI */
-        int ch_gain = 0;
-        int8_t chg = 0;
-        if (tas5805m_get_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, &chg) == ESP_OK) {
-            cJSON_AddNumberToObject(root, "channel_gain_l", (int)chg);
-        }
-        if (tas5805m_get_channel_gain(TAS5805M_EQ_CHANNELS_RIGHT, &chg) == ESP_OK) {
-            cJSON_AddNumberToObject(root, "channel_gain_r", (int)chg);
+            if (tas5805m_get_eq_profile_channel(TAS5805M_EQ_CHANNELS_RIGHT, &prof_r) == ESP_OK) {
+                cJSON_AddNumberToObject(root, "eq_profile_r", (int)prof_r);
+            } else {
+                if (tas5805m_settings_load_eq_profile(TAS5805M_EQ_CHANNELS_RIGHT, &prof_r) == ESP_OK) {
+                    cJSON_AddNumberToObject(root, "eq_profile_r", (int)prof_r);
+                }
+            }
+
+            /* Channel gain (left/right) for presets UI */
+            int ch_gain = 0;
+            int8_t chg = 0;
+            if (tas5805m_get_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, &chg) == ESP_OK) {
+                cJSON_AddNumberToObject(root, "channel_gain_l", (int)chg);
+            } else if (tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, &ch_gain) == ESP_OK) {
+                cJSON_AddNumberToObject(root, "channel_gain_l", (int)ch_gain);
+            }
+            if (tas5805m_get_channel_gain(TAS5805M_EQ_CHANNELS_RIGHT, &chg) == ESP_OK) {
+                cJSON_AddNumberToObject(root, "channel_gain_r", (int)chg);
+            } else if (tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS_RIGHT, &ch_gain) == ESP_OK) {
+                cJSON_AddNumberToObject(root, "channel_gain_r", (int)ch_gain);
+            }
+        } else {
+            /* Not restored yet — use persisted values from NVS so UI reflects saved settings */
+            if (tas5805m_settings_load_eq_profile(TAS5805M_EQ_CHANNELS_LEFT, &prof_l) == ESP_OK) {
+                cJSON_AddNumberToObject(root, "eq_profile_l", (int)prof_l);
+            }
+            if (tas5805m_settings_load_eq_profile(TAS5805M_EQ_CHANNELS_RIGHT, &prof_r) == ESP_OK) {
+                cJSON_AddNumberToObject(root, "eq_profile_r", (int)prof_r);
+            }
+            int ch_gain = 0;
+            if (tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, &ch_gain) == ESP_OK) {
+                cJSON_AddNumberToObject(root, "channel_gain_l", (int)ch_gain);
+            }
+            if (tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS_RIGHT, &ch_gain) == ESP_OK) {
+                cJSON_AddNumberToObject(root, "channel_gain_r", (int)ch_gain);
+            }
         }
     }
 #endif
@@ -866,19 +869,42 @@ esp_err_t tas5805m_settings_get_json(char *json_out, size_t max_len) {
     cJSON_AddNumberToObject(root, "mixer_mode", (int)dac_state.mixer_mode);
     cJSON_AddStringToObject(root, "mixer_mode_name", tas5805m_mixer_mode_to_string(dac_state.mixer_mode));
 
-    /* Per-band EQ gains (left/right) so UI can display current values without refresh */
+    /* Per-band EQ gains (left/right) so UI can display current values without refresh.
+     * Prefer reading current driver state; if driver isn't ready or returns an error
+     * fall back to persisted values from NVS so the UI reflects saved settings.
+     */
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
     for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
         int gain = 0;
-        if (tas5805m_get_eq_gain_channel(TAS5805M_EQ_CHANNELS_LEFT, band, &gain) == ESP_OK) {
-            char key_l[32];
-            snprintf(key_l, sizeof(key_l), "%s%d", TAS5805M_NVS_KEY_EQ_GAIN_L_PREFIX, band);
-            cJSON_AddNumberToObject(root, key_l, gain);
-        }
-        if (tas5805m_get_eq_gain_channel(TAS5805M_EQ_CHANNELS_RIGHT, band, &gain) == ESP_OK) {
-            char key_r[32];
-            snprintf(key_r, sizeof(key_r), "%s%d", TAS5805M_NVS_KEY_EQ_GAIN_R_PREFIX, band);
-            cJSON_AddNumberToObject(root, key_r, gain);
+        char key_l[32];
+        char key_r[32];
+        snprintf(key_l, sizeof(key_l), "%s%d", TAS5805M_NVS_KEY_EQ_GAIN_L_PREFIX, band);
+        snprintf(key_r, sizeof(key_r), "%s%d", TAS5805M_NVS_KEY_EQ_GAIN_R_PREFIX, band);
+
+        if (tas5805m_settings_restored) {
+            // Left channel: prefer driver value, otherwise load persisted NVS value
+            if (tas5805m_get_eq_gain_channel(TAS5805M_EQ_CHANNELS_LEFT, band, &gain) == ESP_OK) {
+                cJSON_AddNumberToObject(root, key_l, gain);
+            } else if (tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_LEFT, band, &gain) == ESP_OK) {
+                cJSON_AddNumberToObject(root, key_l, gain);
+            }
+
+            // Right channel: prefer driver value, otherwise load persisted NVS value
+            gain = 0;
+            if (tas5805m_get_eq_gain_channel(TAS5805M_EQ_CHANNELS_RIGHT, band, &gain) == ESP_OK) {
+                cJSON_AddNumberToObject(root, key_r, gain);
+            } else if (tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_RIGHT, band, &gain) == ESP_OK) {
+                cJSON_AddNumberToObject(root, key_r, gain);
+            }
+        } else {
+            /* Not yet restored; use persisted values only */
+            if (tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_LEFT, band, &gain) == ESP_OK) {
+                cJSON_AddNumberToObject(root, key_l, gain);
+            }
+            gain = 0;
+            if (tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_RIGHT, band, &gain) == ESP_OK) {
+                cJSON_AddNumberToObject(root, key_r, gain);
+            }
         }
     }
 #endif
@@ -905,12 +931,12 @@ esp_err_t tas5805m_settings_get_json(char *json_out, size_t max_len) {
     json_out[max_len - 1] = '\0';
     cJSON_free(json_str);
 
-    ESP_LOGD(TAG, "%s: JSON generated: %s", __func__, json_out);
+    ESP_LOGV(TAG, "%s: JSON generated: %s", __func__, json_out);
     return ESP_OK;
 }
 
 esp_err_t tas5805m_settings_set_from_json(const char *json_in) {
-    ESP_LOGD(TAG, "%s: json=%s", __func__, json_in);
+    ESP_LOGV(TAG, "%s: json=%s", __func__, json_in);
     
     if (!json_in) return ESP_ERR_INVALID_ARG;
 
@@ -1087,6 +1113,13 @@ esp_err_t tas5805m_settings_set_from_json(const char *json_in) {
         esp_err_t serr = tas5805m_set_eq_mode(drv);
         if (serr == ESP_OK) {
             ESP_LOGI(TAG, "%s: Applied driver EQ mode %d for UI selection %d", __func__, (int)drv, (int)ui);
+            /* Persist the mapped driver EQ mode as well so both UI and driver
+             * mode remain consistent across reboots.
+             */
+            esp_err_t perr = tas5805m_settings_save_eq_mode(drv);
+            if (perr != ESP_OK) {
+                ESP_LOGW(TAG, "%s: Failed to persist driver EQ mode: %s", __func__, esp_err_to_name(perr));
+            }
         } else {
             ESP_LOGE(TAG, "%s: Failed to set driver EQ mode: %s", __func__, esp_err_to_name(serr));
         }
@@ -1763,11 +1796,16 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
     for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
         int cur_l = 0, cur_r = 0;
+        // Try to read current value from driver; if unavailable, fall back to persisted NVS value
         if (tas5805m_get_eq_gain_channel(TAS5805M_EQ_CHANNELS_LEFT, band, &cur_l) != ESP_OK) {
-            cur_l = 0;
+            if (tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_LEFT, band, &cur_l) != ESP_OK) {
+                cur_l = 0;
+            }
         }
         if (tas5805m_get_eq_gain_channel(TAS5805M_EQ_CHANNELS_RIGHT, band, &cur_r) != ESP_OK) {
-            cur_r = 0;
+            if (tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_RIGHT, band, &cur_r) != ESP_OK) {
+                cur_r = 0;
+            }
         }
 
         char key_l[32];
@@ -1842,19 +1880,13 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     return ESP_OK;
 }
 
-esp_err_t tas5805m_settings_apply_all(void) {
-    ESP_LOGI(TAG, "%s: Applying persisted TAS5805M settings from NVS", __func__);
-
-    // Ensure settings manager is initialized
-    esp_err_t err = tas5805m_settings_init();
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "%s: settings init failed: %s", __func__, esp_err_to_name(err));
-        // continue; we'll still try to load values
-    }
-
-    // NOTE: DAC state and digital volume are intentionally NOT restored here
-    // because they are considered application-managed/read-only and should not
-    // be persisted/restored automatically at boot.
+/* Apply early settings that are safe to write before audio playback starts.
+ * This includes: analog gain, DAC mode, modulation mode, mixer mode.
+ */
+esp_err_t tas5805m_settings_apply_early(void) {
+    ESP_LOGI(TAG, "%s: Applying early TAS5805M settings from NVS", __func__);
+    // NOTE: don't call tas5805m_settings_init() here to avoid recursion; caller
+    // should ensure init() has been called.
 
     // Apply analog gain (raw register index)
     int ana_gain = 0;
@@ -1885,7 +1917,17 @@ esp_err_t tas5805m_settings_apply_all(void) {
             ESP_LOGW(TAG, "%s: Failed to apply saved modulation mode", __func__);
         }
     }
+    
+    ESP_LOGI(TAG, "%s: Early persisted settings application complete", __func__);
+    return ESP_OK;
+}
 
+/* Apply settings that require the codec to be running (delayed restore).
+* This restores EQ mode, per-band gains, profiles and channel gains.
+*/
+esp_err_t tas5805m_settings_apply_delayed(void) {
+    ESP_LOGI(TAG, "%s: Applying delayed TAS5805M settings from NVS", __func__);
+    
     // Apply mixer mode
     TAS5805M_MIXER_MODE mixer_mode;
     if (tas5805m_settings_load_mixer_mode(&mixer_mode) == ESP_OK) {
@@ -1895,17 +1937,16 @@ esp_err_t tas5805m_settings_apply_all(void) {
         }
     }
 
-    // Apply EQ mode (if persisted)
-    TAS5805M_EQ_MODE eq_mode;
+    TAS5805M_EQ_MODE eq_mode = TAS5805M_EQ_MODE_OFF;
     if (tas5805m_settings_load_eq_mode(&eq_mode) == ESP_OK) {
         ESP_LOGI(TAG, "%s: Restoring EQ mode=%d", __func__, (int)eq_mode);
-#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+    #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
         if (tas5805m_set_eq_mode(eq_mode) != ESP_OK) {
             ESP_LOGW(TAG, "%s: Failed to apply saved EQ mode", __func__);
         }
-#else
+    #else
         ESP_LOGW(TAG, "%s: EQ support disabled in build; ignoring persisted EQ mode", __func__);
-#endif
+    #endif
     }
 
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
@@ -1990,6 +2031,8 @@ esp_err_t tas5805m_settings_apply_all(void) {
     }
 #endif
 
-    ESP_LOGI(TAG, "%s: Persisted settings application complete", __func__);
+    ESP_LOGI(TAG, "%s: Delayed persisted settings application complete", __func__);
     return ESP_OK;
 }
+
+#endif /* CONFIG_DAC_TAS5805M */

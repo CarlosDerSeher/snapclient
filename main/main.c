@@ -58,7 +58,9 @@
 #include "snapcast.h"
 #include "ui_http_server.h"
 #include "settings_manager.h"
+#if CONFIG_DAC_TAS5805M
 #include "tas5805m_settings.h"
+#endif
 
 static bool isCachedChunk = false;
 static uint32_t cachedBlocks = 0;
@@ -2626,7 +2628,7 @@ void app_main(void) {
   esp_log_level_set("httpd_uri", ESP_LOG_WARN);
   esp_log_level_set("UI_HTTP", ESP_LOG_WARN);
   esp_log_level_set("TAS5805M", ESP_LOG_DEBUG);
-  esp_log_level_set("tas5805m_settings", ESP_LOG_INFO);
+  esp_log_level_set("tas5805m_settings", ESP_LOG_DEBUG);
 
 #if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
     CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
@@ -2762,7 +2764,7 @@ void app_main(void) {
   init_snapcast(audioQHdl);
   init_player(i2s_pin_config0, I2S_NUM_0);
 
-  #ifdef CONFIG_DAC_TAS5805M
+  #if CONFIG_DAC_TAS5805M
   // Apply persisted TAS5805M settings now that the codec has been initialized
   if (tas5805m_settings_init() != ESP_OK) {
     ESP_LOGW(TAG, "Failed to init persisted TAS5805M settings");

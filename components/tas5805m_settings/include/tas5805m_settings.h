@@ -18,6 +18,8 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 
+#if CONFIG_DAC_TAS5805M
+
 #include "tas5805m_types.h"
 #include "tas5805m.h"
 
@@ -132,7 +134,17 @@ esp_err_t tas5805m_settings_set_from_json(const char *json_in);
 esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len);
 
 /** Apply all persisted TAS5805M settings from NVS to the hardware. */
-esp_err_t tas5805m_settings_apply_all(void);
+/** Apply settings that are safe to write immediately (before audio playback).
+ *  Examples: DAC mode, analog gain, modulation mode, mixer mode.
+ */
+esp_err_t tas5805m_settings_apply_early(void);
+
+/** Apply settings that require the codec to be running (delayed restore),
+ *  e.g. EQ mode, per-band gains, EQ profiles and channel gains.
+ */
+esp_err_t tas5805m_settings_apply_delayed(void);
+
+#endif /* CONFIG_DAC_TAS5805M */
 
 #ifdef __cplusplus
 }
