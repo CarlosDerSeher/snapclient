@@ -176,7 +176,7 @@ Configure to match your setup
     - Maximum retry: Use 0 for no limit.
   - <b>Snapclient configuration :</b>
     - Use mDNS : The client will search on the network for the snapserver automatically. Your network must support mDNS.
-    - Snapserver host : IP or URL of the server if mDNS is disabled or the mDNS resolution fail.
+    - Snapserver host : IP address of the server if mDNS is disabled or the mDNS resolution fails.
     - Snapserver port :  Port of your snapserver, default is 1704.
     - Snapclient name : The name under which your ESP will appear on the Snapserver.
     - HTTP Server Setting : The ESP creates a basic webpage. You can configure the port to view this page and configure the DSP.
