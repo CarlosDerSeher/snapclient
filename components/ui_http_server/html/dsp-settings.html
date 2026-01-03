@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP32 Snapclient DSP Control</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="index.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 20px auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+
+    h1 {
+      color: #333;
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    .flow-selector {
+      margin: 20px 0;
+      padding: 15px;
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .flow-selector label {
+      font-weight: bold;
+      margin-right: 10px;
+    }
+
+    .flow-selector select {
+      padding: 8px 12px;
+      font-size: 16px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+    }
+
+    .parameters-container {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .parameter-control {
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .parameter-control label {
+      display: block;
+      font-weight: bold;
+      margin-bottom: 10px;
+      color: #333;
+    }
+
+    .parameter-control .param-info {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .parameter-control .param-name {
+      font-size: 16px;
+    }
+
+    .parameter-control .param-value {
+      font-size: 18px;
+      color: #007bff;
+      font-weight: bold;
+    }
+
+    .parameter-control input[type="range"] {
+      width: 100%;
+      height: 8px;
+      border-radius: 4px;
+      background: #ddd;
+      outline: none;
+      -webkit-appearance: none;
+    }
+
+    .parameter-control input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #007bff;
+      cursor: pointer;
+    }
+
+    .parameter-control input[type="range"]::-moz-range-thumb {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #007bff;
+      cursor: pointer;
+    }
+
+    .parameter-control .range-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #666;
+      margin-top: 5px;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+    }
+
+    .error {
+      background-color: #f8d7da;
+      color: #721c24;
+      padding: 15px;
+      border-radius: 4px;
+      margin: 20px 0;
+    }
+
+    .flow-description {
+      font-size: 14px;
+      color: #666;
+      margin-top: 5px;
+      font-style: italic;
+    }
+
+    .no-parameters {
+      text-align: center;
+      padding: 20px;
+      color: #666;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <h1>DSP Settings</h1>
+  
+  <div id="app">
+    <div class="loading">Loading DSP capabilities...</div>
+  </div>
+
+  <script>
+    'use strict';
+
+    let capabilities = null;
+    let currentFlow = null;
+
+    // Fetch DSP settings from the device
+    async function loadCapabilities() {
+      try {
+        const response = await getRequest('/capabilities?tab=dsp');
+        if (!response.ok) {
+          throw new Error('Failed to fetch DSP settings');
+        }
+        capabilities = await response.json();
+        
+        // Map active_flow number to flow ID
+        const flowMap = ['dspfStereo', 'dspfBiamp', 'dspf2DOT1', 'dspfFunkyHonda', 'dspfBassBoost', 'dspfEQBassTreble'];
+        currentFlow = flowMap[capabilities.active_flow] || 'dspfStereo';
+        
+        renderUI();
+      } catch (error) {
+        console.error('Error loading DSP settings:', error);
+        document.getElementById('app').innerHTML = 
+          '<div class="error">Error loading DSP settings. Please refresh the page.</div>';
+      }
+    }
+
+    // Render the complete UI based on capabilities
+    async function renderUI() {
+      const app = document.getElementById('app');
+      
+      // Create flow selector
+      let html = '<div class="flow-selector">';
+      html += '<label for="flow-select">DSP Mode:</label>';
+      html += '<select id="flow-select" onchange="handleFlowChange(this.value)">';
+      
+      for (const flow of capabilities.flows) {
+        const selected = flow.id === currentFlow ? 'selected' : '';
+        html += `<option value="${flow.id}" ${selected}>${flow.name}</option>`;
+      }
+      
+      html += '</select>';
+      
+      // Add flow description
+      const selectedFlow = capabilities.flows.find(f => f.id === currentFlow);
+      if (selectedFlow && selectedFlow.description) {
+        html += `<div class="flow-description">${selectedFlow.description}</div>`;
+      }
+      
+      html += '</div>';
+
+      // Create parameters container
+      html += '<div class="parameters-container" id="parameters"></div>';
+      
+      app.innerHTML = html;
+
+      // Render parameters for current flow
+      renderParameters();
+    }
+
+    // Render parameters for the currently selected flow
+    function renderParameters() {
+      const container = document.getElementById('parameters');
+      const selectedFlow = capabilities.flows.find(f => f.id === currentFlow);
+      
+      if (!selectedFlow || selectedFlow.parameters.length === 0) {
+        container.innerHTML = '<div class="no-parameters">This mode has no adjustable parameters.</div>';
+        return;
+      }
+
+      container.innerHTML = '';
+
+      // Create controls for each parameter
+      for (const param of selectedFlow.parameters) {
+        const value = param.current !== undefined ? param.current : param.default;
+        
+        const controlDiv = document.createElement('div');
+        controlDiv.className = 'parameter-control';
+        
+        let html = '<div class="param-info">';
+        html += `<span class="param-name">${param.name}</span>`;
+        html += `<span class="param-value" id="${param.key}-value">${value.toFixed(1)} ${param.unit}</span>`;
+        html += '</div>';
+        
+        const step = param.step || 1;
+        html += `<input type="range" 
+                  id="${param.key}" 
+                  min="${param.min}" 
+                  max="${param.max}" 
+                  step="${step}" 
+                  value="${value}"
+                  oninput="handleParameterChange('${param.key}', this.value, '${param.unit}')"
+                  aria-label="${param.name}">`;
+        html += '<div class="range-labels">';
+        html += `<span>${param.min} ${param.unit}</span>`;
+        html += `<span>${param.max} ${param.unit}</span>`;
+        html += '</div>';
+        
+        controlDiv.innerHTML = html;
+        container.appendChild(controlDiv);
+      }
+    }
+
+    // Handle parameter value changes
+    function handleParameterChange(paramKey, value, unit) {
+      const valueSpan = document.getElementById(`${paramKey}-value`);
+      if (valueSpan) {
+        valueSpan.textContent = `${parseFloat(value).toFixed(1)} ${unit}`;
+      }
+      setParameter(paramKey, Math.round(value));
+    }
+
+    // Handle DSP flow changes
+    async function handleFlowChange(newFlowId) {
+      currentFlow = newFlowId;
+      
+      // Update flow description
+      const selectedFlow = capabilities.flows.find(f => f.id === newFlowId);
+      const flowSelector = document.querySelector('.flow-selector');
+      const existingDesc = flowSelector.querySelector('.flow-description');
+      
+      if (existingDesc) {
+        existingDesc.remove();
+      }
+      
+      if (selectedFlow && selectedFlow.description) {
+        const descDiv = document.createElement('div');
+        descDiv.className = 'flow-description';
+        descDiv.textContent = selectedFlow.description;
+        flowSelector.appendChild(descDiv);
+      }
+
+      // Use enum_value from the flow object
+      if (selectedFlow && selectedFlow.enum_value !== undefined) {
+        await setParameter('dspFlow', selectedFlow.enum_value);
+      }
+      
+      // Re-render parameters for new flow
+      renderParameters();
+    }
+
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', loadCapabilities);
+  </script>
+</body>
+</html>

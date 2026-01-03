@@ -6,15 +6,8 @@ extern "C" {
 #endif
 
 #include "esp_err.h"
-
-typedef enum dspFlows {
-  dspfStereo,
-  dspfBiamp,
-  dspf2DOT1,
-  dspfFunkyHonda,
-  dspfBassBoost,
-  dspfEQBassTreble,
-} dspFlows_t;
+#include "dsp_types.h"
+#include "freertos/FreeRTOS.h"
 
 enum filtertypes {
   LPF,
@@ -29,44 +22,30 @@ enum filtertypes {
   HIGHSHELF
 };
 
-// Each audio processor node consist of a data struct holding the
-// required weights and states for processing an automomous processing
-// function. The high level parameters is maintained in the structure
-// as well
-// Process node
-typedef struct ptype {
-  int filtertype;
-  float freq;
-  float gain;
-  float q;
-  float *in, *out;
-  float coeffs[5];
-  float w[2];
-} ptype_t;
-
-// used to dynamically change used filters and their parameters
-typedef struct filterParams_s {
-  dspFlows_t dspFlow;
-  float fc_1;
-  float gain_1;
-  float fc_2;
-  float gain_2;
-  float fc_3;
-  float gain_3;
-} filterParams_t;
-
-// TODO: this is unused, remove???
-// Process flow
-typedef struct pnode {
-  ptype_t process;
-  struct pnode *next;
-} pnode_t;
 
 void dsp_processor_init(void);
 void dsp_processor_uninit(void);
 int dsp_processor_worker(void *pcmChnk, const void *scSet);
 esp_err_t dsp_processor_update_filter_params(filterParams_t *params);
+
 void dsp_processor_set_volome(double volume);
+
+/**
+ * Set parameters for a specific flow (without switching to it)
+ * This allows updating parameters for a flow that's not currently active
+ * @param flow The DSP flow to set parameters for
+ * @param params The parameters to set
+ * @return ESP_OK on success
+ */
+esp_err_t dsp_processor_set_params_for_flow(dspFlows_t flow, const filterParams_t *params);
+
+/**
+ * Switch to a different DSP flow
+ * This activates the flow and applies its stored parameters
+ * @param flow The DSP flow to switch to
+ * @return ESP_OK on success
+ */
+esp_err_t dsp_processor_switch_flow(dspFlows_t flow);
 
 #ifdef __cplusplus
 }

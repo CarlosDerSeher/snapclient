@@ -5,15 +5,26 @@
 extern "C" {
 #endif
 
+#include <stdint.h>
+#include <esp_err.h>
+
 void init_http_server_task(void);
 
 typedef struct {
-  char str_value[8];
-  long long_value;
-  float gain_1;
-  float gain_2;
-  float gain_3;
+  char key[16];
+  int32_t int_value;
 } URL_t;
+
+/*
+ * Save a single integer parameter to NVS under namespace "ui_http".
+ */
+esp_err_t ui_http_save_param(const char *name, int32_t value);
+
+/*
+ * Load a single integer parameter from NVS. Returns ESP_OK on success or
+ * ESP_ERR_NVS_NOT_FOUND if not present.
+ */
+esp_err_t ui_http_load_param(const char *name, int32_t *value);
 
 #ifdef __cplusplus
 }
