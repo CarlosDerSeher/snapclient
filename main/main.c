@@ -45,6 +45,7 @@
 #include "driver/i2s_std.h"
 #if CONFIG_USE_DSP_PROCESSOR
 #include "dsp_processor.h"
+#include "dsp_processor_settings.h"
 #endif
 
 // Opus decoder is implemented as a subcomponet from master git repo
@@ -56,6 +57,7 @@
 #include "player.h"
 #include "snapcast.h"
 #include "ui_http_server.h"
+#include "settings_manager.h"
 
 static bool isCachedChunk = false;
 static uint32_t cachedBlocks = 0;
@@ -92,13 +94,6 @@ TaskHandle_t t_http_get_task = NULL;
 
 struct timeval tdif, tavg;
 
-/* snapast parameters; configurable in menuconfig */
-#define SNAPCAST_SERVER_USE_MDNS CONFIG_SNAPSERVER_USE_MDNS
-#if !SNAPCAST_SERVER_USE_MDNS
-#define SNAPCAST_SERVER_HOST CONFIG_SNAPSERVER_HOST
-#define SNAPCAST_SERVER_PORT CONFIG_SNAPSERVER_PORT
-#endif
-#define SNAPCAST_CLIENT_NAME CONFIG_SNAPCLIENT_NAME
 #define SNAPCAST_USE_SOFT_VOL CONFIG_SNAPCLIENT_USE_SOFT_VOL
 
 /* Logging tag */
@@ -108,21 +103,6 @@ static const char *TAG = "SC";
 SemaphoreHandle_t timeSyncSemaphoreHandle = NULL;
 
 SemaphoreHandle_t idCounterSemaphoreHandle = NULL;
-
-#if CONFIG_USE_DSP_PROCESSOR
-#if CONFIG_SNAPCLIENT_DSP_FLOW_STEREO
-dspFlows_t dspFlow = dspfStereo;
-#endif
-#if CONFIG_SNAPCLIENT_DSP_FLOW_BASSBOOST
-dspFlows_t dspFlow = dspfBassBoost;
-#endif
-#if CONFIG_SNAPCLIENT_DSP_FLOW_BIAMP
-dspFlows_t dspFlow = dspfBiamp;
-#endif
-#if CONFIG_SNAPCLIENT_DSP_FLOW_BASS_TREBLE_EQ
-dspFlows_t dspFlow = dspfEQBassTreble;
-#endif
-#endif
 
 typedef struct audioDACdata_s {
   bool mute;
@@ -462,10 +442,10 @@ static void http_get_task(void *pvParameters) {
   hello_message_t hello_message;
   wire_chunk_message_t wire_chnk = {{0, 0}, 0, NULL};
   char *hello_message_serialized = NULL;
+  static char device_hostname[64] = {0};  // Buffer for hostname
   int result;
   int64_t now, trx, tdif, ttx;
   time_message_t time_message_rx = {{0, 0}};
-  client_info_t clientInfo = {0, 0};
   int64_t tmpDiffToServer;
   int64_t lastTimeSync = 0;
   esp_timer_handle_t timeSyncMessageTimer = NULL;
@@ -484,7 +464,6 @@ static void http_get_task(void *pvParameters) {
   char *codecString = NULL;
   char *codecPayload = NULL;
   char *serverSettingsString = NULL;
-  int connected_interface = -1;
   esp_netif_t *netif = NULL;
 
   // create a timer to send time sync messages every x µs
@@ -497,17 +476,12 @@ static void http_get_task(void *pvParameters) {
     return;
   }
 
-#if CONFIG_SNAPCLIENT_USE_MDNS
-  ESP_LOGI(TAG, "Enable mdns");
-  mdns_init();
-#endif
 
   while (1) {
     // do some house keeping
     {
       esp_timer_stop(timeSyncMessageTimer);
 
-      connected_interface = -1;
       received_header = false;
       timeout = FAST_SYNC_LATENCY_BUF;
 
@@ -587,77 +561,114 @@ static void http_get_task(void *pvParameters) {
       vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
-#if SNAPCAST_SERVER_USE_MDNS
-    // Find snapcast server
-    // Connect to first snapcast server found
-    r = NULL;
-    err = 0;
-    while (!r || err) {
-      ESP_LOGI(TAG, "Lookup snapcast service on network");
-      esp_err_t err = mdns_query_ptr("_snapcast", "_tcp", 3000, 20, &r);
-      if (err) {
-        ESP_LOGE(TAG, "Query Failed");
-        vTaskDelay(pdMS_TO_TICKS(1000));
-      }
-
-      if (!r) {
-        ESP_LOGW(TAG, "No results found!");
-        vTaskDelay(pdMS_TO_TICKS(1000));
-      }
+    /* Decide at runtime whether to use mDNS or static server config.
+     * The settings_manager holds the mdns flag and optional server host/port.
+     */
+    ip_addr_t remote_ip;
+    bool use_mdns = true;
+    if (settings_get_mdns_enabled(&use_mdns) != ESP_OK) {
+      use_mdns = true; // default to mdns if error
     }
 
-    ESP_LOGI(TAG, "\n~~~~~~~~~~ MDNS Query success ~~~~~~~~~~");
-    mdns_print_results(r);
-    ESP_LOGI(TAG, "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
-
-    ip_addr_t remote_ip;
-    mdns_result_t *re = r;
-    while (re) {
-      mdns_ip_addr_t *a = re->addr;
-#if CONFIG_SNAPCLIENT_CONNECT_IPV6
-      if (a->addr.type == IPADDR_TYPE_V6) {
-        netif = re->esp_netif;
-        break;
-      }
-
-      // TODO: fall back to IPv4 if no IPv6 was available
-#else
-      if (a->addr.type == IPADDR_TYPE_V4) {
-        netif = re->esp_netif;
-        break;
-      }
+#ifndef CONFIG_SNAPSERVER_USE_MDNS
+    if (use_mdns) {
+      ESP_LOGW(TAG, "mDNS requested in settings but not compiled in; falling back to static server settings");
+      use_mdns = false;
+    }
 #endif
 
-      re = re->next;
-    }
+    if (use_mdns) {
+    #if CONFIG_SNAPSERVER_USE_MDNS
+      ESP_LOGI(TAG, "Enable mdns");
+      mdns_init();
+    #endif
+      // Find snapcast server via mDNS
+      r = NULL;
+      err = 0;
+      while (!r || err) {
+        ESP_LOGI(TAG, "Lookup snapcast service on network");
+        esp_err_t err = mdns_query_ptr("_snapcast", "_tcp", 3000, 20, &r);
+        if (err) {
+          ESP_LOGE(TAG, "Query Failed");
+          vTaskDelay(pdMS_TO_TICKS(1000));
+        }
 
-    if (!re) {
+        if (!r) {
+          ESP_LOGW(TAG, "No results found!");
+          vTaskDelay(pdMS_TO_TICKS(1000));
+        }
+      }
+
+      ESP_LOGI(TAG, "\n~~~~~~~~~~ MDNS Query success ~~~~~~~~~~");
+      mdns_print_results(r);
+      ESP_LOGI(TAG, "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+
+      mdns_result_t *re = r;
+      while (re) {
+        mdns_ip_addr_t *a = re->addr;
+#if CONFIG_SNAPCLIENT_CONNECT_IPV6
+        if (a->addr.type == IPADDR_TYPE_V6) {
+          netif = re->esp_netif;
+          break;
+        }
+
+        // TODO: fall back to IPv4 if no IPv6 was available
+#else
+        if (a->addr.type == IPADDR_TYPE_V4) {
+          netif = re->esp_netif;
+          break;
+        }
+#endif
+
+        re = re->next;
+      }
+
+      if (!re) {
+        mdns_query_results_free(r);
+
+        ESP_LOGW(TAG, "didn't find any valid IP in MDNS query");
+
+        continue;
+      }
+
+      ip_addr_copy(remote_ip, re->addr->addr);
+      remotePort = r->port;
+
       mdns_query_results_free(r);
 
-      ESP_LOGW(TAG, "didn't find any valid IP in MDNS query");
+      ESP_LOGI(TAG, "Found %s:%d", ipaddr_ntoa(&remote_ip), remotePort);
+    } else {
+      // Use static server configuration from settings_manager
+      char static_host[128] = {0};
+      int32_t static_port = 0;
+      if (settings_get_server_host(static_host, sizeof(static_host)) != ESP_OK || static_host[0] == '\0') {
+        ESP_LOGW(TAG, "Static server not configured in settings, skipping");
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        continue;
+      }
 
-      continue;
+      if (settings_get_server_port(&static_port) != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to read static server port from settings");
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        continue;
+      }
+
+      if (static_port == 0) {
+        ESP_LOGW(TAG, "Static server port is 0/unset, skipping");
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        continue;
+      }
+
+      if (ipaddr_aton(static_host, &remote_ip) == 0) {
+        ESP_LOGE(TAG, "can't convert static server address to numeric: %s", static_host);
+        continue;
+      }
+
+      remotePort = (uint16_t)static_port;
+
+      ESP_LOGI(TAG, "try connecting to static configuration %s:%d",
+               ipaddr_ntoa(&remote_ip), remotePort);
     }
-
-    ip_addr_copy(remote_ip, re->addr->addr);
-    remotePort = r->port;
-
-    mdns_query_results_free(r);
-
-    ESP_LOGI(TAG, "Found %s:%d", ipaddr_ntoa(&remote_ip), remotePort);
-#else
-    ip_addr_t remote_ip;
-
-    if (ipaddr_aton(SNAPCAST_SERVER_HOST, &remote_ip) == 0) {
-      ESP_LOGE(TAG, "can't convert static server adress to numeric");
-      continue;
-    }
-
-    remotePort = SNAPCAST_SERVER_PORT;
-
-    ESP_LOGI(TAG, "try connecting to static configuration %s:%d",
-             ipaddr_ntoa(&remote_ip), remotePort);
-#endif
 
     if (remote_ip.type == IPADDR_TYPE_V4) {
       lwipNetconn = netconn_new(NETCONN_TCP);
@@ -760,7 +771,13 @@ static void http_get_task(void *pvParameters) {
 
     // init hello message
     hello_message.mac = mac_address;
-    hello_message.hostname = SNAPCAST_CLIENT_NAME;
+    
+    // Get hostname from NVS or fallback to a sensible default
+    if (settings_get_hostname(device_hostname, sizeof(device_hostname)) != ESP_OK) {
+      strncpy(device_hostname, "snapclient", sizeof(device_hostname) - 1);
+    }
+    hello_message.hostname = device_hostname;
+    
     hello_message.version = (char *)VERSION_STRING;
     hello_message.client_name = "libsnapcast";
     hello_message.os = "esp32";
@@ -815,8 +832,6 @@ static void http_get_task(void *pvParameters) {
     scSet.volume = 0;
     scSet.muted = true;
 
-    uint64_t startTime, endTime;
-    //    size_t currentPos = 0;
     size_t typedMsgCurrentPos = 0;
     uint32_t typedMsgLen = 0;
     uint32_t offset = 0;
@@ -2607,6 +2622,11 @@ void app_main(void) {
   // esp_log_level_set("i2s_common", ESP_LOG_DEBUG);
   esp_log_level_set("wifi", ESP_LOG_WARN);
   esp_log_level_set("wifi_init", ESP_LOG_WARN);
+  esp_log_level_set("httpd_uri", ESP_LOG_WARN);
+  esp_log_level_set("settings", ESP_LOG_DEBUG);
+  esp_log_level_set("dsp_settings", ESP_LOG_DEBUG);
+  esp_log_level_set("UI_HTTP", ESP_LOG_WARN);
+  esp_log_level_set("dspProc", ESP_LOG_DEBUG);
 
 #if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
     CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
@@ -2779,19 +2799,30 @@ void app_main(void) {
   */
   network_if_init();
 
+  // Initialize settings manager (hostname + snapserver settings)
+  settings_manager_init();
+  
+  // Get hostname for mDNS
+  char mdns_hostname[64] = {0};
+  if (settings_get_hostname(mdns_hostname, sizeof(mdns_hostname)) != ESP_OK) {
+    strncpy(mdns_hostname, "snapclient", sizeof(mdns_hostname) - 1);
+  }
+  ESP_LOGI(TAG, "Device hostname: %s", mdns_hostname);
+
   init_http_server_task();
 
   // Enable websocket server
   //  ESP_LOGI(TAG, "Setup ws server");
   //  websocket_if_start();
 
-  net_mdns_register("snapclient");
+  net_mdns_register(mdns_hostname);
 #ifdef CONFIG_SNAPCLIENT_SNTP_ENABLE
   set_time_from_sntp();
 #endif
 
 #if CONFIG_USE_DSP_PROCESSOR
   dsp_processor_init();
+  dsp_settings_init();
 #endif
 
   xTaskCreatePinnedToCore(&ota_server_task, "ota", 14 * 256, NULL,

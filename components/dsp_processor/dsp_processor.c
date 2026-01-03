@@ -5,14 +5,34 @@
 #include <sys/time.h>
 
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 #if CONFIG_USE_DSP_PROCESSOR
 #include "dsp_processor.h"
 #include "dsps_biquad.h"
 #include "dsps_biquad_gen.h"
 #include "esp_log.h"
-#include "freertos/queue.h"
 #include "player.h"
+
+typedef struct ptype {
+  int filtertype;
+  float freq;
+  float gain;
+  float q;
+  float *in, *out;
+  float coeffs[5];
+  float w[2];
+} ptype_t;
+
+typedef struct dsp_all_params_s {
+  dspFlows_t active_flow;
+  struct {
+    float fc_1;
+    float gain_1;
+    float fc_3;
+    float gain_3;
+  } flow_params[DSP_FLOW_COUNT];
+} dsp_all_params_t;
 
 #ifdef CONFIG_USE_BIQUAD_ASM
 #define BIQUAD dsps_biquad_f32_ae32
@@ -20,13 +40,16 @@
 #define BIQUAD dsps_biquad_f32
 #endif
 
-static const char *TAG = "dspProc";
+static const char *TAG = "dsp_proc";
 
 #define DSP_PROCESSOR_LEN 16
 
-static QueueHandle_t filterUpdateQHdl = NULL;
+// Legacy queue removed. Use paramsChangedSemaphoreHandle to notify worker of updates.
+static SemaphoreHandle_t paramsChangedSemaphoreHandle = NULL;
+static SemaphoreHandle_t params_mutex = NULL;
 
-static filterParams_t filterParams;
+// Centralized parameter storage - one set of parameters per DSP flow
+static dsp_all_params_t all_params;
 
 static ptype_t *filter = NULL;
 
@@ -39,84 +62,61 @@ static float *sbufout0 = NULL;
 
 #if CONFIG_USE_DSP_PROCESSOR
 #define SNAPCAST_USE_SOFT_VOL CONFIG_SNAPCLIENT_USE_SOFT_VOL
-#if CONFIG_SNAPCLIENT_DSP_FLOW_STEREO
+// Default DSP flow is Stereo, but will be updated from NVS at runtime
 dspFlows_t dspFlowInit = dspfStereo;
-#endif
-#if CONFIG_SNAPCLIENT_DSP_FLOW_BASSBOOST
-dspFlows_t dspFlowInit = dspfBassBoost;
-#endif
-#if CONFIG_SNAPCLIENT_DSP_FLOW_BIAMP
-dspFlows_t dspFlowInit = dspfBiamp;
-#endif
-#if CONFIG_SNAPCLIENT_DSP_FLOW_BASS_TREBLE_EQ
-dspFlows_t dspFlowInit = dspfEQBassTreble;
-#endif
 #endif
 
 /**
  *
  */
 void dsp_processor_init(void) {
+  ESP_LOGD(TAG, "%s: initializing", __func__);
   init = false;
+  // Initialize all_params with defaults for each flow
+  memset(&all_params, 0, sizeof(dsp_all_params_t));
+  all_params.active_flow = dspFlowInit;
+  
+  // Set defaults for dspfEQBassTreble
+  all_params.flow_params[dspfEQBassTreble].fc_1 = DSP_BASS_FREQ_DEFAULT;
+  all_params.flow_params[dspfEQBassTreble].gain_1 = DSP_GAIN_DEFAULT;
+  all_params.flow_params[dspfEQBassTreble].fc_3 = DSP_TREBLE_FREQ_DEFAULT;
+  all_params.flow_params[dspfEQBassTreble].gain_3 = DSP_GAIN_DEFAULT;
+  
+  // Set defaults for dspfBassBoost
+  all_params.flow_params[dspfBassBoost].fc_1 = DSP_BASS_FREQ_DEFAULT;
+  all_params.flow_params[dspfBassBoost].gain_1 = DSP_BASSBOOST_GAIN_DEFAULT;
+  
+  // Set defaults for dspfBiamp
+  all_params.flow_params[dspfBiamp].fc_1 = DSP_CROSSOVER_FREQ_DEFAULT;
+  all_params.flow_params[dspfBiamp].gain_1 = DSP_GAIN_DEFAULT;
+  all_params.flow_params[dspfBiamp].fc_3 = DSP_CROSSOVER_FREQ_DEFAULT;
+  all_params.flow_params[dspfBiamp].gain_3 = DSP_GAIN_DEFAULT;
+  
+  // dspfStereo has no parameters (pass-through with volume only)
+  // dspf2DOT1 and dspfFunkyHonda not yet implemented
 
-  if (filterUpdateQHdl) {
-    vQueueDelete(filterUpdateQHdl);
-    filterUpdateQHdl = NULL;
-  }
+  // Note: Do not read settings here to avoid circular dependency. The
+  // dsp_processor_settings component will call dsp_processor_set_params_for_flow()
+  // and dsp_processor_switch_flow() during its init to apply saved settings.
 
-  // have a max queue length of 1 here because we use xQueueOverwrite
-  // to write to the queue
-  filterUpdateQHdl = xQueueCreate(1, sizeof(filterParams_t));
-  if (filterUpdateQHdl == NULL) {
-    ESP_LOGE(TAG, "%s: Failed to create filter update queue", __func__);
-    return;
-  }
-
-  // TODO: load this data from NVM if available
-  filterParams.dspFlow = dspFlowInit;
-
-  switch (filterParams.dspFlow) {
-    case dspfEQBassTreble: {
-      filterParams.fc_1 = 300.0;
-      filterParams.gain_1 = 0.0;
-      filterParams.fc_3 = 4000.0;
-      filterParams.gain_3 = 0.0;
-
-      break;
-    }
-
-    case dspfStereo: {
-      break;
-    }
-
-    case dspfBassBoost: {
-      filterParams.fc_1 = 300.0;
-      filterParams.gain_1 = 6.0;
-      break;
-    }
-
-    case dspfBiamp: {
-      filterParams.fc_1 = 300.0;
-      filterParams.gain_1 = 0;
-      filterParams.fc_3 = 100.0;
-      filterParams.gain_3 = 0.0;
-      break;
-    }
-
-    case dspf2DOT1: {  // Process audio L + R LOW PASS FILTER
-      ESP_LOGW(TAG, "dspf2DOT1, not implemented yet, using stereo instead");
-    } break;
-
-    case dspfFunkyHonda: {  // Process audio L + R LOW PASS FILTER
-      ESP_LOGW(TAG,
-               "dspfFunkyHonda, not implemented yet, using stereo instead");
-      break;
-    }
-
-    default: {
-      break;
+  if (params_mutex == NULL) {
+    params_mutex = xSemaphoreCreateMutex();
+    if (params_mutex == NULL) {
+      ESP_LOGW(TAG, "%s: failed to create params mutex", __func__);
     }
   }
+  if (paramsChangedSemaphoreHandle == NULL) {
+    paramsChangedSemaphoreHandle = xSemaphoreCreateBinary();
+    if (paramsChangedSemaphoreHandle == NULL) {
+      ESP_LOGW(TAG, "%s: failed to create params changed semaphore", __func__);
+    } else {
+      xSemaphoreTake(paramsChangedSemaphoreHandle, 10);
+    }
+  }
+  ESP_LOGI(TAG, "%s: Initialized with flow=%d, fc_1=%.1f, gain_1=%.1f", __func__,
+           all_params.active_flow, 
+           all_params.flow_params[all_params.active_flow].fc_1,
+           all_params.flow_params[all_params.active_flow].gain_1);
 
   ESP_LOGI(TAG, "%s: init done", __func__);
 }
@@ -125,6 +125,7 @@ void dsp_processor_init(void) {
  * free previously allocated memories
  */
 void dsp_processor_uninit(void) {
+  ESP_LOGD(TAG, "%s: uninitializing", __func__);
   if (sbuffer0) {
     free(sbuffer0);
     sbuffer0 = NULL;
@@ -140,33 +141,61 @@ void dsp_processor_uninit(void) {
     filter = NULL;
   }
 
-  if (filterUpdateQHdl) {
-    vQueueDelete(filterUpdateQHdl);
-    filterUpdateQHdl = NULL;
+  if (params_mutex) {
+    vSemaphoreDelete(params_mutex);
+    params_mutex = NULL;
   }
 
+  if (paramsChangedSemaphoreHandle) {
+    vSemaphoreDelete(paramsChangedSemaphoreHandle);
+    paramsChangedSemaphoreHandle = NULL;
+  }
   init = false;
 
   ESP_LOGI(TAG, "%s: uninit done", __func__);
 }
 
 /**
- *
+ * Update filter parameters
+ * Updates centralized storage and queues for worker thread
  */
 esp_err_t dsp_processor_update_filter_params(filterParams_t *params) {
-  if (filterUpdateQHdl) {
-    if (xQueueOverwrite(filterUpdateQHdl, params) == pdTRUE) {
-      return ESP_OK;
+  ESP_LOGD(TAG, "%s: updating filter params", __func__);
+  
+  // Update centralized storage for the current flow
+  dspFlows_t flow = params->dspFlow;
+  if (flow >= 0 && flow < DSP_FLOW_COUNT) {  // Validate flow index
+    // Acquire mutex once, update parameters and set the notification flag
+    if (params_mutex && (xSemaphoreTake(params_mutex, portMAX_DELAY) == pdTRUE)) {
+      all_params.active_flow = flow;
+      all_params.flow_params[flow].fc_1 = params->fc_1;
+      all_params.flow_params[flow].gain_1 = params->gain_1;
+      all_params.flow_params[flow].fc_3 = params->fc_3;
+      all_params.flow_params[flow].gain_3 = params->gain_3;
+      xSemaphoreGive(paramsChangedSemaphoreHandle);
+      xSemaphoreGive(params_mutex);
+    } else {
+      // No mutex available: best-effort update
+      all_params.active_flow = flow;
+      all_params.flow_params[flow].fc_1 = params->fc_1;
+      all_params.flow_params[flow].gain_1 = params->gain_1;
+      all_params.flow_params[flow].fc_3 = params->fc_3;
+      all_params.flow_params[flow].gain_3 = params->gain_3;
+      xSemaphoreGive(paramsChangedSemaphoreHandle);
     }
   }
+  
+  // Worker polls params_changed; we set it while holding the mutex above
+  // to ensure atomic visibility. Nothing more to do here.
 
-  return ESP_FAIL;
+  return ESP_OK;
 }
 
 /**
  *
  */
 static int32_t dsp_processor_gen_filter(ptype_t *filter, uint32_t cnt) {
+  ESP_LOGD(TAG, "%s: generating %lu filters", __func__, (unsigned long)cnt);
   if ((filter == NULL) && (cnt > 0)) {
     return ESP_FAIL;
   }
@@ -194,10 +223,6 @@ static int32_t dsp_processor_gen_filter(ptype_t *filter, uint32_t cnt) {
       default:
         break;
     }
-    //    for (uint8_t i = 0; i <= 4; i++) {
-    //      printf("%.6f ", filter[n].coeffs[i]);
-    //    }
-    //    printf("\n");
   }
 
   return ESP_OK;
@@ -207,6 +232,7 @@ static int32_t dsp_processor_gen_filter(ptype_t *filter, uint32_t cnt) {
  *
  */
 int dsp_processor_worker(void *p_pcmChnk, const void *p_scSet) {
+  ESP_LOGV(TAG, "%s: processing audio chunk", __func__);
   const snapcastSetting_t *scSet = (const snapcastSetting_t *)p_scSet;
   pcm_chunk_message_t *pcmChnk = (pcm_chunk_message_t *)p_pcmChnk;
   uint32_t samplerate = scSet->sr;
@@ -228,6 +254,7 @@ int dsp_processor_worker(void *p_pcmChnk, const void *p_scSet) {
 
   if (samplerate == 0) {
     samplerate = 44100;
+    ESP_LOGW(TAG, "%s: Sample rate is not set, using default: %lu", __func__, (unsigned long)samplerate);
   }
 
   int16_t len = pcmChnk->fragment->size / ((bits / 8) * ch);
@@ -236,17 +263,47 @@ int dsp_processor_worker(void *p_pcmChnk, const void *p_scSet) {
   // volatile needed to ensure 32 bit access
   volatile uint32_t *audio_tmp =
       (volatile uint32_t *)(pcmChnk->fragment->payload);
-  dspFlows_t dspFlow;
-
-  // check if we need to update filters
-  if (xQueueReceive(filterUpdateQHdl, &filterParams, pdMS_TO_TICKS(0)) ==
-      pdTRUE) {
-    init = false;
-
-    // TODO: store filterParams in NVM
+  
+  // Local working copy of filter parameters
+  static filterParams_t currentFilterParams = {0};
+  static bool paramsInitialized = false;
+  
+  // Initialize on first run
+  if (!paramsInitialized) {
+    currentFilterParams.dspFlow = all_params.active_flow;
+    currentFilterParams.fc_1 = all_params.flow_params[all_params.active_flow].fc_1;
+    currentFilterParams.gain_1 = all_params.flow_params[all_params.active_flow].gain_1;
+    currentFilterParams.fc_3 = all_params.flow_params[all_params.active_flow].fc_3;
+    currentFilterParams.gain_3 = all_params.flow_params[all_params.active_flow].gain_3;
+    paramsInitialized = true;
   }
 
-  dspFlow = filterParams.dspFlow;
+  // If parameters were changed by API, copy them from centralized storage
+  if (xSemaphoreTake(paramsChangedSemaphoreHandle, 0) == pdTRUE) {
+    // Copy under mutex to avoid torn reads
+    if (params_mutex) {
+      xSemaphoreTake(params_mutex, portMAX_DELAY);
+    } else {
+      ESP_LOGW(TAG, "%s: params mutex not available, proceeding without mutex", __func__);
+    }
+    
+    dspFlows_t aflow = all_params.active_flow;
+    currentFilterParams.dspFlow = aflow;
+    currentFilterParams.fc_1 = all_params.flow_params[aflow].fc_1;
+    currentFilterParams.gain_1 = all_params.flow_params[aflow].gain_1;
+    currentFilterParams.fc_3 = all_params.flow_params[aflow].fc_3;
+    currentFilterParams.gain_3 = all_params.flow_params[aflow].gain_3;
+    if (params_mutex) {
+      xSemaphoreGive(params_mutex);
+    } else {
+      ESP_LOGW(TAG, "%s: params mutex not available, proceeding without mutex", __func__);
+    }
+
+    ESP_LOGI(TAG, "Applying filter update: flow=%d", currentFilterParams.dspFlow);
+    init = false;
+  }
+
+  dspFlows_t dspFlow = currentFilterParams.dspFlow;
 
   if (init == false) {
     uint32_t cnt = 0;
@@ -264,10 +321,10 @@ int dsp_processor_worker(void *p_pcmChnk, const void *p_scSet) {
             (ptype_t *)heap_caps_malloc(sizeof(ptype_t) * cnt, MALLOC_CAP_8BIT);
         if (filter) {
           // simple EQ control of low and high frequencies (bass, treble)
-          float bass_fc = filterParams.fc_1 / samplerate;
-          float bass_gain = filterParams.gain_1;
-          float treble_fc = filterParams.fc_3 / samplerate;
-          float treble_gain = filterParams.gain_3;
+          float bass_fc = currentFilterParams.fc_1 / samplerate;
+          float bass_gain = currentFilterParams.gain_1;
+          float treble_fc = currentFilterParams.fc_3 / samplerate;
+          float treble_gain = currentFilterParams.gain_3;
 
           // filters for CH 0
           filter[0] = (ptype_t){LOWSHELF, bass_fc, bass_gain,       0.707,
@@ -299,15 +356,16 @@ int dsp_processor_worker(void *p_pcmChnk, const void *p_scSet) {
         filter =
             (ptype_t *)heap_caps_malloc(sizeof(ptype_t) * cnt, MALLOC_CAP_8BIT);
         if (filter) {
-          float bass_fc = filterParams.fc_1 / samplerate;
-          float bass_gain = 6.0;
+          float bass_fc = currentFilterParams.fc_1 / samplerate;
+          float bass_gain = currentFilterParams.gain_1;
 
           filter[0] = (ptype_t){LOWSHELF, bass_fc, bass_gain,       0.707,
                                 NULL,     NULL,    {0, 0, 0, 0, 0}, {0, 0}};
           filter[1] = (ptype_t){LOWSHELF, bass_fc, bass_gain,       0.707,
                                 NULL,     NULL,    {0, 0, 0, 0, 0}, {0, 0}};
 
-          ESP_LOGI(TAG, "got new setting for dspfBassBoost");
+          ESP_LOGI(TAG, "got new setting for dspfBassBoost: fc=%.1f gain=%.1f", 
+                   currentFilterParams.fc_1, currentFilterParams.gain_1);
         } else {
           ESP_LOGE(TAG, "failed to get memory for filter");
         }
@@ -321,10 +379,10 @@ int dsp_processor_worker(void *p_pcmChnk, const void *p_scSet) {
         filter =
             (ptype_t *)heap_caps_malloc(sizeof(ptype_t) * cnt, MALLOC_CAP_8BIT);
         if (filter) {
-          float lp_fc = filterParams.fc_1 / samplerate;
-          float lp_gain = filterParams.gain_1;
-          float hp_fc = filterParams.fc_3 / samplerate;
-          float hp_gain = filterParams.gain_3;
+          float lp_fc = currentFilterParams.fc_1 / samplerate;
+          float lp_gain = currentFilterParams.gain_1;
+          float hp_fc = currentFilterParams.fc_3 / samplerate;
+          float hp_gain = currentFilterParams.gain_3;
 
           filter[0] = (ptype_t){LPF,  lp_fc, lp_gain,         0.707,
                                 NULL, NULL,  {0, 0, 0, 0, 0}, {0, 0}};
@@ -489,7 +547,7 @@ int dsp_processor_worker(void *p_pcmChnk, const void *p_scSet) {
         break;
       }
 
-      case dspfBassBoost: {  // CH0 low shelf 6dB @ 400Hz
+      case dspfBassBoost: {  // Low shelf bass boost with adjustable gain
         for (int k = 0; k < len; k += DSP_PROCESSOR_LEN) {
           volatile uint32_t *tmp = (uint32_t *)(&audio_tmp[k]);
           uint32_t max = DSP_PROCESSOR_LEN;
@@ -712,9 +770,98 @@ int dsp_processor_worker(void *p_pcmChnk, const void *p_scSet) {
  *
  */
 void dsp_processor_set_volome(double volume) {
+  ESP_LOGD(TAG, "%s: volume=%f", __func__, volume);
   if (volume >= 0 && volume <= 1.0) {
     ESP_LOGI(TAG, "Set volume to %f", volume);
     dynamic_vol = volume;
   }
 }
+/**
+ * Set parameters for a specific flow (without switching to it)
+ */
+esp_err_t dsp_processor_set_params_for_flow(dspFlows_t flow, const filterParams_t *params) {
+  ESP_LOGD(TAG, "%s: setting params for flow %d", __func__, flow);
+  
+  if (params == NULL || flow < 0 || flow >= DSP_FLOW_COUNT) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  
+  // Update centralized storage for this specific flow
+  if (params_mutex) {
+    xSemaphoreTake(params_mutex, portMAX_DELAY);
+  } else {
+    ESP_LOGW(TAG, "%s: params mutex not available, proceeding without mutex", __func__);
+  }
+
+  all_params.flow_params[flow].fc_1 = params->fc_1;
+  all_params.flow_params[flow].gain_1 = params->gain_1;
+  all_params.flow_params[flow].fc_3 = params->fc_3;
+  all_params.flow_params[flow].gain_3 = params->gain_3;
+  if (params_mutex) {
+    xSemaphoreGive(params_mutex);
+  } else {
+    ESP_LOGW(TAG, "%s: params mutex not available, proceeding without mutex", __func__);
+  }
+  
+  // If this is the active flow, also update the legacy filterParams and notify worker
+  if (params_mutex) {
+    xSemaphoreTake(params_mutex, portMAX_DELAY);
+  } else {
+    ESP_LOGW(TAG, "%s: params mutex not available, proceeding without mutex", __func__);
+  }
+  
+    bool is_active = (flow == all_params.active_flow);
+  if (params_mutex) {
+    xSemaphoreGive(params_mutex);
+  } else {
+    ESP_LOGW(TAG, "%s: params mutex not available, proceeding without mutex", __func__);
+  }
+
+  if (is_active) {
+    filterParams_t temp_params;
+    temp_params.dspFlow = flow;
+    temp_params.fc_1 = params->fc_1;
+    temp_params.gain_1 = params->gain_1;
+    temp_params.fc_3 = params->fc_3;
+    temp_params.gain_3 = params->gain_3;
+    
+    return dsp_processor_update_filter_params(&temp_params);
+  }
+  
+  return ESP_OK;
+}
+
+/**
+ * Switch to a different DSP flow
+ */
+esp_err_t dsp_processor_switch_flow(dspFlows_t flow) {
+  if (flow < 0 || flow >= DSP_FLOW_COUNT) {
+    ESP_LOGE(TAG, "%s: invalid flow %d", __func__, flow);
+    return ESP_ERR_INVALID_ARG;
+  }
+  
+  ESP_LOGI(TAG, "%s: switching from flow %d to %d", __func__, all_params.active_flow, flow);
+  // Set active flow under mutex and capture params to apply
+  if (params_mutex) {
+    xSemaphoreTake(params_mutex, portMAX_DELAY);
+  } else {
+    ESP_LOGW(TAG, "%s: params mutex not available, proceeding without mutex", __func__);
+  }
+
+  all_params.active_flow = flow;
+  filterParams_t params;
+  params.dspFlow = flow;
+  params.fc_1 = all_params.flow_params[flow].fc_1;
+  params.gain_1 = all_params.flow_params[flow].gain_1;
+  params.fc_3 = all_params.flow_params[flow].fc_3;
+  params.gain_3 = all_params.flow_params[flow].gain_3;
+  if (params_mutex) {
+    xSemaphoreGive(params_mutex);
+  } else {
+    ESP_LOGW(TAG, "%s: params mutex not available, proceeding without mutex", __func__);
+  }
+
+  return dsp_processor_update_filter_params(&params);
+}
+
 #endif
