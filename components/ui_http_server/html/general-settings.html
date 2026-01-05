@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>General Settings</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="index.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 20px auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+
+    h1 {
+      color: #333;
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    .settings-container {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .setting-control {
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .setting-control label {
+      display: block;
+      font-weight: bold;
+      margin-bottom: 10px;
+      color: #333;
+      font-size: 16px;
+    }
+
+    .setting-control .description {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 15px;
+      font-style: italic;
+    }
+
+    .setting-control input[type="text"] {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 16px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-sizing: border-box;
+      transition: border-color 0.3s;
+    }
+
+    .setting-control input[type="text"]:focus {
+      outline: none;
+      border-color: #007bff;
+      box-shadow: 0 0 0 3px rgba(0,123,255,0.1);
+    }
+
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 15px;
+    }
+
+    .btn {
+      padding: 10px 20px;
+      font-size: 14px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+
+    .btn-primary {
+      background-color: #007bff;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background-color: #0056b3;
+    }
+
+    .btn-primary:disabled {
+      background-color: #6c757d;
+      cursor: not-allowed;
+    }
+
+    .btn-secondary {
+      background-color: #6c757d;
+      color: white;
+    }
+
+    .btn-secondary:hover {
+      background-color: #545b62;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+    }
+
+    .error {
+      background-color: #f8d7da;
+      color: #721c24;
+      padding: 15px;
+      border-radius: 4px;
+      margin: 20px 0;
+    }
+
+    .success {
+      background-color: #d4edda;
+      color: #155724;
+      padding: 15px;
+      border-radius: 4px;
+      margin: 20px 0;
+    }
+
+    .info {
+      background-color: #d1ecf1;
+      color: #0c5460;
+      padding: 15px;
+      border-radius: 4px;
+      margin: 20px 0;
+      font-size: 14px;
+    }
+
+    .validation-error {
+      color: #dc3545;
+      font-size: 14px;
+      margin-top: 5px;
+    }
+
+    /* Visually distinct section for grouped settings (e.g. Snapserver, DSP)
+       Use the same base visual treatment as .setting-control but add an
+       accent border and a titled header so grouped blocks align visually. */
+    .setting-section {
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      border-left: 4px solid #007bff; /* accent */
+      display: block;
+    }
+
+    .setting-section .section-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #003b66;
+      margin-bottom: 12px;
+    }
+
+    /* When combining with .setting-control keep inner spacing consistent */
+    .setting-section .setting-control {
+      margin: 0; /* avoid nested spacing */
+      box-shadow: none; /* don't double-shadow */
+      padding: 0; /* inner control uses outer padding */
+      background: transparent;
+    }
+  </style>
+</head>
+<body>
+  <h1>General Settings</h1>
+  
+  <div id="app">
+    <div class="loading">Loading settings...</div>
+  </div>
+
+  <script>
+    'use strict';
+
+    let currentHostname = '';
+    let currentSnapUseMDNS = true;
+    let currentSnapHost = '';
+    let currentSnapPort = '';
+    let needsRestart = false; // Track if device needs restart
+    let isDirty = false;
+
+    // Load current settings
+    async function loadSettings() {
+      const app = document.getElementById('app');
+      
+      try {
+        // Fetch all settings from capabilities endpoint
+        const response = await fetch('/capabilities?tab=general');
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const capabilities = await response.json();
+        
+        // Extract settings with defaults
+        currentHostname = capabilities.hostname || 'esp32-snapclient';
+        currentSnapUseMDNS = capabilities.mdns_enabled !== undefined ? capabilities.mdns_enabled : true;
+        currentSnapHost = capabilities.server_host || '';
+        currentSnapPort = capabilities.server_port || '';
+        
+        renderUI();
+      } catch (error) {
+        console.error('Error loading settings:', error);
+        showError('Error loading settings. Please refresh the page.', app);
+      }
+    }
+
+    // Render the UI
+    function renderUI() {
+      const app = document.getElementById('app');
+      
+      let html = '<div class="settings-container">';
+      
+      // Hostname setting
+      html += '<div class="setting-control">';
+      html += '<label for="hostname">Device Hostname</label>';
+      html += '<div class="description">Set a custom hostname for your ESP32 Snapclient device. This will be used for mDNS discovery and network identification.</div>';
+      html += `<input type="text" id="hostname" value="${escapeHtml(currentHostname)}" placeholder="esp32-snapclient" maxlength="63" oninput="handleHostnameChange(this.value)">`;
+      html += '<div id="hostname-validation" class="validation-error"></div>';
+      html += '<div class="button-group">';
+      html += '<button class="btn btn-primary" id="save-btn" onclick="saveHostname()" disabled>Save Changes</button>';
+      html += '<button class="btn btn-secondary" onclick="resetHostname()">Reset</button>';
+      html += '<button class="btn btn-danger" id="restart-btn-hostname" onclick="requestRestart()" style="background-color:#e74c3c;" disabled>Restart</button>';
+      html += '</div>';
+      html += '</div>';
+
+      // Snapserver settings - visually distinct section (like DSP grouping)
+      // Use a single container that combines the base .setting-control look
+      // with the .setting-section accent so it matches other blocks.
+      html += '<div class="setting-control setting-section">';
+      html += '<label for="snap-mdns">Snapserver Discovery (mDNS)</label>';
+      html += '<div class="description">Use mDNS to auto-discover the Snapserver. If disabled, configure host and port below.</div>';
+      html += `<select id="snap-mdns" onchange="handleSnapserverUseChange(this.value)">`;
+      html += `<option value="1" ${currentSnapUseMDNS ? 'selected' : ''}>Yes (use mDNS)</option>`;
+      html += `<option value="0" ${!currentSnapUseMDNS ? 'selected' : ''}>No (use host/port)</option>`;
+      html += '</select>';
+      html += '<div style="height:12px"></div>';
+      html += '<label for="snap-host">Snapserver Host</label>';
+      html += '<input type="text" id="snap-host" value="' + escapeHtml(currentSnapHost) + '" placeholder="e.g. 192.168.1.158 or myserver.local" maxlength="255" oninput="handleSnapserverHostChange(this.value)"' + (currentSnapUseMDNS ? ' disabled' : '') + '>';
+      html += '<div id="snap-host-validation" class="validation-error"></div>';
+      html += '<label for="snap-port">Snapserver Port</label>';
+      html += '<input type="text" id="snap-port" value="' + escapeHtml(currentSnapPort) + '" placeholder="1704" maxlength="6" oninput="handleSnapserverPortChange(this.value)"' + (currentSnapUseMDNS ? ' disabled' : '') + '>';
+      html += '<div id="snap-port-validation" class="validation-error"></div>';
+      html += '<div class="button-group">';
+      html += '<button class="btn btn-primary" id="save-snap-btn" onclick="saveSnapserverSettings()" disabled>Save Changes</button>';
+      html += '<button class="btn btn-secondary" onclick="resetSnapserverSettings()">Reset</button>';
+      html += '<button class="btn btn-danger" id="restart-btn-snap" onclick="requestRestart()" style="background-color:#e74c3c;" disabled>Restart</button>';
+      html += '</div>';
+      html += '</div>'; // .setting-control.setting-section
+      html += '</div>';
+      
+      // Info message
+      html += '<div class="info">';
+      html += '<strong>Note:</strong> After changing the settings, you will need to restart the device for the changes to take effect.';
+      html += '</div>';
+      
+      app.innerHTML = html;
+      updateRestartButton();
+    }
+
+    // Handle snapserver mDNS selection change
+    function handleSnapserverUseChange(value) {
+      const saveBtn = document.getElementById('save-snap-btn');
+      const hostInput = document.getElementById('snap-host');
+      const portInput = document.getElementById('snap-port');
+      const mdns = (value === '1');
+      // Hide/disable host and port if using mDNS
+      hostInput.disabled = mdns;
+      portInput.disabled = mdns;
+      currentSnapUseMDNS = mdns;
+      // Mark dirty
+      const changed = (currentSnapUseMDNS !== ((document.getElementById('snap-mdns').value === '1'))
+                       || hostInput.value !== currentSnapHost
+                       || portInput.value !== currentSnapPort);
+      saveBtn.disabled = !changed;
+    }
+
+    function handleSnapserverHostChange(value) {
+      const validationDiv = document.getElementById('snap-host-validation');
+      const saveBtn = document.getElementById('save-snap-btn');
+      // Basic validation: allow empty or hostnames/IPs (simple check)
+      if (value.length > 255) {
+        validationDiv.textContent = 'Host is too long';
+        saveBtn.disabled = true;
+        return;
+      }
+      validationDiv.textContent = '';
+      saveBtn.disabled = (document.getElementById('snap-mdns').value === '1') ? false : (value === currentSnapHost && document.getElementById('snap-port').value === currentSnapPort && (document.getElementById('snap-mdns').value === (currentSnapUseMDNS ? '1' : '0')));
+    }
+
+    function handleSnapserverPortChange(value) {
+      const validationDiv = document.getElementById('snap-port-validation');
+      const saveBtn = document.getElementById('save-snap-btn');
+      if (value.length === 0) {
+        validationDiv.textContent = '';
+        saveBtn.disabled = false;
+        return;
+      }
+      const num = parseInt(value, 10);
+      if (isNaN(num) || num < 1 || num > 65535) {
+        validationDiv.textContent = 'Port must be a number between 1 and 65535';
+        saveBtn.disabled = true;
+      } else {
+        validationDiv.textContent = '';
+        saveBtn.disabled = (value === currentSnapPort && document.getElementById('snap-host').value === currentSnapHost && (document.getElementById('snap-mdns').value === (currentSnapUseMDNS ? '1' : '0')));
+      }
+    }
+
+    async function saveSnapserverSettings() {
+      const saveBtn = document.getElementById('save-snap-btn');
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving...';
+
+      const mdns = (document.getElementById('snap-mdns').value === '1');
+      const host = document.getElementById('snap-host').value.trim();
+      const port = document.getElementById('snap-port').value.trim();
+
+      try {
+        // Save mdns flag
+        const mdnsSuccess = await setParameter('snapserver_use_mdns', mdns ? '1' : '0');
+        if (!mdnsSuccess) throw new Error('Failed to save mDNS setting');
+
+        // Save host and port (we'll save host/port regardless; they can be empty)
+        const hostSuccess = await setParameter('snapserver_host', host);
+        if (!hostSuccess) throw new Error('Failed to save snapserver host');
+        const portSuccess = await setParameter('snapserver_port', port);
+        if (!portSuccess) throw new Error('Failed to save snapserver port');
+
+        // Show success message
+        const app = document.getElementById('app');
+        const successDiv = document.createElement('div');
+        successDiv.className = 'success';
+        successDiv.textContent = 'Snapserver settings saved successfully! Please restart the device for changes to take effect.';
+        app.insertBefore(successDiv, app.firstChild);
+        setTimeout(() => { successDiv.remove(); }, 5000);
+
+        // Update current values
+        currentSnapUseMDNS = mdns;
+        currentSnapHost = host;
+        currentSnapPort = port;
+        document.getElementById('save-snap-btn').textContent = 'Save Changes';
+      } catch (err) {
+        alert(err.message || 'Failed to save settings');
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Changes';
+      }
+    }
+
+    function updateRestartButton() {
+      // Enable/disable restart buttons based on needsRestart flag
+      // This flag is only set by successful save operations
+      const restartBtnHostname = document.getElementById('restart-btn-hostname');
+      if (restartBtnHostname) {
+        restartBtnHostname.disabled = !needsRestart;
+      }
+      const restartBtnSnap = document.getElementById('restart-btn-snap');
+      if (restartBtnSnap) {
+        restartBtnSnap.disabled = !needsRestart;
+      }
+    }
+
+    function requestRestart() {
+      if (!confirm('Restart device now?')) return;
+      try {
+        // POST request to restart endpoint
+        fetch('/restart', { method: 'POST' }).then(resp => {
+          if (resp.ok) {
+            alert('Device will restart now');
+          } else {
+            alert('Restart request failed');
+          }
+        }).catch(err => {
+          console.error('Restart failed', err);
+          alert('Restart request failed');
+        });
+      } catch (err) {
+        console.error('Restart failed', err);
+        alert('Restart request failed');
+      }
+    }
+
+    function resetSnapserverSettings() {
+      if (!confirm('Clear Snapserver settings from NVS and reset to defaults?')) {
+        return;
+      }
+      
+      // Clear all 3 Snapserver values from NVS using DELETE
+      Promise.all([
+        deleteParameter('snapserver_use_mdns'),
+        deleteParameter('snapserver_host'),
+        deleteParameter('snapserver_port')
+      ]).then(() => {
+        // Reload settings from server (which will return defaults)
+        location.reload();
+      }).catch(error => {
+        console.error('Error clearing snapserver settings:', error);
+        alert('Failed to clear settings. Please try again.');
+      });
+    }
+
+    // Escape HTML to prevent XSS
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Validate hostname according to RFC 1123
+    function validateHostname(hostname) {
+      // Must be 1-63 characters
+      if (hostname.length === 0) {
+        return 'Hostname cannot be empty';
+      }
+      if (hostname.length > 63) {
+        return 'Hostname must be 63 characters or less';
+      }
+      
+      // Must contain only alphanumeric characters and hyphens
+      if (!/^[a-zA-Z0-9-]+$/.test(hostname)) {
+        return 'Hostname must contain only letters, numbers, and hyphens';
+      }
+      
+      // Cannot start or end with a hyphen
+      if (hostname.startsWith('-') || hostname.endsWith('-')) {
+        return 'Hostname cannot start or end with a hyphen';
+      }
+      
+      return null; // Valid
+    }
+
+    // Handle hostname input changes
+    function handleHostnameChange(value) {
+      const validationDiv = document.getElementById('hostname-validation');
+      const saveBtn = document.getElementById('save-btn');
+      
+      const error = validateHostname(value);
+      
+      if (error) {
+        validationDiv.textContent = error;
+        saveBtn.disabled = true;
+        isDirty = false;
+      } else {
+        validationDiv.textContent = '';
+        isDirty = (value !== currentHostname);
+        saveBtn.disabled = !isDirty;
+      }
+    }
+
+    // Save hostname
+    async function saveHostname() {
+      const hostnameInput = document.getElementById('hostname');
+      const newHostname = hostnameInput.value.trim();
+      const saveBtn = document.getElementById('save-btn');
+      
+      // Validate again before saving
+      const error = validateHostname(newHostname);
+      if (error) {
+        alert(error);
+        return;
+      }
+      
+      // Disable button during save
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving...';
+      
+      try {
+        const success = await setParameter('hostname', newHostname);
+        
+        if (success) {
+          currentHostname = newHostname;
+          isDirty = false;
+          needsRestart = true;
+          updateRestartButton();
+          
+          // Show success message
+          const app = document.getElementById('app');
+          const successDiv = document.createElement('div');
+          successDiv.className = 'success';
+          successDiv.textContent = 'Hostname saved successfully! Please restart the device for changes to take effect.';
+          app.insertBefore(successDiv, app.firstChild);
+          
+          // Remove success message after 5 seconds
+          setTimeout(() => {
+            successDiv.remove();
+          }, 5000);
+          
+          saveBtn.textContent = 'Save Changes';
+        } else {
+          throw new Error('Failed to save hostname');
+        }
+      } catch (error) {
+        console.error('Error saving hostname:', error);
+        alert('Failed to save hostname. Please try again.');
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Changes';
+      }
+    }
+
+    // Reset hostname to current value
+    function resetHostname() {
+      if (!confirm('Clear hostname from NVS and reset to default?')) {
+        return;
+      }
+      
+      // Clear hostname from NVS using DELETE
+      deleteParameter('hostname').then(() => {
+        // Reload settings from server (which will return default)
+        location.reload();
+      }).catch(error => {
+        console.error('Error clearing hostname:', error);
+        alert('Failed to clear hostname. Please try again.');
+      });
+    }
+
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', loadSettings);
+  </script>
+</body>
+</html>

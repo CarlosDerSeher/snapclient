@@ -269,6 +269,35 @@ menu "Wifi Configuration"
         depends on !ENABLE_WIFI_PROVISIONING
         help
             WiFi password (WPA or WPA2) for the example to use.
+    
+    choice WIFI_MIN_AUTHTYPE
+        prompt "Authentication mode"
+        default WIFI_AUTH_WPA2_WPA3_PSK
+        help
+            The weakest authentication mode to accept
+        config WIFI_AUTH_WEP
+            bool "WEP"
+        config WIFI_AUTH_WPA_PSK
+            bool "WPA"
+        config WIFI_AUTH_WPA2_PSK
+            bool "WPA2"
+        config WIFI_AUTH_WPA_WPA2_PSK
+            bool "WPA/WPA2"
+        config WIFI_AUTH_WPA2_WPA3_PSK
+            bool "WPA2/WPA3"
+        config WIFI_AUTH_ENTERPRISE
+            bool "ENTERPRISE"
+        config WIFI_AUTH_WPA2_ENTERPRISE
+            bool "WPA2 ENTERPRISE"
+        config WIFI_AUTH_WPA3_PSK
+            bool "WPA3 ENTERPRISE"
+        config WIFI_AUTH_WPA3_ENT_192
+            bool "WPA3 ENT 192"
+        config WIFI_AUTH_WAPI_PSK
+            bool "WAPI"
+        config WIFI_AUTH_OWE
+            bool "OWE"
+    endchoice
 
     config WIFI_MAXIMUM_RETRY
         int "Maximum connection retry"
