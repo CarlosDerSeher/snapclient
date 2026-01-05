@@ -2525,6 +2525,7 @@ static void http_get_task(void *pvParameters) {
                           } else if ((is_full == false) &&
                                      (timeout > FAST_SYNC_LATENCY_BUF)) {
                             timeout = FAST_SYNC_LATENCY_BUF;
+                            netconn_set_recvtimeout(lwipNetconn, timeout / 1000); // timeout in ms
 
                             ESP_LOGI(TAG, "latency buffer not full");
 
