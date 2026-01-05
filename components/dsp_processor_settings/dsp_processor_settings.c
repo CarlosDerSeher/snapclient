@@ -190,7 +190,7 @@ esp_err_t dsp_settings_get_json(char *json_out, size_t max_len) {
     }
 
     // Add active flow
-    dspFlows_t active_flow = dspfEQBassTreble;  // default
+    dspFlows_t active_flow = dspfStereo;  // default
     if (dsp_settings_load_active_flow(&active_flow) == ESP_OK) {
         cJSON_AddNumberToObject(root, "active_flow", (int)active_flow);
     }

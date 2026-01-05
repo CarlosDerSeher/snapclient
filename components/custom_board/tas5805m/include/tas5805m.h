@@ -455,6 +455,51 @@ esp_err_t tas5805m_set_eq_profile(TAS5805M_EQ_PROFILE profile);
 esp_err_t tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS channel,
 										  TAS5805M_EQ_PROFILE profile);
 
+/**
+ * @brief Read biquad filter coefficients for a specific channel and band.
+ *
+ * Reads the 5 biquad coefficients (B0, B1, B2, A1, A2) from the DSP registers
+ * and converts them from Q5.27 format to float values.
+ *
+ * @param channel Left or right channel
+ * @param band Band index (0-14)
+ * @param b0 Output: B0 coefficient (feedforward)
+ * @param b1 Output: B1 coefficient (feedforward)
+ * @param b2 Output: B2 coefficient (feedforward)
+ * @param a1 Output: A1 coefficient (feedback)
+ * @param a2 Output: A2 coefficient (feedback)
+ *
+ * @return
+ *     - ESP_OK on success
+ *     - ESP_ERR_INVALID_ARG if parameters are NULL or band is out of range
+ *     - ESP_FAIL on I2C communication error
+ */
+esp_err_t tas5805m_read_biquad_coefficients(TAS5805M_EQ_CHANNELS channel, int band,
+                                             float *b0, float *b1, float *b2,
+                                             float *a1, float *a2);
+
+/**
+ * @brief Write biquad filter coefficients for a specific channel and band.
+ *
+ * Converts float coefficients to Q5.27 format and writes them to the DSP registers.
+ *
+ * @param channel Left or right channel
+ * @param band Band index (0-14)
+ * @param b0 B0 coefficient (feedforward)
+ * @param b1 B1 coefficient (feedforward)
+ * @param b2 B2 coefficient (feedforward)
+ * @param a1 A1 coefficient (feedback)
+ * @param a2 A2 coefficient (feedback)
+ *
+ * @return
+ *     - ESP_OK on success
+ *     - ESP_ERR_INVALID_ARG if band is out of range
+ *     - ESP_FAIL on I2C communication error
+ */
+esp_err_t tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS channel, int band,
+                                              float b0, float b1, float b2,
+                                              float a1, float a2);
+
 #endif /* CONFIG_DAC_TAS5805M_EQ_SUPPORT */
 
 /**
@@ -480,6 +525,22 @@ float tas5805m_q9_23_to_float(uint32_t raw);
  * @return Q9.23 fixed-point value as a 32-bit unsigned integer.
  */
 uint32_t tas5805m_float_to_q9_23(float value);
+
+/**
+ * @brief Convert a Q5.27 fixed-point value to a float.
+ *
+ * @param raw Q5.27 value as a 32-bit unsigned integer.
+ * @return float-precision floating point representation.
+ */
+float tas5805m_q5_27_to_float(uint32_t raw);
+
+/**
+ * @brief Convert a float to a Q5.27 fixed-point value.
+ *
+ * @param value float-precision floating point input.
+ * @return Q5.27 fixed-point value as a 32-bit unsigned integer.
+ */
+uint32_t tas5805m_float_to_q5_27(float value);
 
 #ifdef __cplusplus
 }

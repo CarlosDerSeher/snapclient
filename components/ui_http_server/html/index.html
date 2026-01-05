@@ -91,6 +91,7 @@
       <li><a href="#" class="nav-link active" data-page="general-settings.html">General Settings</a></li>
       <li id="dsp-tab" style="display: none;"><a href="#" class="nav-link" data-page="dsp-settings.html">DSP Settings</a></li>
       <li id="dac-tab" style="display: none;"><a href="#" class="nav-link" data-page="dac-settings.html">DAC Settings</a></li>
+      <li id="eq-tab" style="display: none;"><a href="#" class="nav-link" data-page="eq-settings.html">EQ</a></li>
     </ul>
   </nav>
 
@@ -124,6 +125,14 @@
           const dacTab = document.getElementById('dac-tab');
           if (dacTab) {
             dacTab.style.display = 'block';
+          }
+        }
+
+        // Show EQ tab if eq_available is true
+        if (capabilities.eq_available === true) {
+          const eqTab = document.getElementById('eq-tab');
+          if (eqTab) {
+            eqTab.style.display = 'block';
           }
         }
       } catch (error) {

@@ -170,6 +170,49 @@ esp_err_t tas5805m_write_bytes(uint8_t *reg,
   return ret;
 }
 
+esp_err_t tas5805m_read_bytes(uint8_t *reg, int regLen, uint8_t *data, int datalen)
+{
+  int ret = ESP_OK;
+  ESP_LOGV(TAG, "%s: 0x%02x -> [%d] bytes", __func__, *reg, datalen);
+
+  i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+  ret |= i2c_master_start(cmd);
+  ret |= i2c_master_write_byte(cmd, TAS5805M_ADDRESS << 1 | WRITE_BIT, ACK_CHECK_EN);
+  ret |= i2c_master_write(cmd, reg, regLen, ACK_CHECK_EN);
+  ret |= i2c_master_stop(cmd);
+  ret = i2c_master_cmd_begin(I2C_TAS5805M_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+  i2c_cmd_link_delete(cmd);
+
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "%s: Error during I2C write phase: %s", __func__, esp_err_to_name(ret));
+    return ret;
+  }
+
+  vTaskDelay(1 / portTICK_PERIOD_MS);
+  
+  cmd = i2c_cmd_link_create();
+  ret |= i2c_master_start(cmd);
+  ret |= i2c_master_write_byte(cmd, TAS5805M_ADDRESS << 1 | READ_BIT, ACK_CHECK_EN);
+  if (datalen > 1) {
+    ret |= i2c_master_read(cmd, data, datalen - 1, ACK_VAL);
+  }
+  ret |= i2c_master_read_byte(cmd, data + datalen - 1, NACK_VAL);
+  ret |= i2c_master_stop(cmd);
+  ret = i2c_master_cmd_begin(I2C_TAS5805M_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "%s: Error during I2C read phase: %s", __func__, esp_err_to_name(ret));
+  } else {
+    for (int i = 0; i < datalen; i++) {
+      ESP_LOGV(TAG, "%s: [%d] = 0x%02x", __func__, i, data[i]);
+    }
+  }
+
+  i2c_cmd_link_delete(cmd);
+
+  return ret;
+}
+
 // Inits the TAS5805M change Settings in Menuconfig to enable Bridge-Mode
 esp_err_t tas5805m_init() {
   ESP_LOGD(TAG, "%s: Initializing TAS5805M", __func__);
@@ -949,8 +992,142 @@ esp_err_t tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS channel, TAS5805M
   // Set the EQ profile
   tas5805m_state.eq_profile[channel] = profile;
 
-
   TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_CONTROL_PORT, TAS5805M_REG_PAGE_ZERO); 
+  return ret;
+}
+
+/* -------------------------
+   Biquad coefficient access
+   ------------------------- */
+
+/**
+ * @brief Get the register offset for a specific biquad coefficient.
+ * 
+ * Each band has 5 coefficients (B0, B1, B2, A1, A2) stored sequentially.
+ * Each coefficient is 4 bytes in Q5.27 format.
+ * 
+ * @param channel Left or right channel
+ * @param band Band index (0-14)
+ * @param coef_index Coefficient index (0=B0, 1=B1, 2=B2, 3=A1, 4=A2)
+ * @param page Output: page number
+ * @param offset Output: register offset
+ * @return ESP_OK on success
+ */
+static esp_err_t tas5805m_get_biquad_register(TAS5805M_EQ_CHANNELS channel, int band, 
+                                                int coef_index, uint8_t *page, uint8_t *offset)
+{
+  if (band < 0 || band >= TAS5805M_EQ_BANDS) {
+    ESP_LOGE(TAG, "%s: Invalid band %d", __func__, band);
+    return ESP_ERR_INVALID_ARG;
+  }
+  
+  if (coef_index < 0 || coef_index >= TAS5805M_EQ_KOEF_PER_BAND) {
+    ESP_LOGE(TAG, "%s: Invalid coefficient index %d", __func__, coef_index);
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  // Calculate position in the register map
+  // We need to look at the data tables to find the pattern
+  // From tas5805m_set_eq_gain_channel: gain 0dB is at index TAS5805M_EQ_MAX_DB
+  const reg_sequence_eq **eq_maps = (channel == TAS5805M_EQ_CHANNELS_RIGHT) ? 
+                                     tas5805m_eq_registers_right : tas5805m_eq_registers_left;
+  
+  // Use 0dB gain (middle of the range) as reference for current coefficient positions
+  int gain_index = TAS5805M_EQ_MAX_DB; // 0dB
+  int base_index = band * TAS5805M_EQ_KOEF_PER_BAND * TAS5805M_EQ_REG_PER_KOEF;
+  int coef_offset = coef_index * TAS5805M_EQ_REG_PER_KOEF;
+  int reg_index = base_index + coef_offset;
+  
+  const reg_sequence_eq *reg = &eq_maps[gain_index][reg_index];
+  *page = reg->page;
+  *offset = reg->offset;
+  
+  return ESP_OK;
+}
+
+esp_err_t tas5805m_read_biquad_coefficients(TAS5805M_EQ_CHANNELS channel, int band, 
+                                              float *b0, float *b1, float *b2, 
+                                              float *a1, float *a2)
+{
+  if (!b0 || !b1 || !b2 || !a1 || !a2) {
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  ESP_LOGD(TAG, "%s: Reading biquad coefficients for channel %d, band %d", 
+           __func__, channel, band);
+
+  esp_err_t ret = ESP_OK;
+  uint8_t page, offset;
+  uint32_t raw_value;
+  
+  // Read each coefficient
+  float *coeffs[] = {b0, b1, b2, a1, a2};
+  const char *names[] = {"B0", "B1", "B2", "A1", "A2"};
+  
+  for (int i = 0; i < TAS5805M_EQ_KOEF_PER_BAND; i++) {
+    ret = tas5805m_get_biquad_register(channel, band, i, &page, &offset);
+    if (ret != ESP_OK) {
+      return ret;
+    }
+    
+    TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_EQ, page);
+    
+    ret = tas5805m_read_bytes(&offset, 1, (uint8_t *)&raw_value, sizeof(raw_value));
+    if (ret != ESP_OK) {
+      ESP_LOGE(TAG, "%s: Failed to read coefficient %s: %s", 
+               __func__, names[i], esp_err_to_name(ret));
+      break;
+    }
+    
+    *coeffs[i] = tas5805m_q5_27_to_float(raw_value);
+    ESP_LOGD(TAG, "%s: %s = %f (raw: 0x%08X)", __func__, names[i], *coeffs[i], raw_value);
+  }
+  
+  TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_CONTROL_PORT, TAS5805M_REG_PAGE_ZERO);
+  return ret;
+}
+
+esp_err_t tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS channel, int band,
+                                               float b0, float b1, float b2,
+                                               float a1, float a2)
+{
+  ESP_LOGD(TAG, "%s: Writing biquad coefficients for channel %d, band %d", 
+           __func__, channel, band);
+  ESP_LOGD(TAG, "%s: B0=%f, B1=%f, B2=%f, A1=%f, A2=%f", 
+           __func__, b0, b1, b2, a1, a2);
+
+  esp_err_t ret = ESP_OK;
+  uint8_t current_page = 0;
+  uint8_t page, offset;
+  uint32_t raw_value;
+  
+  float coeffs[] = {b0, b1, b2, a1, a2};
+  const char *names[] = {"B0", "B1", "B2", "A1", "A2"};
+  
+  for (int i = 0; i < TAS5805M_EQ_KOEF_PER_BAND; i++) {
+    ret = tas5805m_get_biquad_register(channel, band, i, &page, &offset);
+    if (ret != ESP_OK) {
+      return ret;
+    }
+    
+    if (page != current_page) {
+      TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_EQ, page);
+      current_page = page;
+    }
+    
+    raw_value = tas5805m_float_to_q5_27(coeffs[i]);
+    ESP_LOGD(TAG, "%s: Writing %s = %f -> 0x%08X to offset 0x%02X", 
+             __func__, names[i], coeffs[i], raw_value, offset);
+    
+    ret = tas5805m_write_bytes(&offset, 1, (uint8_t *)&raw_value, sizeof(raw_value));
+    if (ret != ESP_OK) {
+      ESP_LOGE(TAG, "%s: Failed to write coefficient %s: %s", 
+               __func__, names[i], esp_err_to_name(ret));
+      break;
+    }
+  }
+  
+  TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_CONTROL_PORT, TAS5805M_REG_PAGE_ZERO);
   return ret;
 }
 
@@ -976,6 +1153,30 @@ uint32_t tas5805m_float_to_q9_23(float value)
     if (value < -256.0f)     value = -256.0f;
 
     int32_t fixed_val = (int32_t)(value * (1 << 23));
+    uint32_t le_val = tas5805m_swap_endian_32((uint32_t)fixed_val);
+
+    ESP_LOGD(TAG, "%s: value=%f -> fixed_val=%d, le_val=0x%08X",
+             __func__, value, fixed_val, le_val);
+
+    return le_val;
+}
+
+float tas5805m_q5_27_to_float(uint32_t raw)
+{
+    uint32_t val = tas5805m_swap_endian_32(raw);
+    int32_t signed_val = (int32_t)val;
+    float result = (float)signed_val / 134217728.0f; // 2^27
+    ESP_LOGD(TAG, "%s: raw=0x%08X, signed_val=%d -> result=%f",
+             __func__, raw, signed_val, result);
+    return result;
+}
+
+uint32_t tas5805m_float_to_q5_27(float value)
+{
+    if (value > 15.999999f) value = 15.999999f;
+    if (value < -16.0f)     value = -16.0f;
+
+    int32_t fixed_val = (int32_t)(value * (1 << 27));
     uint32_t le_val = tas5805m_swap_endian_32((uint32_t)fixed_val);
 
     ESP_LOGD(TAG, "%s: value=%f -> fixed_val=%d, le_val=0x%08X",

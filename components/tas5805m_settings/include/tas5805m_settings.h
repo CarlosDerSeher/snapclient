@@ -45,6 +45,9 @@ extern "C" {
 // Channel gain NVS keys (single value per output channel, in dB)
 #define TAS5805M_NVS_KEY_CHANNEL_GAIN_L "channel_gain_l"
 #define TAS5805M_NVS_KEY_CHANNEL_GAIN_R "channel_gain_r"
+// Manual biquad coefficient NVS key prefixes (final key: "bq_l_<band>_b0" etc.)
+#define TAS5805M_NVS_KEY_BQ_L_PREFIX "bq_l_"
+#define TAS5805M_NVS_KEY_BQ_R_PREFIX "bq_r_"
 
 /** EQ UI modes exposed to the settings UI. These control visibility and apply behavior.
  *  Defined here so the settings module owns the UI contract. Values are persisted to NVS.
@@ -54,6 +57,7 @@ typedef enum {
     TAS5805M_EQ_UI_MODE_15_BAND = 1,
     TAS5805M_EQ_UI_MODE_15_BAND_BIAMP = 2,
     TAS5805M_EQ_UI_MODE_PRESETS = 3,
+    TAS5805M_EQ_UI_MODE_MANUAL = 4,
 } TAS5805M_EQ_UI_MODE;
 
 /** Convert an EQ UI mode to human-readable name (for schema name fields) */
@@ -124,14 +128,41 @@ esp_err_t tas5805m_settings_save_channel_gain(TAS5805M_EQ_CHANNELS ch, int gain_
 /** Load per-output channel gain (single value per channel, in dB) */
 esp_err_t tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS ch, int *gain_db);
 
-/** Get current TAS5805M settings as a JSON string */
-esp_err_t tas5805m_settings_get_json(char *json_out, size_t max_len);
+/** Save manual biquad coefficients for a specific channel and band to NVS */
+esp_err_t tas5805m_settings_save_biquad_coefficients(TAS5805M_EQ_CHANNELS ch, int band,
+                                                      float b0, float b1, float b2,
+                                                      float a1, float a2);
+/** Load manual biquad coefficients for a specific channel and band from NVS */
+esp_err_t tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS ch, int band,
+                                                      float *b0, float *b1, float *b2,
+                                                      float *a1, float *a2);
 
-/** Update TAS5805M settings from a JSON string */
-esp_err_t tas5805m_settings_set_from_json(const char *json_in);
+/** Get current TAS5805M settings as a JSON string */
+//esp_err_t tas5805m_settings_get_json(char *json_out, size_t max_len);
 
 /** Get TAS5805M settings schema as JSON */
-esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len);
+//esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len);
+
+/** Update TAS5805M settings from a JSON string */
+//esp_err_t tas5805m_settings_set_from_json(const char *json_in);
+
+/** Get current TAS5805M DAC-only settings as JSON (excludes EQ) */
+esp_err_t tas5805m_settings_get_dac_json(char *json_out, size_t max_len);
+
+/** Get TAS5805M DAC-only schema as JSON (excludes EQ) */
+esp_err_t tas5805m_settings_get_dac_schema_json(char *json_out, size_t max_len);
+
+/** Update TAS5805M DAC-only settings from JSON (excludes EQ) */
+esp_err_t tas5805m_settings_set_dac_from_json(const char *json_in);
+
+/** Get current TAS5805M EQ-only settings as JSON */
+esp_err_t tas5805m_settings_get_eq_json(char *json_out, size_t max_len);
+
+/** Get TAS5805M EQ-only schema as JSON */
+esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len);
+
+/** Update TAS5805M EQ settings from JSON */
+esp_err_t tas5805m_settings_set_eq_from_json(const char *json_in);
 
 /** Apply all persisted TAS5805M settings from NVS to the hardware. */
 /** Apply settings that are safe to write immediately (before audio playback).

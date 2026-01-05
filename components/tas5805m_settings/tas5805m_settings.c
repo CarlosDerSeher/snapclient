@@ -35,6 +35,8 @@ static SemaphoreHandle_t tas5805m_settings_mutex = NULL;
 static bool tas5805m_settings_restored = false;
 // Whether the polling task has been started
 static bool tas5805m_settings_poll_started = false;
+// Whether I2S clock is available (tas5805m_settings_apply_delayed has been called)
+static bool tas5805m_i2s_clock_ready = false;
 
 // Background polling task: waits for TAS5805M to enter PLAY state and then
 // triggers a one-time settings application. Exits after a timeout.
@@ -118,6 +120,7 @@ const char *tas5805m_eq_ui_mode_to_string(TAS5805M_EQ_UI_MODE m) {
         case TAS5805M_EQ_UI_MODE_15_BAND: return "15-band";
         case TAS5805M_EQ_UI_MODE_15_BAND_BIAMP: return "15-band (bi-amp)";
         case TAS5805M_EQ_UI_MODE_PRESETS: return "EQ Presets";
+        case TAS5805M_EQ_UI_MODE_MANUAL: return "Manual";
         default: return "Unknown";
     }
 }
@@ -196,12 +199,6 @@ esp_err_t tas5805m_settings_init(void) {
     }
     return ESP_OK;
 }
-
-/* Digital volume persistence removed.
- * Digital volume is treated as read-only / managed by the TAS5805M driver
- * and is not persisted to NVS. Previous save/load functions and the
- * corresponding NVS key were intentionally removed.
- */
 
 esp_err_t tas5805m_settings_save_analog_gain(int gain_half_db) {
     ESP_LOGD(TAG, "%s: gain_half_db=%d", __func__, gain_half_db);
@@ -698,6 +695,138 @@ esp_err_t tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS ch, int *gain
     return err;
 }
 
+/** Save manual biquad coefficients for a specific channel and band to NVS.
+ *  Keys are formatted as: "bq_l_<band>_b0", "bq_l_<band>_b1", etc.
+ */
+esp_err_t tas5805m_settings_save_biquad_coefficients(TAS5805M_EQ_CHANNELS ch, int band,
+                                                      float b0, float b1, float b2,
+                                                      float a1, float a2) {
+#if !defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    if (band < 0 || band >= TAS5805M_EQ_BANDS) {
+        ESP_LOGE(TAG, "%s: Invalid band %d", __func__, band);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ESP_LOGD(TAG, "%s: ch=%d band=%d b0=%f b1=%f b2=%f a1=%f a2=%f", 
+             __func__, (int)ch, band, b0, b1, b2, a1, a2);
+
+    if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (xSemaphoreTake(tas5805m_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    const char *prefix = (ch == TAS5805M_EQ_CHANNELS_LEFT) ? TAS5805M_NVS_KEY_BQ_L_PREFIX : TAS5805M_NVS_KEY_BQ_R_PREFIX;
+    char key[32];
+    
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(TAS5805M_NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "%s: Failed to open NVS namespace '%s': %s", __func__, TAS5805M_NVS_NAMESPACE, esp_err_to_name(err));
+        xSemaphoreGive(tas5805m_settings_mutex);
+        return err;
+    }
+
+    // Save each coefficient as a 32-bit blob (float)
+    snprintf(key, sizeof(key), "%s%d_b0", prefix, band);
+    err |= nvs_set_blob(h, key, &b0, sizeof(float));
+    
+    snprintf(key, sizeof(key), "%s%d_b1", prefix, band);
+    err |= nvs_set_blob(h, key, &b1, sizeof(float));
+    
+    snprintf(key, sizeof(key), "%s%d_b2", prefix, band);
+    err |= nvs_set_blob(h, key, &b2, sizeof(float));
+    
+    snprintf(key, sizeof(key), "%s%d_a1", prefix, band);
+    err |= nvs_set_blob(h, key, &a1, sizeof(float));
+    
+    snprintf(key, sizeof(key), "%s%d_a2", prefix, band);
+    err |= nvs_set_blob(h, key, &a2, sizeof(float));
+
+    if (err == ESP_OK) {
+        err = nvs_commit(h);
+    }
+    nvs_close(h);
+
+    xSemaphoreGive(tas5805m_settings_mutex);
+    return err;
+#endif
+}
+
+/** Load manual biquad coefficients for a specific channel and band from NVS */
+esp_err_t tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS ch, int band,
+                                                      float *b0, float *b1, float *b2,
+                                                      float *a1, float *a2) {
+#if !defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    if (!b0 || !b1 || !b2 || !a1 || !a2) return ESP_ERR_INVALID_ARG;
+    
+    if (band < 0 || band >= TAS5805M_EQ_BANDS) {
+        ESP_LOGE(TAG, "%s: Invalid band %d", __func__, band);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (xSemaphoreTake(tas5805m_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    const char *prefix = (ch == TAS5805M_EQ_CHANNELS_LEFT) ? TAS5805M_NVS_KEY_BQ_L_PREFIX : TAS5805M_NVS_KEY_BQ_R_PREFIX;
+    char key[32];
+    
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(TAS5805M_NVS_NAMESPACE, NVS_READONLY, &h);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "%s: Failed to open NVS namespace '%s': %s", __func__, TAS5805M_NVS_NAMESPACE, esp_err_to_name(err));
+        xSemaphoreGive(tas5805m_settings_mutex);
+        return err;
+    }
+
+    // Load each coefficient as a 32-bit blob (float)
+    size_t sz = sizeof(float);
+    
+    snprintf(key, sizeof(key), "%s%d_b0", prefix, band);
+    err = nvs_get_blob(h, key, b0, &sz);
+    if (err != ESP_OK) goto cleanup;
+    
+    sz = sizeof(float);
+    snprintf(key, sizeof(key), "%s%d_b1", prefix, band);
+    err = nvs_get_blob(h, key, b1, &sz);
+    if (err != ESP_OK) goto cleanup;
+    
+    sz = sizeof(float);
+    snprintf(key, sizeof(key), "%s%d_b2", prefix, band);
+    err = nvs_get_blob(h, key, b2, &sz);
+    if (err != ESP_OK) goto cleanup;
+    
+    sz = sizeof(float);
+    snprintf(key, sizeof(key), "%s%d_a1", prefix, band);
+    err = nvs_get_blob(h, key, a1, &sz);
+    if (err != ESP_OK) goto cleanup;
+    
+    sz = sizeof(float);
+    snprintf(key, sizeof(key), "%s%d_a2", prefix, band);
+    err = nvs_get_blob(h, key, a2, &sz);
+    if (err != ESP_OK) goto cleanup;
+
+    ESP_LOGD(TAG, "%s: Loaded ch=%d band=%d: b0=%f b1=%f b2=%f a1=%f a2=%f", 
+             __func__, (int)ch, band, *b0, *b1, *b2, *a1, *a2);
+
+cleanup:
+    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGW(TAG, "%s: Failed to read biquad coefficients for ch=%d band=%d: %s", 
+                 __func__, (int)ch, band, esp_err_to_name(err));
+    }
+    nvs_close(h);
+    xSemaphoreGive(tas5805m_settings_mutex);
+    return err;
+#endif
+}
+
 /** Load EQ mode from NVS */
 esp_err_t tas5805m_settings_load_eq_mode(TAS5805M_EQ_MODE *mode) {
     if (!mode) return ESP_ERR_INVALID_ARG;
@@ -750,7 +879,7 @@ esp_err_t tas5805m_settings_get_json(char *json_out, size_t max_len) {
         dac_mode = TAS5805M_DAC_MODE_BTL;
     }
 
-    // Get modulation mode
+    /* Get current modulation mode and frequencies */
     TAS5805M_MOD_MODE mod_mode;
     TAS5805M_SW_FREQ sw_freq;
     TAS5805M_BD_FREQ bd_freq;
@@ -1107,6 +1236,7 @@ esp_err_t tas5805m_settings_set_from_json(const char *json_in) {
             case TAS5805M_EQ_UI_MODE_15_BAND: drv = TAS5805M_EQ_MODE_ON; break;
             case TAS5805M_EQ_UI_MODE_15_BAND_BIAMP: drv = TAS5805M_EQ_MODE_BIAMP; break;
             case TAS5805M_EQ_UI_MODE_PRESETS: drv = TAS5805M_EQ_MODE_BIAMP; break;
+            case TAS5805M_EQ_UI_MODE_MANUAL: drv = TAS5805M_EQ_MODE_BIAMP; break;
             default: drv = TAS5805M_EQ_MODE_OFF; break;
         }
 
@@ -1274,6 +1404,107 @@ esp_err_t tas5805m_settings_set_from_json(const char *json_in) {
             }
         }
     }
+
+    // Handle manual biquad coefficients (keys like "bq_l_0_b0", "bq_l_0_b1", etc.)
+    // Parse and save to NVS only. Application to hardware happens only when user clicks Apply.
+    for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
+        float b0_l = 1, b1_l = 0, b2_l = 0, a1_l = 0, a2_l = 0;
+        float b0_r = 1, b1_r = 0, b2_r = 0, a1_r = 0, a2_r = 0;
+        bool has_l = true, has_r = true;
+
+        // Parse left channel coefficients
+        char key[32];
+        snprintf(key, sizeof(key), "bq_l_%d_b0", band);
+        cJSON *item = cJSON_GetObjectItem(root, key);
+        if (cJSON_IsNumber(item)) b0_l = (float)item->valuedouble; else has_l = false;
+
+        snprintf(key, sizeof(key), "bq_l_%d_b1", band);
+        item = cJSON_GetObjectItem(root, key);
+        if (cJSON_IsNumber(item)) b1_l = (float)item->valuedouble; else has_l = false;
+
+        snprintf(key, sizeof(key), "bq_l_%d_b2", band);
+        item = cJSON_GetObjectItem(root, key);
+        if (cJSON_IsNumber(item)) b2_l = (float)item->valuedouble; else has_l = false;
+
+        snprintf(key, sizeof(key), "bq_l_%d_a1", band);
+        item = cJSON_GetObjectItem(root, key);
+        if (cJSON_IsNumber(item)) a1_l = (float)item->valuedouble; else has_l = false;
+
+        snprintf(key, sizeof(key), "bq_l_%d_a2", band);
+        item = cJSON_GetObjectItem(root, key);
+        if (cJSON_IsNumber(item)) a2_l = (float)item->valuedouble; else has_l = false;
+
+        // Parse right channel coefficients
+        snprintf(key, sizeof(key), "bq_r_%d_b0", band);
+        item = cJSON_GetObjectItem(root, key);
+        if (cJSON_IsNumber(item)) b0_r = (float)item->valuedouble; else has_r = false;
+
+        snprintf(key, sizeof(key), "bq_r_%d_b1", band);
+        item = cJSON_GetObjectItem(root, key);
+        if (cJSON_IsNumber(item)) b1_r = (float)item->valuedouble; else has_r = false;
+
+        snprintf(key, sizeof(key), "bq_r_%d_b2", band);
+        item = cJSON_GetObjectItem(root, key);
+        if (cJSON_IsNumber(item)) b2_r = (float)item->valuedouble; else has_r = false;
+
+        snprintf(key, sizeof(key), "bq_r_%d_a1", band);
+        item = cJSON_GetObjectItem(root, key);
+        if (cJSON_IsNumber(item)) a1_r = (float)item->valuedouble; else has_r = false;
+
+        snprintf(key, sizeof(key), "bq_r_%d_a2", band);
+        item = cJSON_GetObjectItem(root, key);
+        if (cJSON_IsNumber(item)) a2_r = (float)item->valuedouble; else has_r = false;
+
+        // Save to NVS if all coefficients were provided
+        if (has_l) {
+            esp_err_t perr = tas5805m_settings_save_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band,
+                                                                          b0_l, b1_l, b2_l, a1_l, a2_l);
+            if (perr == ESP_OK) {
+                ESP_LOGI(TAG, "%s: Saved manual BQ L band %d to NVS", __func__, band);
+            } else {
+                ESP_LOGW(TAG, "%s: Failed to save manual BQ L band %d: %s", __func__, band, esp_err_to_name(perr));
+            }
+        }
+
+        if (has_r) {
+            esp_err_t perr = tas5805m_settings_save_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band,
+                                                                          b0_r, b1_r, b2_r, a1_r, a2_r);
+            if (perr == ESP_OK) {
+                ESP_LOGI(TAG, "%s: Saved manual BQ R band %d to NVS", __func__, band);
+            } else {
+                ESP_LOGW(TAG, "%s: Failed to save manual BQ R band %d: %s", __func__, band, esp_err_to_name(perr));
+            }
+        }
+    }
+
+    // Check if user requested to apply manual coefficients (special "apply_manual_bq" flag)
+    cJSON *apply_item = cJSON_GetObjectItem(root, "apply_manual_bq");
+    if (cJSON_IsTrue(apply_item)) {
+        ESP_LOGI(TAG, "%s: Applying manual biquad coefficients to hardware", __func__);
+        for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
+            float b0, b1, b2, a1, a2;
+            // Left channel
+            if (tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band,
+                                                            &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
+                esp_err_t werr = tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band,
+                                                                      b0, b1, b2, a1, a2);
+                if (werr != ESP_OK) {
+                    ESP_LOGW(TAG, "%s: Failed to write manual BQ L band %d: %s", 
+                             __func__, band, esp_err_to_name(werr));
+                }
+            }
+            // Right channel
+            if (tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band,
+                                                            &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
+                esp_err_t werr = tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band,
+                                                                      b0, b1, b2, a1, a2);
+                if (werr != ESP_OK) {
+                    ESP_LOGW(TAG, "%s: Failed to write manual BQ R band %d: %s", 
+                             __func__, band, esp_err_to_name(werr));
+                }
+            }
+        }
+    }
 #else
     (void)root; // keep compiler happy when EQ support disabled
 #endif
@@ -1341,6 +1572,9 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     }
 
     cJSON *groups = cJSON_CreateArray();
+    /* eq_params is referenced from both EQ-enabled and EQ-disabled branches
+     * ensure the variable is declared in all compilation configurations. */
+    cJSON *eq_params = NULL;
     
     // ===== Volume Group =====
     cJSON *volume_group = cJSON_CreateObject();
@@ -1498,7 +1732,7 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
 
     cJSON_AddItemToObject(mixer_mode_param, "values", mixer_mode_values);
     cJSON_AddItemToArray(dac_config_params, mixer_mode_param);
-
+    
     // Modulation Mode parameter
     cJSON *mod_mode_param = cJSON_CreateObject();
     cJSON_AddStringToObject(mod_mode_param, "key", "modulation_mode");
@@ -1507,7 +1741,6 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     cJSON_AddNumberToObject(mod_mode_param, "current", (int)mod_mode);
     
     cJSON *mod_mode_values = cJSON_CreateArray();
-    
     cJSON *mod_bd = cJSON_CreateObject();
     cJSON_AddNumberToObject(mod_bd, "value", MOD_MODE_BD);
     cJSON_AddStringToObject(mod_bd, "name", "BD Mode");
@@ -1525,7 +1758,7 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     
     cJSON_AddItemToObject(mod_mode_param, "values", mod_mode_values);
     cJSON_AddItemToArray(dac_config_params, mod_mode_param);
-    
+
     // Switching Frequency parameter
     cJSON *sw_freq_param = cJSON_CreateObject();
     cJSON_AddStringToObject(sw_freq_param, "key", "sw_freq");
@@ -1534,7 +1767,6 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     cJSON_AddNumberToObject(sw_freq_param, "current", (int)sw_freq);
     
     cJSON *sw_freq_values = cJSON_CreateArray();
-    
     cJSON *freq_768k = cJSON_CreateObject();
     cJSON_AddNumberToObject(freq_768k, "value", SW_FREQ_768K);
     cJSON_AddStringToObject(freq_768k, "name", "768 kHz");
@@ -1557,16 +1789,15 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     
     cJSON_AddItemToObject(sw_freq_param, "values", sw_freq_values);
     cJSON_AddItemToArray(dac_config_params, sw_freq_param);
-    
+
     // BD Frequency parameter
     cJSON *bd_freq_param = cJSON_CreateObject();
     cJSON_AddStringToObject(bd_freq_param, "key", "bd_freq");
     cJSON_AddStringToObject(bd_freq_param, "name", "BD Frequency");
     cJSON_AddStringToObject(bd_freq_param, "type", "enum");
     cJSON_AddNumberToObject(bd_freq_param, "current", (int)bd_freq);
-    
+
     cJSON *bd_freq_values = cJSON_CreateArray();
-    
     cJSON *bd_80k = cJSON_CreateObject();
     cJSON_AddNumberToObject(bd_80k, "value", SW_FREQ_80K);
     cJSON_AddStringToObject(bd_80k, "name", "80 kHz");
@@ -1589,57 +1820,6 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     
     cJSON_AddItemToObject(bd_freq_param, "values", bd_freq_values);
     cJSON_AddItemToArray(dac_config_params, bd_freq_param);
-
-    cJSON_AddItemToObject(dac_config_group, "parameters", dac_config_params);
-    cJSON_AddItemToArray(groups, dac_config_group);
-
-    // ===== Channel Gain Group (always visible) =====
-    {
-        cJSON *ch_group = cJSON_CreateObject();
-        cJSON_AddStringToObject(ch_group, "name", "Mixer Gain");
-        cJSON_AddStringToObject(ch_group, "description", "Mixer gain");
-
-        cJSON *ch_params = cJSON_CreateArray();
-
-        int8_t cur_ch_l = 0, cur_ch_r = 0;
-        if (tas5805m_get_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, &cur_ch_l) != ESP_OK) cur_ch_l = 0;
-        if (tas5805m_get_channel_gain(TAS5805M_EQ_CHANNELS_RIGHT, &cur_ch_r) != ESP_OK) cur_ch_r = 0;
-
-        cJSON *ch_l_param = cJSON_CreateObject();
-        cJSON_AddStringToObject(ch_l_param, "key", TAS5805M_NVS_KEY_CHANNEL_GAIN_L);
-        cJSON_AddStringToObject(ch_l_param, "name", "Channel Gain (L)");
-        cJSON_AddStringToObject(ch_l_param, "type", "range");
-        cJSON_AddStringToObject(ch_l_param, "unit", "dB");
-        cJSON_AddNumberToObject(ch_l_param, "min", TAS5805M_MIXER_VALUE_MINDB);
-        cJSON_AddNumberToObject(ch_l_param, "max", TAS5805M_MIXER_VALUE_MAXDB);
-        cJSON_AddNumberToObject(ch_l_param, "step", 1);
-        cJSON_AddNumberToObject(ch_l_param, "default", 0);
-        cJSON_AddNumberToObject(ch_l_param, "current", (int)cur_ch_l);
-        cJSON_AddItemToArray(ch_params, ch_l_param);
-
-        cJSON *ch_r_param = cJSON_CreateObject();
-        cJSON_AddStringToObject(ch_r_param, "key", TAS5805M_NVS_KEY_CHANNEL_GAIN_R);
-        cJSON_AddStringToObject(ch_r_param, "name", "Channel Gain (R)");
-        cJSON_AddStringToObject(ch_r_param, "type", "range");
-        cJSON_AddStringToObject(ch_r_param, "unit", "dB");
-        cJSON_AddNumberToObject(ch_r_param, "min", TAS5805M_MIXER_VALUE_MINDB);
-        cJSON_AddNumberToObject(ch_r_param, "max", TAS5805M_MIXER_VALUE_MAXDB);
-        cJSON_AddNumberToObject(ch_r_param, "step", 1);
-        cJSON_AddNumberToObject(ch_r_param, "default", 0);
-        cJSON_AddNumberToObject(ch_r_param, "current", (int)cur_ch_r);
-        cJSON_AddItemToArray(ch_params, ch_r_param);
-
-        cJSON_AddItemToObject(ch_group, "parameters", ch_params);
-        cJSON_AddItemToArray(groups, ch_group);
-    }
-
-    // ===== EQ Group =====
-    cJSON *eq_group = cJSON_CreateObject();
-    cJSON_AddStringToObject(eq_group, "name", "EQ");
-    cJSON_AddStringToObject(eq_group, "description", "Equalizer mode");
-    cJSON_AddStringToObject(eq_group, "layout", "eq-controls");
-
-    cJSON *eq_params = cJSON_CreateArray();
 
     // Replace legacy EQ mode with a UI-focused EQ selection that controls which UI elements are shown
     cJSON *eq_ui_param = cJSON_CreateObject();
@@ -1683,6 +1863,11 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     cJSON_AddNumberToObject(v_preset, "value", (int)TAS5805M_EQ_UI_MODE_PRESETS);
     cJSON_AddStringToObject(v_preset, "name", "EQ Presets");
     cJSON_AddItemToArray(eq_ui_values, v_preset);
+
+    cJSON *v_manual = cJSON_CreateObject();
+    cJSON_AddNumberToObject(v_manual, "value", (int)TAS5805M_EQ_UI_MODE_MANUAL);
+    cJSON_AddStringToObject(v_manual, "name", "Manual");
+    cJSON_AddItemToArray(eq_ui_values, v_manual);
 #else
     /* When EQ support is disabled expose only OFF and mark the control readonly
      * so the UI shows the section but doesn't allow changing it.
@@ -1731,7 +1916,9 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
         v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_150HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 150 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
 
         cJSON_AddItemToObject(prof_l_param, "values", prof_l_values);
-        cJSON_AddItemToArray(eq_params, prof_l_param);
+        /* Preset selectors are placed into a dedicated group so the UI can
+         * show/hide the entire presets section when the UI mode is set to
+         * 'Presets'. We'll add them to the presets group later. */
 
         // Right channel
         cJSON *prof_r_param = cJSON_CreateObject();
@@ -1792,8 +1979,6 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     cJSON_AddItemToObject(prof_r_param, "values", prof_r_vals);
     cJSON_AddItemToArray(eq_params, prof_r_param);
 #endif
-    cJSON_AddItemToObject(eq_group, "parameters", eq_params);
-    cJSON_AddItemToArray(groups, eq_group);
     
     /* Add per-band sliders for left and right channels (if EQ supported) */
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
@@ -1872,6 +2057,88 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     // Add EQ band sub-groups to main groups array (after EQ group)
     cJSON_AddItemToArray(groups, eq_bands_left);
     cJSON_AddItemToArray(groups, eq_bands_right);
+
+    /* Add manual biquad coefficient groups for left and right channels */
+    cJSON *bq_left_group = cJSON_CreateObject();
+    cJSON_AddStringToObject(bq_left_group, "name", "Manual Biquad Coefficients (Left)");
+    cJSON_AddStringToObject(bq_left_group, "layout", "biquad-manual");
+    cJSON_AddStringToObject(bq_left_group, "channel", "left");
+    cJSON *bq_left_params = cJSON_CreateArray();
+
+    cJSON *bq_right_group = cJSON_CreateObject();
+    cJSON_AddStringToObject(bq_right_group, "name", "Manual Biquad Coefficients (Right)");
+    cJSON_AddStringToObject(bq_right_group, "layout", "biquad-manual");
+    cJSON_AddStringToObject(bq_right_group, "channel", "right");
+    cJSON *bq_right_params = cJSON_CreateArray();
+
+    // For each band, create 5 float inputs (B0, B1, B2, A1, A2) for both channels
+    for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
+        char freq_label[32];
+        snprintf(freq_label, sizeof(freq_label), "Band %d (%d Hz)", band, tas5805m_eq_bands[band]);
+
+        const char *coef_names[] = {"B0", "B1", "B2", "A1", "A2"};
+        const char *coef_keys[] = {"b0", "b1", "b2", "a1", "a2"};
+
+        for (int c = 0; c < 5; ++c) {
+            // Left channel
+            char key_l[32];
+            snprintf(key_l, sizeof(key_l), "bq_l_%d_%s", band, coef_keys[c]);
+            
+            cJSON *coef_l = cJSON_CreateObject();
+            cJSON_AddStringToObject(coef_l, "key", key_l);
+            cJSON_AddStringToObject(coef_l, "name", coef_names[c]);
+            cJSON_AddStringToObject(coef_l, "type", "float");
+            cJSON_AddStringToObject(coef_l, "band_label", freq_label);
+            cJSON_AddNumberToObject(coef_l, "band", band);
+            cJSON_AddNumberToObject(coef_l, "coef_index", c);
+            cJSON_AddNumberToObject(coef_l, "min", -16.0);
+            cJSON_AddNumberToObject(coef_l, "max", 15.999999);
+            cJSON_AddNumberToObject(coef_l, "step", 0.000001);
+            cJSON_AddNumberToObject(coef_l, "default", (c == 0) ? 1.0 : 0.0);  // B0 defaults to 1.0, others to 0.0
+            
+            // Try to load current value from NVS
+            float b0=1.0, b1=0.0, b2=0.0, a1=0.0, a2=0.0;
+            if (tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band, &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
+                float vals[] = {b0, b1, b2, a1, a2};
+                cJSON_AddNumberToObject(coef_l, "current", vals[c]);
+            } else {
+                cJSON_AddNumberToObject(coef_l, "current", (c == 0) ? 1.0 : 0.0);
+            }
+            cJSON_AddItemToArray(bq_left_params, coef_l);
+
+            // Right channel
+            char key_r[32];
+            snprintf(key_r, sizeof(key_r), "bq_r_%d_%s", band, coef_keys[c]);
+            
+            cJSON *coef_r = cJSON_CreateObject();
+            cJSON_AddStringToObject(coef_r, "key", key_r);
+            cJSON_AddStringToObject(coef_r, "name", coef_names[c]);
+            cJSON_AddStringToObject(coef_r, "type", "float");
+            cJSON_AddStringToObject(coef_r, "band_label", freq_label);
+            cJSON_AddNumberToObject(coef_r, "band", band);
+            cJSON_AddNumberToObject(coef_r, "coef_index", c);
+            cJSON_AddNumberToObject(coef_r, "min", -16.0);
+            cJSON_AddNumberToObject(coef_r, "max", 15.999999);
+            cJSON_AddNumberToObject(coef_r, "step", 0.000001);
+            cJSON_AddNumberToObject(coef_r, "default", (c == 0) ? 1.0 : 0.0);
+            
+            // Try to load current value from NVS
+            b0=1.0; b1=0.0; b2=0.0; a1=0.0; a2=0.0;
+            if (tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band, &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
+                float vals[] = {b0, b1, b2, a1, a2};
+                cJSON_AddNumberToObject(coef_r, "current", vals[c]);
+            } else {
+                cJSON_AddNumberToObject(coef_r, "current", (c == 0) ? 1.0 : 0.0);
+            }
+            cJSON_AddItemToArray(bq_right_params, coef_r);
+        }
+    }
+
+    cJSON_AddItemToObject(bq_left_group, "parameters", bq_left_params);
+    cJSON_AddItemToObject(bq_right_group, "parameters", bq_right_params);
+    
+    cJSON_AddItemToArray(groups, bq_left_group);
+    cJSON_AddItemToArray(groups, bq_right_group);
 #endif
     
     // End groups
@@ -1900,6 +2167,741 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     cJSON_free(json_str);
 
     ESP_LOGD(TAG, "%s: Schema JSON generated: %s", __func__, json_out);
+    return ESP_OK;
+}
+
+/**
+ * Get DAC-only schema as JSON string
+ * This includes only the basic DAC configuration groups (Volume, State, DAC Configuration)
+ */
+esp_err_t tas5805m_settings_get_dac_schema_json(char *json_out, size_t max_len) {
+    ESP_LOGD(TAG, "%s: max_len=%zu", __func__, max_len);
+    
+    if (!json_out || max_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // Get current state for schema
+    TAS5805_STATE dac_state;
+    esp_err_t err = tas5805m_get_state(&dac_state);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "%s: Failed to get DAC state: %s", __func__, esp_err_to_name(err));
+        dac_state.state = TAS5805M_CTRL_PLAY;
+    }
+
+    uint8_t digital_volume;
+    if (tas5805m_get_digital_volume(&digital_volume) != ESP_OK) {
+        digital_volume = TAS5805M_VOLUME_DIGITAL_DEFAULT;
+    }
+
+    uint8_t analog_gain;
+    if (tas5805m_get_again(&analog_gain) != ESP_OK) {
+        analog_gain = 0;
+    }
+
+    TAS5805M_DAC_MODE dac_mode;
+    if (tas5805m_get_dac_mode(&dac_mode) != ESP_OK) {
+        dac_mode = TAS5805M_DAC_MODE_BTL;
+    }
+
+    /* Get current modulation mode and frequencies */
+    TAS5805M_MOD_MODE mod_mode;
+    TAS5805M_SW_FREQ sw_freq;
+    TAS5805M_BD_FREQ bd_freq;
+    if (tas5805m_get_modulation_mode(&mod_mode, &sw_freq, &bd_freq) != ESP_OK) {
+        mod_mode = MOD_MODE_BD;
+        sw_freq = SW_FREQ_768K;
+        bd_freq = SW_FREQ_80K;
+    }
+
+    // Build minimal DAC schema
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        ESP_LOGE(TAG, "%s: Failed to create JSON root", __func__);
+        return ESP_ERR_NO_MEM;
+    }
+
+    cJSON *groups = cJSON_CreateArray();
+    
+    // Volume Group
+    cJSON *volume_group = cJSON_CreateObject();
+    cJSON_AddStringToObject(volume_group, "name", "Volume");
+    cJSON_AddStringToObject(volume_group, "description", "Digital and analog volume control");
+    
+    cJSON *volume_params = cJSON_CreateArray();
+    
+    cJSON *dig_vol_param = cJSON_CreateObject();
+    cJSON_AddStringToObject(dig_vol_param, "key", "digital_volume");
+    cJSON_AddStringToObject(dig_vol_param, "name", "Digital Volume");
+    cJSON_AddStringToObject(dig_vol_param, "type", "range");
+    cJSON_AddStringToObject(dig_vol_param, "unit", "");
+    cJSON_AddNumberToObject(dig_vol_param, "min", TAS5805M_VOLUME_DIGITAL_MIN);
+    cJSON_AddNumberToObject(dig_vol_param, "max", TAS5805M_VOLUME_DIGITAL_MAX);
+    cJSON_AddNumberToObject(dig_vol_param, "step", 1);
+    cJSON_AddNumberToObject(dig_vol_param, "default", TAS5805M_VOLUME_DIGITAL_DEFAULT);
+    cJSON_AddNumberToObject(dig_vol_param, "current", digital_volume);
+    cJSON_AddBoolToObject(dig_vol_param, "readonly", true);
+    cJSON_AddItemToArray(volume_params, dig_vol_param);
+    
+    cJSON *ana_gain_param = cJSON_CreateObject();
+    cJSON_AddStringToObject(ana_gain_param, "key", "analog_gain");
+    cJSON_AddStringToObject(ana_gain_param, "name", "Analog Gain");
+    cJSON_AddStringToObject(ana_gain_param, "type", "range");
+    cJSON_AddStringToObject(ana_gain_param, "unit", "");
+    cJSON_AddNumberToObject(ana_gain_param, "min", 0);
+    cJSON_AddNumberToObject(ana_gain_param, "max", 31);
+    cJSON_AddNumberToObject(ana_gain_param, "step", 1);
+    cJSON_AddNumberToObject(ana_gain_param, "default", 0);
+    cJSON_AddNumberToObject(ana_gain_param, "current", analog_gain);
+    cJSON_AddItemToArray(volume_params, ana_gain_param);
+    
+    cJSON_AddItemToObject(volume_group, "parameters", volume_params);
+    cJSON_AddItemToArray(groups, volume_group);
+
+    // State Group
+    cJSON *state_group = cJSON_CreateObject();
+    cJSON_AddStringToObject(state_group, "name", "State");
+    cJSON_AddStringToObject(state_group, "description", "DAC power and operation state");
+    
+    cJSON *state_params = cJSON_CreateArray();
+    
+    cJSON *state_param = cJSON_CreateObject();
+    cJSON_AddStringToObject(state_param, "key", "state");
+    cJSON_AddStringToObject(state_param, "name", "DAC State");
+    cJSON_AddStringToObject(state_param, "type", "enum");
+    cJSON_AddNumberToObject(state_param, "current", (int)dac_state.state);
+    cJSON_AddBoolToObject(state_param, "readonly", true);
+    
+    cJSON *state_values = cJSON_CreateArray();
+    cJSON *val_deep_sleep = cJSON_CreateObject();
+    cJSON_AddNumberToObject(val_deep_sleep, "value", TAS5805M_CTRL_DEEP_SLEEP);
+    cJSON_AddStringToObject(val_deep_sleep, "name", "Deep Sleep");
+    cJSON_AddItemToArray(state_values, val_deep_sleep);
+    
+    cJSON *val_sleep = cJSON_CreateObject();
+    cJSON_AddNumberToObject(val_sleep, "value", TAS5805M_CTRL_SLEEP);
+    cJSON_AddStringToObject(val_sleep, "name", "Sleep");
+    cJSON_AddItemToArray(state_values, val_sleep);
+    
+    cJSON *val_hiz = cJSON_CreateObject();
+    cJSON_AddNumberToObject(val_hiz, "value", TAS5805M_CTRL_HI_Z);
+    cJSON_AddStringToObject(val_hiz, "name", "Hi-Z");
+    cJSON_AddItemToArray(state_values, val_hiz);
+    
+    cJSON *val_play = cJSON_CreateObject();
+    cJSON_AddNumberToObject(val_play, "value", TAS5805M_CTRL_PLAY);
+    cJSON_AddStringToObject(val_play, "name", "Play");
+    cJSON_AddItemToArray(state_values, val_play);
+    
+    cJSON *val_play_mute = cJSON_CreateObject();
+    cJSON_AddNumberToObject(val_play_mute, "value", TAS5805M_CTRL_PLAY_MUTE);
+    cJSON_AddStringToObject(val_play_mute, "name", "Play (Muted)");
+    cJSON_AddItemToArray(state_values, val_play_mute);
+    
+    cJSON_AddItemToObject(state_param, "values", state_values);
+    cJSON_AddItemToArray(state_params, state_param);
+    
+    cJSON_AddItemToObject(state_group, "parameters", state_params);
+    cJSON_AddItemToArray(groups, state_group);
+
+    // DAC Configuration Group - simplified
+    cJSON *dac_config_group = cJSON_CreateObject();
+    cJSON_AddStringToObject(dac_config_group, "name", "DAC Configuration");
+    cJSON_AddStringToObject(dac_config_group, "description", "DAC mode and mixer settings");
+    cJSON_AddStringToObject(dac_config_group, "layout", "dac-config");
+    
+    cJSON *dac_config_params = cJSON_CreateArray();
+    
+    cJSON *dac_mode_param = cJSON_CreateObject();
+    cJSON_AddStringToObject(dac_mode_param, "key", "dac_mode");
+    cJSON_AddStringToObject(dac_mode_param, "name", "DAC Mode");
+    cJSON_AddStringToObject(dac_mode_param, "type", "enum");
+    cJSON_AddNumberToObject(dac_mode_param, "current", (int)dac_mode);
+    
+    cJSON *dac_mode_values = cJSON_CreateArray();
+    cJSON *dac_mode_btl = cJSON_CreateObject();
+    cJSON_AddNumberToObject(dac_mode_btl, "value", TAS5805M_DAC_MODE_BTL);
+    cJSON_AddStringToObject(dac_mode_btl, "name", "BTL (Bridge Tied Load)");
+    cJSON_AddItemToArray(dac_mode_values, dac_mode_btl);
+    
+    cJSON *dac_mode_pbtl = cJSON_CreateObject();
+    cJSON_AddNumberToObject(dac_mode_pbtl, "value", TAS5805M_DAC_MODE_PBTL);
+    cJSON_AddStringToObject(dac_mode_pbtl, "name", "PBTL (Parallel Load)");
+    cJSON_AddItemToArray(dac_mode_values, dac_mode_pbtl);
+    
+    cJSON_AddItemToObject(dac_mode_param, "values", dac_mode_values);
+    cJSON_AddItemToArray(dac_config_params, dac_mode_param);
+    
+    // Mixer Mode
+    cJSON *mixer_mode_param = cJSON_CreateObject();
+    cJSON_AddStringToObject(mixer_mode_param, "key", "mixer_mode");
+    cJSON_AddStringToObject(mixer_mode_param, "name", "Mixer Mode");
+    cJSON_AddStringToObject(mixer_mode_param, "type", "enum");
+    cJSON_AddNumberToObject(mixer_mode_param, "current", (int)dac_state.mixer_mode);
+    
+    cJSON *mixer_values = cJSON_CreateArray();
+    const char *mixer_names[] = {"Stereo", "Stereo (Inverse)", "Mono", "Right", "Left"};
+    for (int i = MIXER_STEREO; i <= MIXER_LEFT; ++i) {
+        cJSON *mv = cJSON_CreateObject();
+        cJSON_AddNumberToObject(mv, "value", i);
+        cJSON_AddStringToObject(mv, "name", mixer_names[i - 1]);
+        cJSON_AddItemToArray(mixer_values, mv);
+    }
+    cJSON_AddItemToObject(mixer_mode_param, "values", mixer_values);
+    cJSON_AddItemToArray(dac_config_params, mixer_mode_param);
+    
+    // Modulation Mode
+    cJSON *mod_mode_param = cJSON_CreateObject();
+    cJSON_AddStringToObject(mod_mode_param, "key", "modulation_mode");
+    cJSON_AddStringToObject(mod_mode_param, "name", "Modulation Mode");
+    cJSON_AddStringToObject(mod_mode_param, "type", "enum");
+    cJSON_AddNumberToObject(mod_mode_param, "current", (int)mod_mode);
+    
+    cJSON *mod_values = cJSON_CreateArray();
+    cJSON *mod_bd = cJSON_CreateObject();
+    cJSON_AddNumberToObject(mod_bd, "value", MOD_MODE_BD);
+    cJSON_AddStringToObject(mod_bd, "name", "BD");
+    cJSON_AddItemToArray(mod_values, mod_bd);
+    
+    cJSON *mod_1spw = cJSON_CreateObject();
+    cJSON_AddNumberToObject(mod_1spw, "value", MOD_MODE_1SPW);
+    cJSON_AddStringToObject(mod_1spw, "name", "1SPW");
+    cJSON_AddItemToArray(mod_values, mod_1spw);
+    
+    cJSON *mod_hybrid = cJSON_CreateObject();
+    cJSON_AddNumberToObject(mod_hybrid, "value", MOD_MODE_HYBRID);
+    cJSON_AddStringToObject(mod_hybrid, "name", "Hybrid");
+    cJSON_AddItemToArray(mod_values, mod_hybrid);
+    
+    cJSON_AddItemToObject(mod_mode_param, "values", mod_values);
+    cJSON_AddItemToArray(dac_config_params, mod_mode_param);
+    
+    // Switching Frequency
+    cJSON *sw_freq_param = cJSON_CreateObject();
+    cJSON_AddStringToObject(sw_freq_param, "key", "sw_freq");
+    cJSON_AddStringToObject(sw_freq_param, "name", "Switching Frequency");
+    cJSON_AddStringToObject(sw_freq_param, "type", "enum");
+    cJSON_AddNumberToObject(sw_freq_param, "current", (int)sw_freq);
+    
+    cJSON *sw_freq_values = cJSON_CreateArray();
+    cJSON *freq_768k = cJSON_CreateObject();
+    cJSON_AddNumberToObject(freq_768k, "value", SW_FREQ_768K);
+    cJSON_AddStringToObject(freq_768k, "name", "768 kHz");
+    cJSON_AddItemToArray(sw_freq_values, freq_768k);
+    
+    cJSON *freq_384k = cJSON_CreateObject();
+    cJSON_AddNumberToObject(freq_384k, "value", SW_FREQ_384K);
+    cJSON_AddStringToObject(freq_384k, "name", "384 kHz");
+    cJSON_AddItemToArray(sw_freq_values, freq_384k);
+    
+    cJSON *freq_480k = cJSON_CreateObject();
+    cJSON_AddNumberToObject(freq_480k, "value", SW_FREQ_480K);
+    cJSON_AddStringToObject(freq_480k, "name", "480 kHz");
+    cJSON_AddItemToArray(sw_freq_values, freq_480k);
+    
+    cJSON *freq_576k = cJSON_CreateObject();
+    cJSON_AddNumberToObject(freq_576k, "value", SW_FREQ_576K);
+    cJSON_AddStringToObject(freq_576k, "name", "576 kHz");
+    cJSON_AddItemToArray(sw_freq_values, freq_576k);
+    
+    cJSON_AddItemToObject(sw_freq_param, "values", sw_freq_values);
+    cJSON_AddItemToArray(dac_config_params, sw_freq_param);
+    
+    // BD Frequency
+    cJSON *bd_freq_param = cJSON_CreateObject();
+    cJSON_AddStringToObject(bd_freq_param, "key", "bd_freq");
+    cJSON_AddStringToObject(bd_freq_param, "name", "BD Frequency");
+    cJSON_AddStringToObject(bd_freq_param, "type", "enum");
+    cJSON_AddNumberToObject(bd_freq_param, "current", (int)bd_freq);
+    
+    cJSON *bd_freq_values = cJSON_CreateArray();
+    cJSON *bd_80k = cJSON_CreateObject();
+    cJSON_AddNumberToObject(bd_80k, "value", SW_FREQ_80K);
+    cJSON_AddStringToObject(bd_80k, "name", "80 kHz");
+    cJSON_AddItemToArray(bd_freq_values, bd_80k);
+    
+    cJSON *bd_100k = cJSON_CreateObject();
+    cJSON_AddNumberToObject(bd_100k, "value", SW_FREQ_100K);
+    cJSON_AddStringToObject(bd_100k, "name", "100 kHz");
+    cJSON_AddItemToArray(bd_freq_values, bd_100k);
+    
+    cJSON *bd_120k = cJSON_CreateObject();
+    cJSON_AddNumberToObject(bd_120k, "value", SW_FREQ_120K);
+    cJSON_AddStringToObject(bd_120k, "name", "120 kHz");
+    cJSON_AddItemToArray(bd_freq_values, bd_120k);
+    
+    cJSON *bd_175k = cJSON_CreateObject();
+    cJSON_AddNumberToObject(bd_175k, "value", SW_FREQ_175K);
+    cJSON_AddStringToObject(bd_175k, "name", "175 kHz");
+    cJSON_AddItemToArray(bd_freq_values, bd_175k);
+    
+    cJSON_AddItemToObject(bd_freq_param, "values", bd_freq_values);
+    cJSON_AddItemToArray(dac_config_params, bd_freq_param);
+    
+    cJSON_AddItemToObject(dac_config_group, "parameters", dac_config_params);
+    cJSON_AddItemToArray(groups, dac_config_group);
+
+    cJSON_AddItemToObject(root, "groups", groups);
+
+    // Render to string
+    char *json_str = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+
+    if (!json_str) {
+        ESP_LOGE(TAG, "%s: Failed to render JSON", __func__);
+        return ESP_ERR_NO_MEM;
+    }
+
+    size_t json_len = strlen(json_str);
+    if (json_len >= max_len) {
+        ESP_LOGE(TAG, "%s: JSON too large for buffer (%zu >= %zu)", __func__, json_len, max_len);
+        cJSON_free(json_str);
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    strncpy(json_out, json_str, max_len - 1);
+    json_out[max_len - 1] = '\0';
+    cJSON_free(json_str);
+
+    ESP_LOGD(TAG, "%s: DAC schema JSON generated", __func__);
+    return ESP_OK;
+}
+
+/**
+ * Get EQ-only schema as JSON string
+ * This includes only the EQ-related groups
+ */
+esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
+    ESP_LOGD(TAG, "%s: max_len=%zu", __func__, max_len);
+    
+    if (!json_out || max_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        ESP_LOGE(TAG, "%s: Failed to create JSON root", __func__);
+        return ESP_ERR_NO_MEM;
+    }
+
+    cJSON *groups = cJSON_CreateArray();
+
+    // ===== Channel Gain Group (always visible, first in EQ schema) =====
+    {
+        cJSON *ch_group = cJSON_CreateObject();
+        cJSON_AddStringToObject(ch_group, "name", "Channel Gain");
+        cJSON_AddStringToObject(ch_group, "description", "Per-channel mixer gain control");
+
+        cJSON *ch_params = cJSON_CreateArray();
+
+        int8_t cur_ch_l = 0, cur_ch_r = 0;
+        if (tas5805m_get_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, &cur_ch_l) != ESP_OK) cur_ch_l = 0;
+        if (tas5805m_get_channel_gain(TAS5805M_EQ_CHANNELS_RIGHT, &cur_ch_r) != ESP_OK) cur_ch_r = 0;
+
+        cJSON *ch_l_param = cJSON_CreateObject();
+        cJSON_AddStringToObject(ch_l_param, "key", TAS5805M_NVS_KEY_CHANNEL_GAIN_L);
+        cJSON_AddStringToObject(ch_l_param, "name", "Channel Gain (L)");
+        cJSON_AddStringToObject(ch_l_param, "type", "range");
+        cJSON_AddStringToObject(ch_l_param, "unit", "dB");
+        cJSON_AddNumberToObject(ch_l_param, "min", TAS5805M_MIXER_VALUE_MINDB);
+        cJSON_AddNumberToObject(ch_l_param, "max", TAS5805M_MIXER_VALUE_MAXDB);
+        cJSON_AddNumberToObject(ch_l_param, "step", 1);
+        cJSON_AddNumberToObject(ch_l_param, "default", 0);
+        cJSON_AddNumberToObject(ch_l_param, "current", (int)cur_ch_l);
+        cJSON_AddItemToArray(ch_params, ch_l_param);
+
+        cJSON *ch_r_param = cJSON_CreateObject();
+        cJSON_AddStringToObject(ch_r_param, "key", TAS5805M_NVS_KEY_CHANNEL_GAIN_R);
+        cJSON_AddStringToObject(ch_r_param, "name", "Channel Gain (R)");
+        cJSON_AddStringToObject(ch_r_param, "type", "range");
+        cJSON_AddStringToObject(ch_r_param, "unit", "dB");
+        cJSON_AddNumberToObject(ch_r_param, "min", TAS5805M_MIXER_VALUE_MINDB);
+        cJSON_AddNumberToObject(ch_r_param, "max", TAS5805M_MIXER_VALUE_MAXDB);
+        cJSON_AddNumberToObject(ch_r_param, "step", 1);
+        cJSON_AddNumberToObject(ch_r_param, "default", 0);
+        cJSON_AddNumberToObject(ch_r_param, "current", (int)cur_ch_r);
+        cJSON_AddItemToArray(ch_params, ch_r_param);
+
+        cJSON_AddItemToObject(ch_group, "parameters", ch_params);
+        cJSON_AddItemToArray(groups, ch_group);
+    }
+
+#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+    // Get current EQ mode
+    TAS5805M_EQ_MODE eq_mode_val = TAS5805M_EQ_MODE_OFF;
+    tas5805m_get_eq_mode(&eq_mode_val);
+
+    // EQ Mode Group
+    cJSON *eq_mode_group = cJSON_CreateObject();
+    cJSON_AddStringToObject(eq_mode_group, "name", "EQ Mode");
+    cJSON_AddStringToObject(eq_mode_group, "description", "Equalizer operation mode");
+    
+    cJSON *eq_mode_params = cJSON_CreateArray();
+    
+    cJSON *eq_ui_mode_param = cJSON_CreateObject();
+    cJSON_AddStringToObject(eq_ui_mode_param, "key", "eq_ui_mode");
+    cJSON_AddStringToObject(eq_ui_mode_param, "name", "EQ UI Mode");
+    cJSON_AddStringToObject(eq_ui_mode_param, "type", "enum");
+    
+    TAS5805M_EQ_UI_MODE ui_mode = TAS5805M_EQ_UI_MODE_OFF;
+    tas5805m_settings_load_eq_ui_mode(&ui_mode);
+    cJSON_AddNumberToObject(eq_ui_mode_param, "current", (int)ui_mode);
+    
+    cJSON *eq_ui_mode_values = cJSON_CreateArray();
+    const char *ui_mode_names[] = {"Off", "15-Band", "15-Band Bi-Amp", "Presets", "Manual"};
+    for (int i = 0; i <= TAS5805M_EQ_UI_MODE_MANUAL; ++i) {
+        cJSON *val = cJSON_CreateObject();
+        cJSON_AddNumberToObject(val, "value", i);
+        cJSON_AddStringToObject(val, "name", ui_mode_names[i]);
+        cJSON_AddItemToArray(eq_ui_mode_values, val);
+    }
+    cJSON_AddItemToObject(eq_ui_mode_param, "values", eq_ui_mode_values);
+    cJSON_AddItemToArray(eq_mode_params, eq_ui_mode_param);
+    
+    cJSON_AddItemToObject(eq_mode_group, "parameters", eq_mode_params);
+    cJSON_AddItemToArray(groups, eq_mode_group);
+
+    /* Create main EQ group and parameters array so subsequent blocks can
+     * append parameters (presets, profiles, etc.). This mirrors the DAC
+     * schema layout and ensures `eq_params` is defined before use. */
+    cJSON *eq_group = cJSON_CreateObject();
+    cJSON_AddStringToObject(eq_group, "name", "EQ");
+    cJSON_AddStringToObject(eq_group, "description", "Equalizer settings");
+    cJSON_AddStringToObject(eq_group, "layout", "eq-controls");
+    cJSON *eq_params = cJSON_CreateArray();
+
+    /* EQ Preset / Profile per channel (so UI 'Presets' mode has controls) */
+#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+    {
+        TAS5805M_EQ_PROFILE cur_prof_l = FLAT, cur_prof_r = FLAT;
+        if (tas5805m_get_eq_profile_channel(TAS5805M_EQ_CHANNELS_LEFT, &cur_prof_l) != ESP_OK) cur_prof_l = FLAT;
+        if (tas5805m_get_eq_profile_channel(TAS5805M_EQ_CHANNELS_RIGHT, &cur_prof_r) != ESP_OK) cur_prof_r = FLAT;
+
+        cJSON *prof_l_param = cJSON_CreateObject();
+        cJSON_AddStringToObject(prof_l_param, "key", "eq_profile_l");
+        cJSON_AddStringToObject(prof_l_param, "name", "EQ Preset (L)");
+        cJSON_AddStringToObject(prof_l_param, "type", "enum");
+        cJSON_AddNumberToObject(prof_l_param, "current", (int)cur_prof_l);
+
+        cJSON *prof_l_values = cJSON_CreateArray();
+        cJSON *v;
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", FLAT); cJSON_AddStringToObject(v, "name", "Flat"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_60HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 60 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_70HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 70 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_80HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 80 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_90HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 90 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_100HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 100 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_110HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 110 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_120HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 120 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_130HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 130 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_140HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 140 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_150HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 150 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_60HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 60 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_70HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 70 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_80HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 80 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_90HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 90 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_100HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 100 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_110HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 110 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_120HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 120 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_130HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 130 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_140HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 140 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_150HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 150 Hz Cutoff"); cJSON_AddItemToArray(prof_l_values, v);
+
+        cJSON_AddItemToObject(prof_l_param, "values", prof_l_values);
+
+        /* Right channel preset selector */
+        cJSON *prof_r_param = cJSON_CreateObject();
+        cJSON_AddStringToObject(prof_r_param, "key", "eq_profile_r");
+        cJSON_AddStringToObject(prof_r_param, "name", "EQ Preset (R)");
+        cJSON_AddStringToObject(prof_r_param, "type", "enum");
+        cJSON_AddNumberToObject(prof_r_param, "current", (int)cur_prof_r);
+
+        cJSON *prof_r_values = cJSON_CreateArray();
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", FLAT); cJSON_AddStringToObject(v, "name", "Flat"); cJSON_AddItemToArray(prof_r_values, v);
+        /* clone same list entries for right channel */
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_60HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 60 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_70HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 70 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_80HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 80 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_90HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 90 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_100HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 100 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_110HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 110 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_120HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 120 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_130HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 130 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_140HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 140 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", LF_150HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "LF 150 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_60HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 60 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_70HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 70 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_80HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 80 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_90HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 90 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_100HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 100 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_110HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 110 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_120HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 120 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_130HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 130 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_140HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 140 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+        v = cJSON_CreateObject(); cJSON_AddNumberToObject(v, "value", HF_150HZ_CUTOFF); cJSON_AddStringToObject(v, "name", "HF 150 Hz Cutoff"); cJSON_AddItemToArray(prof_r_values, v);
+
+        cJSON_AddItemToObject(prof_r_param, "values", prof_r_values);
+        /* Create presets group and add both parameters so it can be hidden */
+        cJSON *eq_presets_group = cJSON_CreateObject();
+        cJSON_AddStringToObject(eq_presets_group, "name", "EQ Presets");
+        cJSON_AddStringToObject(eq_presets_group, "description", "Preset profiles for left and right channels");
+        cJSON_AddStringToObject(eq_presets_group, "layout", "eq-presets");
+        cJSON *eq_presets_params = cJSON_CreateArray();
+        cJSON_AddItemToArray(eq_presets_params, prof_l_param);
+        cJSON_AddItemToArray(eq_presets_params, prof_r_param);
+        cJSON_AddItemToObject(eq_presets_group, "parameters", eq_presets_params);
+        cJSON_AddItemToArray(groups, eq_presets_group);
+    }
+#else
+    /* If EQ support disabled provide readonly placeholders */
+    cJSON *prof_l_param = cJSON_CreateObject();
+    cJSON_AddStringToObject(prof_l_param, "key", "eq_profile_l");
+    cJSON_AddStringToObject(prof_l_param, "name", "EQ Preset (L)");
+    cJSON_AddStringToObject(prof_l_param, "type", "enum");
+    cJSON_AddNumberToObject(prof_l_param, "current", (int)FLAT);
+    cJSON *prof_l_vals = cJSON_CreateArray();
+    cJSON *pv = cJSON_CreateObject(); cJSON_AddNumberToObject(pv, "value", FLAT); cJSON_AddStringToObject(pv, "name", "Flat"); cJSON_AddItemToArray(prof_l_vals, pv);
+    cJSON_AddItemToObject(prof_l_param, "values", prof_l_vals);
+
+    cJSON *prof_r_param = cJSON_CreateObject();
+    cJSON_AddStringToObject(prof_r_param, "key", "eq_profile_r");
+    cJSON_AddStringToObject(prof_r_param, "name", "EQ Preset (R)");
+    cJSON_AddStringToObject(prof_r_param, "type", "enum");
+    cJSON_AddNumberToObject(prof_r_param, "current", (int)FLAT);
+    cJSON *prof_r_vals = cJSON_CreateArray();
+    pv = cJSON_CreateObject(); cJSON_AddNumberToObject(pv, "value", FLAT); cJSON_AddStringToObject(pv, "name", "Flat"); cJSON_AddItemToArray(prof_r_vals, pv);
+    cJSON_AddItemToObject(prof_r_param, "values", prof_r_vals);
+    /* Create presets group for readonly placeholders when EQ support disabled */
+    cJSON *eq_presets_group = cJSON_CreateObject();
+    cJSON_AddStringToObject(eq_presets_group, "name", "EQ Presets");
+    cJSON_AddStringToObject(eq_presets_group, "description", "Preset profiles (readonly)");
+    cJSON_AddStringToObject(eq_presets_group, "layout", "eq-presets");
+    cJSON *eq_presets_params = cJSON_CreateArray();
+    cJSON_AddItemToArray(eq_presets_params, prof_l_param);
+    cJSON_AddItemToArray(eq_presets_params, prof_r_param);
+    cJSON_AddItemToObject(eq_presets_group, "parameters", eq_presets_params);
+    cJSON_AddItemToArray(groups, eq_presets_group);
+#endif
+
+    // EQ Bands Group (Left Channel)
+    cJSON *eq_bands_left = cJSON_CreateObject();
+    cJSON_AddStringToObject(eq_bands_left, "name", "EQ Bands (Left)");
+    cJSON_AddStringToObject(eq_bands_left, "description", "15-band parametric equalizer for left channel");
+    cJSON_AddStringToObject(eq_bands_left, "layout", "eq-bands");
+    cJSON_AddStringToObject(eq_bands_left, "channel", "left");
+    
+    cJSON *eq_bands_left_params = cJSON_CreateArray();
+    for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
+        int gain = 0;
+        tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_LEFT, band, &gain);
+        
+        cJSON *band_param = cJSON_CreateObject();
+        char key[32];
+        char freq_label[32];
+        snprintf(key, sizeof(key), "eq_gain_l_%d", band);
+        snprintf(freq_label, sizeof(freq_label), "%d Hz", tas5805m_eq_bands[band]);
+        
+        cJSON_AddStringToObject(band_param, "key", key);
+        cJSON_AddStringToObject(band_param, "name", freq_label);
+        cJSON_AddStringToObject(band_param, "type", "range");
+        cJSON_AddStringToObject(band_param, "unit", "dB");
+        cJSON_AddStringToObject(band_param, "label", freq_label);
+        cJSON_AddStringToObject(band_param, "layout", "vertical");
+        cJSON_AddNumberToObject(band_param, "band", band);
+        cJSON_AddNumberToObject(band_param, "min", TAS5805M_EQ_MIN_DB);
+        cJSON_AddNumberToObject(band_param, "max", TAS5805M_EQ_MAX_DB);
+        cJSON_AddNumberToObject(band_param, "step", 1);
+        cJSON_AddNumberToObject(band_param, "default", 0);
+        cJSON_AddNumberToObject(band_param, "current", gain);
+        
+        cJSON_AddItemToArray(eq_bands_left_params, band_param);
+    }
+    cJSON_AddItemToObject(eq_bands_left, "parameters", eq_bands_left_params);
+    cJSON_AddItemToArray(groups, eq_bands_left);
+
+    // EQ Bands Group (Right Channel)
+    cJSON *eq_bands_right = cJSON_CreateObject();
+    cJSON_AddStringToObject(eq_bands_right, "name", "EQ Bands (Right)");
+    cJSON_AddStringToObject(eq_bands_right, "description", "15-band parametric equalizer for right channel");
+    cJSON_AddStringToObject(eq_bands_right, "layout", "eq-bands");
+    cJSON_AddStringToObject(eq_bands_right, "channel", "right");
+    
+    cJSON *eq_bands_right_params = cJSON_CreateArray();
+    for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
+        int gain = 0;
+        tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_RIGHT, band, &gain);
+        
+        cJSON *band_param = cJSON_CreateObject();
+        char key[32];
+        char freq_label[32];
+        snprintf(key, sizeof(key), "eq_gain_r_%d", band);
+        snprintf(freq_label, sizeof(freq_label), "%d Hz", tas5805m_eq_bands[band]);
+        
+        cJSON_AddStringToObject(band_param, "key", key);
+        cJSON_AddStringToObject(band_param, "name", freq_label);
+        cJSON_AddStringToObject(band_param, "type", "range");
+        cJSON_AddStringToObject(band_param, "unit", "dB");
+        cJSON_AddStringToObject(band_param, "label", freq_label);
+        cJSON_AddStringToObject(band_param, "layout", "vertical");
+        cJSON_AddNumberToObject(band_param, "band", band);
+        cJSON_AddNumberToObject(band_param, "min", TAS5805M_EQ_MIN_DB);
+        cJSON_AddNumberToObject(band_param, "max", TAS5805M_EQ_MAX_DB);
+        cJSON_AddNumberToObject(band_param, "step", 1);
+        cJSON_AddNumberToObject(band_param, "default", 0);
+        cJSON_AddNumberToObject(band_param, "current", gain);
+        
+        cJSON_AddItemToArray(eq_bands_right_params, band_param);
+    }
+    cJSON_AddItemToObject(eq_bands_right, "parameters", eq_bands_right_params);
+    cJSON_AddItemToArray(groups, eq_bands_right);
+
+    // Biquad Coefficients (Left) - always visible, collapsible, editable only in manual mode
+    // Read actual coefficients from device to show current DSP state
+    cJSON *bq_manual_left = cJSON_CreateObject();
+    cJSON_AddStringToObject(bq_manual_left, "name", "Biquad Coefficients (Left)");
+    
+    const char *left_description;
+    if (ui_mode == TAS5805M_EQ_UI_MODE_MANUAL) {
+        left_description = "Direct biquad coefficient control for left channel. Use 'Sync' to read from DAC, 'Apply' to write to DAC";
+    } else {
+        left_description = "Stored manual biquad coefficients (read-only). Use 'Sync' to read current values from DAC";
+    }
+    cJSON_AddStringToObject(bq_manual_left, "description", left_description);
+    
+    cJSON_AddStringToObject(bq_manual_left, "layout", "biquad-manual");
+    cJSON_AddStringToObject(bq_manual_left, "channel", "left");
+    cJSON_AddBoolToObject(bq_manual_left, "collapsible", true);
+    cJSON_AddBoolToObject(bq_manual_left, "collapsed", ui_mode != TAS5805M_EQ_UI_MODE_MANUAL);
+    
+    cJSON *bq_manual_left_params = cJSON_CreateArray();
+    for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
+        float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f, a1 = 0.0f, a2 = 0.0f;
+        
+        // Load from NVS (stored manual coefficients)
+        tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band, &b0, &b1, &b2, &a1, &a2);
+        
+        char band_label[32];
+        snprintf(band_label, sizeof(band_label), "BQ %d", band);
+        
+        const char *coeff_names[] = {"b0", "b1", "b2", "a0", "a1", "a2"};
+        float coeff_values[6];
+        coeff_values[0] = b0; coeff_values[1] = b1; coeff_values[2] = b2;
+        coeff_values[3] = 1.0f; /* a0 is always 1.0 */
+        coeff_values[4] = a1; coeff_values[5] = a2;
+        
+        bool is_manual_mode = (ui_mode == TAS5805M_EQ_UI_MODE_MANUAL);
+        
+        for (int c = 0; c < 6; ++c) {
+            cJSON *coeff_param = cJSON_CreateObject();
+            char key[32];
+            snprintf(key, sizeof(key), "bq_l_%d_%s", band, coeff_names[c]);
+            
+            cJSON_AddStringToObject(coeff_param, "key", key);
+            cJSON_AddStringToObject(coeff_param, "name", coeff_names[c]);
+            cJSON_AddStringToObject(coeff_param, "type", "float");
+            cJSON_AddNumberToObject(coeff_param, "min", -16.0);
+            cJSON_AddNumberToObject(coeff_param, "max", 15.999999);
+            cJSON_AddNumberToObject(coeff_param, "step", 0.000001);
+            cJSON_AddNumberToObject(coeff_param, "current", coeff_values[c]);
+            
+            // a0 is always readonly (fixed at 1.0)
+            // Other coefficients are readonly unless in manual mode
+            if (c == 3 || !is_manual_mode) {
+                cJSON_AddBoolToObject(coeff_param, "readonly", true);
+            }
+            
+            cJSON_AddNumberToObject(coeff_param, "band", band);
+            cJSON_AddStringToObject(coeff_param, "band_label", band_label);
+            cJSON_AddStringToObject(coeff_param, "layout", "biquad-manual");
+            
+            cJSON_AddItemToArray(bq_manual_left_params, coeff_param);
+        }
+    }
+    cJSON_AddItemToObject(bq_manual_left, "parameters", bq_manual_left_params);
+    cJSON_AddItemToArray(groups, bq_manual_left);
+
+    // Biquad Coefficients (Right) - always visible, collapsible, editable only in manual mode
+    cJSON *bq_manual_right = cJSON_CreateObject();
+    cJSON_AddStringToObject(bq_manual_right, "name", "Biquad Coefficients (Right)");
+    
+    const char *right_description;
+    if (ui_mode == TAS5805M_EQ_UI_MODE_MANUAL) {
+        right_description = "Direct biquad coefficient control for right channel. Use 'Sync' to read from DAC, 'Apply' to write to DAC";
+    } else {
+        right_description = "Stored manual biquad coefficients (read-only). Use 'Sync' to read current values from DAC";
+    }
+    cJSON_AddStringToObject(bq_manual_right, "description", right_description);
+    
+    cJSON_AddStringToObject(bq_manual_right, "layout", "biquad-manual");
+    cJSON_AddStringToObject(bq_manual_right, "channel", "right");
+    cJSON_AddBoolToObject(bq_manual_right, "collapsible", true);
+    cJSON_AddBoolToObject(bq_manual_right, "collapsed", ui_mode != TAS5805M_EQ_UI_MODE_MANUAL);
+    
+    cJSON *bq_manual_right_params = cJSON_CreateArray();
+    for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
+        float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f, a1 = 0.0f, a2 = 0.0f;
+        
+        // Load from NVS (stored manual coefficients)
+        tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band, &b0, &b1, &b2, &a1, &a2);
+        
+        char band_label[32];
+        snprintf(band_label, sizeof(band_label), "BQ %d", band);
+        
+        const char *coeff_names[] = {"b0", "b1", "b2", "a0", "a1", "a2"};
+        float coeff_values[6];
+        coeff_values[0] = b0; coeff_values[1] = b1; coeff_values[2] = b2;
+        coeff_values[3] = 1.0f; /* a0 */
+        coeff_values[4] = a1; coeff_values[5] = a2;
+        
+        bool is_manual_mode = (ui_mode == TAS5805M_EQ_UI_MODE_MANUAL);
+        
+        for (int c = 0; c < 6; ++c) {
+            cJSON *coeff_param = cJSON_CreateObject();
+            char key[32];
+            snprintf(key, sizeof(key), "bq_r_%d_%s", band, coeff_names[c]);
+            
+            cJSON_AddStringToObject(coeff_param, "key", key);
+            cJSON_AddStringToObject(coeff_param, "name", coeff_names[c]);
+            cJSON_AddStringToObject(coeff_param, "type", "float");
+            cJSON_AddNumberToObject(coeff_param, "min", -16.0);
+            cJSON_AddNumberToObject(coeff_param, "max", 15.999999);
+            cJSON_AddNumberToObject(coeff_param, "step", 0.000001);
+            cJSON_AddNumberToObject(coeff_param, "current", coeff_values[c]);
+            
+            // a0 is always readonly (fixed at 1.0)and", band);
+            cJSON_AddStringToObject(coeff_param, "band_label", band_label);
+            cJSON_AddStringToObject(coeff_param, "layout", "biquad-manual");
+            
+            cJSON_AddItemToArray(bq_manual_right_params, coeff_param);
+        }
+    }
+    cJSON_AddItemToObject(bq_manual_right, "parameters", bq_manual_right_params);
+    cJSON_AddItemToArray(groups, bq_manual_right);
+#endif
+
+    cJSON_AddItemToObject(root, "groups", groups);
+
+    // Render to string
+    char *json_str = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+
+    if (!json_str) {
+        ESP_LOGE(TAG, "%s: Failed to render JSON", __func__);
+        return ESP_ERR_NO_MEM;
+    }
+
+    size_t json_len = strlen(json_str);
+    if (json_len >= max_len) {
+        ESP_LOGE(TAG, "%s: JSON too large for buffer (%zu >= %zu)", __func__, json_len, max_len);
+        cJSON_free(json_str);
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    strncpy(json_out, json_str, max_len - 1);
+    json_out[max_len - 1] = '\0';
+    cJSON_free(json_str);
+
+    ESP_LOGD(TAG, "%s: EQ schema JSON generated", __func__);
     return ESP_OK;
 }
 
@@ -1950,6 +2952,9 @@ esp_err_t tas5805m_settings_apply_early(void) {
 */
 esp_err_t tas5805m_settings_apply_delayed(void) {
     ESP_LOGI(TAG, "%s: Applying delayed TAS5805M settings from NVS", __func__);
+    
+    // Mark I2S clock as ready (codec is running and can be queried)
+    tas5805m_i2s_clock_ready = true;
     
     // Apply mixer mode
     TAS5805M_MIXER_MODE mixer_mode;
@@ -2051,10 +3056,623 @@ esp_err_t tas5805m_settings_apply_delayed(void) {
                 ESP_LOGI(TAG, "%s: Restored Channel Gain R = %d dB", __func__, ch_gain);
             }
         }
+    } else if (ui_mode == TAS5805M_EQ_UI_MODE_MANUAL) {
+        // Apply persisted manual biquad coefficients for both channels
+        ESP_LOGI(TAG, "%s: Restoring manual biquad coefficients", __func__);
+        for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
+            float b0, b1, b2, a1, a2;
+            // Left channel
+            if (tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band,
+                                                            &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
+                if (tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band,
+                                                        b0, b1, b2, a1, a2) != ESP_OK) {
+                    ESP_LOGW(TAG, "%s: Failed to apply saved manual BQ L band %d", __func__, band);
+                } else {
+                    ESP_LOGD(TAG, "%s: Restored manual BQ L band %d", __func__, band);
+                }
+            }
+            // Right channel
+            if (tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band,
+                                                            &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
+                if (tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band,
+                                                        b0, b1, b2, a1, a2) != ESP_OK) {
+                    ESP_LOGW(TAG, "%s: Failed to apply saved manual BQ R band %d", __func__, band);
+                } else {
+                    ESP_LOGD(TAG, "%s: Restored manual BQ R band %d", __func__, band);
+                }
+            }
+        }
     }
 #endif
 
     ESP_LOGI(TAG, "%s: Delayed persisted settings application complete", __func__);
+    return ESP_OK;
+}
+
+/**
+ * Get DAC-only settings as JSON string
+ */
+esp_err_t tas5805m_settings_get_dac_json(char *json_out, size_t max_len) {
+    ESP_LOGD(TAG, "%s: max_len=%zu", __func__, max_len);
+    
+    if (!json_out || max_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // Get current state
+    TAS5805_STATE dac_state;
+    esp_err_t err = tas5805m_get_state(&dac_state);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "%s: Failed to get DAC state: %s", __func__, esp_err_to_name(err));
+        return err;
+    }
+
+    // Get current digital volume (raw value)
+    uint8_t digital_volume;
+    if (tas5805m_get_digital_volume(&digital_volume) != ESP_OK) {
+        digital_volume = TAS5805M_VOLUME_DIGITAL_DEFAULT;
+    }
+
+    // Get current analog gain (raw value)
+    uint8_t analog_gain;
+    if (tas5805m_get_again(&analog_gain) != ESP_OK) {
+        analog_gain = 0;
+    }
+
+    // Get current DAC mode
+    TAS5805M_DAC_MODE dac_mode;
+    if (tas5805m_get_dac_mode(&dac_mode) != ESP_OK) {
+        dac_mode = TAS5805M_DAC_MODE_BTL;
+    }
+
+    // Get current modulation mode
+    TAS5805M_MOD_MODE mod_mode;
+    TAS5805M_SW_FREQ sw_freq;
+    TAS5805M_BD_FREQ bd_freq;
+    if (tas5805m_get_modulation_mode(&mod_mode, &sw_freq, &bd_freq) != ESP_OK) {
+        mod_mode = MOD_MODE_BD;
+        sw_freq = SW_FREQ_768K;
+        bd_freq = SW_FREQ_80K;
+    }
+
+    // Build JSON
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        ESP_LOGE(TAG, "%s: Failed to create JSON root", __func__);
+        return ESP_ERR_NO_MEM;
+    }
+
+    // Add DAC-only settings
+    cJSON_AddNumberToObject(root, "state", (int)dac_state.state);
+    cJSON_AddNumberToObject(root, "digital_volume", digital_volume);
+    cJSON_AddNumberToObject(root, "analog_gain", analog_gain);
+    cJSON_AddNumberToObject(root, "dac_mode", (int)dac_mode);
+    cJSON_AddNumberToObject(root, "mod_mode", (int)mod_mode);
+    cJSON_AddNumberToObject(root, "sw_freq", (int)sw_freq);
+    cJSON_AddNumberToObject(root, "bd_freq", (int)bd_freq);
+    cJSON_AddNumberToObject(root, "mixer_mode", (int)dac_state.mixer_mode);
+
+    // Render to string
+    char *json_str = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+
+    if (!json_str) {
+        ESP_LOGE(TAG, "%s: Failed to render JSON", __func__);
+        return ESP_ERR_NO_MEM;
+    }
+
+    size_t json_len = strlen(json_str);
+    if (json_len >= max_len) {
+        ESP_LOGE(TAG, "%s: JSON too large for buffer (%zu >= %zu)", __func__, json_len, max_len);
+        cJSON_free(json_str);
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    strncpy(json_out, json_str, max_len - 1);
+    json_out[max_len - 1] = '\0';
+    cJSON_free(json_str);
+
+    ESP_LOGD(TAG, "%s: DAC JSON generated: %s", __func__, json_out);
+    return ESP_OK;
+}
+
+/**
+ * Get EQ-only settings as JSON string
+ */
+esp_err_t tas5805m_settings_get_eq_json(char *json_out, size_t max_len) {
+    ESP_LOGD(TAG, "%s: max_len=%zu", __func__, max_len);
+    
+    if (!json_out || max_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        ESP_LOGE(TAG, "%s: Failed to create JSON root", __func__);
+        return ESP_ERR_NO_MEM;
+    }
+
+#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+    // Get current EQ mode
+    TAS5805M_EQ_MODE eq_mode_val = TAS5805M_EQ_MODE_OFF;
+    if (tas5805m_get_eq_mode(&eq_mode_val) != ESP_OK) {
+        eq_mode_val = TAS5805M_EQ_MODE_OFF;
+    }
+    cJSON_AddNumberToObject(root, "eq_mode", (int)eq_mode_val);
+
+    // Get current EQ UI mode
+    TAS5805M_EQ_UI_MODE ui_mode = TAS5805M_EQ_UI_MODE_OFF;
+    tas5805m_settings_load_eq_ui_mode(&ui_mode);
+    cJSON_AddNumberToObject(root, "eq_ui_mode", (int)ui_mode);
+
+    // Get EQ profiles
+    TAS5805M_EQ_PROFILE prof_l = FLAT, prof_r = FLAT;
+    tas5805m_settings_load_eq_profile(TAS5805M_EQ_CHANNELS_LEFT, &prof_l);
+    tas5805m_settings_load_eq_profile(TAS5805M_EQ_CHANNELS_RIGHT, &prof_r);
+    cJSON_AddNumberToObject(root, "eq_profile_left", (int)prof_l);
+    cJSON_AddNumberToObject(root, "eq_profile_right", (int)prof_r);
+
+    // Get channel gains
+    int ch_gain_l = 0, ch_gain_r = 0;
+    tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, &ch_gain_l);
+    tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS_RIGHT, &ch_gain_r);
+    cJSON_AddNumberToObject(root, "channel_gain_left", ch_gain_l);
+    cJSON_AddNumberToObject(root, "channel_gain_right", ch_gain_r);
+
+    // Get per-band gains
+    for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
+        int gain_l = 0, gain_r = 0;
+        tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_LEFT, band, &gain_l);
+        tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_RIGHT, band, &gain_r);
+        
+        char key[32];
+        snprintf(key, sizeof(key), "eq_gain_l_%d", band);
+        cJSON_AddNumberToObject(root, key, gain_l);
+        snprintf(key, sizeof(key), "eq_gain_r_%d", band);
+        cJSON_AddNumberToObject(root, key, gain_r);
+    }
+
+    // Get manual biquad coefficients if in manual mode
+    if (ui_mode == TAS5805M_EQ_UI_MODE_MANUAL) {
+        for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
+            float b0, b1, b2, a1, a2;
+            char key[32];
+            
+            // Left channel
+            if (tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band,
+                                                            &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
+                snprintf(key, sizeof(key), "bq_l_%d_b0", band);
+                cJSON_AddNumberToObject(root, key, b0);
+                snprintf(key, sizeof(key), "bq_l_%d_b1", band);
+                cJSON_AddNumberToObject(root, key, b1);
+                snprintf(key, sizeof(key), "bq_l_%d_b2", band);
+                cJSON_AddNumberToObject(root, key, b2);
+                snprintf(key, sizeof(key), "bq_l_%d_a1", band);
+                cJSON_AddNumberToObject(root, key, a1);
+                snprintf(key, sizeof(key), "bq_l_%d_a2", band);
+                cJSON_AddNumberToObject(root, key, a2);
+            }
+            
+            // Right channel
+            if (tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band,
+                                                            &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
+                snprintf(key, sizeof(key), "bq_r_%d_b0", band);
+                cJSON_AddNumberToObject(root, key, b0);
+                snprintf(key, sizeof(key), "bq_r_%d_b1", band);
+                cJSON_AddNumberToObject(root, key, b1);
+                snprintf(key, sizeof(key), "bq_r_%d_b2", band);
+                cJSON_AddNumberToObject(root, key, b2);
+                snprintf(key, sizeof(key), "bq_r_%d_a1", band);
+                cJSON_AddNumberToObject(root, key, a1);
+                snprintf(key, sizeof(key), "bq_r_%d_a2", band);
+                cJSON_AddNumberToObject(root, key, a2);
+            }
+        }
+    }
+#else
+    // EQ support disabled
+    cJSON_AddNumberToObject(root, "eq_mode", 0);
+    cJSON_AddNumberToObject(root, "eq_ui_mode", 0);
+#endif
+
+    // Render to string
+    char *json_str = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+
+    if (!json_str) {
+        ESP_LOGE(TAG, "%s: Failed to render JSON", __func__);
+        return ESP_ERR_NO_MEM;
+    }
+
+    size_t json_len = strlen(json_str);
+    if (json_len >= max_len) {
+        ESP_LOGE(TAG, "%s: JSON too large for buffer (%zu >= %zu)", __func__, json_len, max_len);
+        cJSON_free(json_str);
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    strncpy(json_out, json_str, max_len - 1);
+    json_out[max_len - 1] = '\0';
+    cJSON_free(json_str);
+
+    ESP_LOGD(TAG, "%s: EQ JSON generated: %s", __func__, json_out);
+    return ESP_OK;
+}
+
+/**
+ * Update DAC-only settings from JSON (excludes EQ settings)
+ * Handles: state, digital_volume, analog_gain, dac_mode, modulation_mode, mixer_mode
+ */
+esp_err_t tas5805m_settings_set_dac_from_json(const char *json_in) {
+    ESP_LOGV(TAG, "%s: json=%s", __func__, json_in);
+    
+    if (!json_in) return ESP_ERR_INVALID_ARG;
+
+    cJSON *root = cJSON_Parse(json_in);
+    if (!root) {
+        ESP_LOGE(TAG, "%s: Failed to parse JSON", __func__);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t err = ESP_OK;
+
+    // Update state if present
+    cJSON *state_item = cJSON_GetObjectItem(root, "state");
+    if (cJSON_IsNumber(state_item)) {
+        TAS5805M_CTRL_STATE new_state = (TAS5805M_CTRL_STATE)state_item->valueint;
+        
+        // Apply to DAC (do NOT persist state - state is managed by application)
+        err = tas5805m_set_state(new_state);
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "%s: Applied state %d (%s) to DAC (not persisted)", __func__, 
+                     (int)new_state, tas5805m_state_to_string(new_state));
+        } else {
+            ESP_LOGE(TAG, "%s: Failed to apply state to DAC: %s", 
+                     __func__, esp_err_to_name(err));
+        }
+    }
+
+    // Update digital volume if present (expects raw uint8_t value)
+    cJSON *dig_vol_item = cJSON_GetObjectItem(root, "digital_volume");
+    if (cJSON_IsNumber(dig_vol_item)) {
+        uint8_t vol = (uint8_t)dig_vol_item->valueint;
+        
+        // Apply to DAC (do NOT persist digital volume - managed by application)
+        err = tas5805m_set_digital_volume(vol);
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "%s: Applied digital volume %d to DAC (not persisted)", __func__, vol);
+        } else {
+            ESP_LOGE(TAG, "%s: Failed to apply digital volume: %s", 
+                     __func__, esp_err_to_name(err));
+        }
+    }
+
+    // Update analog gain if present (expects uint8_t 0-31)
+    cJSON *ana_gain_item = cJSON_GetObjectItem(root, "analog_gain");
+    if (cJSON_IsNumber(ana_gain_item)) {
+        uint8_t gain = (uint8_t)ana_gain_item->valueint;
+        
+        err = tas5805m_set_again(gain);
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "%s: Applied analog gain %d to DAC", __func__, gain);
+            // Note: We're saving the raw value, conversion to half_db would need lookup table
+            tas5805m_settings_save_analog_gain((int)gain);
+        } else {
+            ESP_LOGE(TAG, "%s: Failed to apply analog gain: %s", 
+                     __func__, esp_err_to_name(err));
+        }
+    }
+
+    // Update DAC mode if present
+    cJSON *dac_mode_item = cJSON_GetObjectItem(root, "dac_mode");
+    if (cJSON_IsNumber(dac_mode_item)) {
+        TAS5805M_DAC_MODE mode = (TAS5805M_DAC_MODE)dac_mode_item->valueint;
+        
+        err = tas5805m_set_dac_mode(mode);
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "%s: Applied DAC mode %d (%s) to DAC", __func__, 
+                     (int)mode, mode == TAS5805M_DAC_MODE_BTL ? "BTL" : "PBTL");
+            tas5805m_settings_save_dac_mode(mode);
+        } else {
+            ESP_LOGE(TAG, "%s: Failed to apply DAC mode: %s", 
+                     __func__, esp_err_to_name(err));
+        }
+    }
+
+    // Update modulation mode if any parameter provided. Support partial updates
+    // (UI typically sends only the changed parameter). We'll query current
+    // modulation settings from the driver and apply a merged update.
+    cJSON *mod_mode_item = cJSON_GetObjectItem(root, "modulation_mode");
+    cJSON *sw_freq_item = cJSON_GetObjectItem(root, "sw_freq");
+    cJSON *bd_freq_item = cJSON_GetObjectItem(root, "bd_freq");
+
+    if (cJSON_IsNumber(mod_mode_item) || cJSON_IsNumber(sw_freq_item) || cJSON_IsNumber(bd_freq_item)) {
+        TAS5805M_MOD_MODE cur_mod = MOD_MODE_BD;
+        TAS5805M_SW_FREQ cur_sw = SW_FREQ_768K;
+        TAS5805M_BD_FREQ cur_bd = SW_FREQ_80K;
+
+        // Read current values where possible
+        if (tas5805m_get_modulation_mode(&cur_mod, &cur_sw, &cur_bd) != ESP_OK) {
+            ESP_LOGW(TAG, "%s: Failed to read current modulation mode, using defaults", __func__);
+        }
+
+        // Override with provided values
+        if (cJSON_IsNumber(mod_mode_item)) {
+            cur_mod = (TAS5805M_MOD_MODE)mod_mode_item->valueint;
+        }
+        if (cJSON_IsNumber(sw_freq_item)) {
+            cur_sw = (TAS5805M_SW_FREQ)sw_freq_item->valueint;
+        }
+        if (cJSON_IsNumber(bd_freq_item)) {
+            cur_bd = (TAS5805M_BD_FREQ)bd_freq_item->valueint;
+        }
+
+        // Apply merged settings
+        err = tas5805m_set_modulation_mode(cur_mod, cur_sw, cur_bd);
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "%s: Applied modulation mode: mode=%d, freq=%d, bd_freq=%d",
+                     __func__, (int)cur_mod, (int)cur_sw, (int)cur_bd);
+            tas5805m_settings_save_modulation_mode(cur_mod, cur_sw, cur_bd);
+        } else {
+            ESP_LOGE(TAG, "%s: Failed to apply modulation mode: %s",
+                     __func__, esp_err_to_name(err));
+        }
+    }
+
+    // Update mixer mode if present
+    cJSON *mixer_mode_item = cJSON_GetObjectItem(root, "mixer_mode");
+    if (cJSON_IsNumber(mixer_mode_item)) {
+        TAS5805M_MIXER_MODE mode = (TAS5805M_MIXER_MODE)mixer_mode_item->valueint;
+        err = tas5805m_set_mixer_mode(mode);
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "%s: Applied mixer mode %d to DAC", __func__, (int)mode);
+            tas5805m_settings_save_mixer_mode(mode);
+        } else {
+            ESP_LOGE(TAG, "%s: Failed to apply mixer mode: %s", __func__, esp_err_to_name(err));
+        }
+    }
+
+    cJSON_Delete(root);
+    return err;
+}
+
+/**
+ * Update EQ settings from JSON
+ */
+esp_err_t tas5805m_settings_set_eq_from_json(const char *json_in) {
+    if (!json_in) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ESP_LOGD(TAG, "%s: Parsing EQ JSON: %s", __func__, json_in);
+
+    cJSON *root = cJSON_Parse(json_in);
+    if (!root) {
+        ESP_LOGE(TAG, "%s: Failed to parse JSON", __func__);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+    bool apply_manual_bq = false;
+    bool sync_manual_bq = false;
+    
+    cJSON *apply_flag = cJSON_GetObjectItem(root, "apply_manual_bq");
+    if (apply_flag && cJSON_IsBool(apply_flag)) {
+        apply_manual_bq = cJSON_IsTrue(apply_flag);
+    }
+    
+    cJSON *sync_flag = cJSON_GetObjectItem(root, "sync_manual_bq");
+    if (sync_flag && cJSON_IsBool(sync_flag)) {
+        sync_manual_bq = cJSON_IsTrue(sync_flag);
+    }
+
+    // Process EQ settings
+    cJSON *item = NULL;
+    cJSON_ArrayForEach(item, root) {
+        const char *key = item->string;
+        
+        if (strcmp(key, "eq_ui_mode") == 0 && cJSON_IsNumber(item)) {
+            TAS5805M_EQ_UI_MODE ui_mode = (TAS5805M_EQ_UI_MODE)item->valueint;
+            ESP_LOGI(TAG, "%s: Setting EQ UI mode to %d", __func__, (int)ui_mode);
+            tas5805m_settings_save_eq_ui_mode(ui_mode);
+            
+            // Convert UI mode to driver mode and apply
+            TAS5805M_EQ_MODE eq_mode = TAS5805M_EQ_MODE_OFF;
+            if (ui_mode == TAS5805M_EQ_UI_MODE_OFF) {
+                eq_mode = TAS5805M_EQ_MODE_OFF;
+            } else if (ui_mode == TAS5805M_EQ_UI_MODE_15_BAND) {
+                // 15-band (left channel only) uses standard EQ mode
+                eq_mode = TAS5805M_EQ_MODE_ON;
+            } else {
+                // 15-band biamp, presets, and manual all use BIAMP mode
+                eq_mode = TAS5805M_EQ_MODE_BIAMP;
+            }
+            tas5805m_set_eq_mode(eq_mode);
+            tas5805m_settings_save_eq_mode(eq_mode);
+            
+            // Apply saved state for the new mode
+            if (ui_mode == TAS5805M_EQ_UI_MODE_15_BAND) {
+                // Apply saved per-band gains for left channel
+                ESP_LOGI(TAG, "%s: Applying saved 15-band EQ gains (left channel)", __func__);
+                for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
+                    int gain = 0;
+                    if (tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_LEFT, band, &gain) == ESP_OK) {
+                        tas5805m_set_eq_gain_channel(TAS5805M_EQ_CHANNELS_LEFT, band, gain);
+                    }
+                }
+            } else if (ui_mode == TAS5805M_EQ_UI_MODE_15_BAND_BIAMP) {
+                // Apply saved per-band gains for both channels
+                ESP_LOGI(TAG, "%s: Applying saved 15-band biamp EQ gains", __func__);
+                for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
+                    int gain = 0;
+                    if (tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_LEFT, band, &gain) == ESP_OK) {
+                        tas5805m_set_eq_gain_channel(TAS5805M_EQ_CHANNELS_LEFT, band, gain);
+                    }
+                    if (tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_RIGHT, band, &gain) == ESP_OK) {
+                        tas5805m_set_eq_gain_channel(TAS5805M_EQ_CHANNELS_RIGHT, band, gain);
+                    }
+                }
+            } else if (ui_mode == TAS5805M_EQ_UI_MODE_PRESETS) {
+                // Apply saved preset profiles
+                TAS5805M_EQ_PROFILE prof_l = FLAT;
+                TAS5805M_EQ_PROFILE prof_r = FLAT;
+                if (tas5805m_settings_load_eq_profile(TAS5805M_EQ_CHANNELS_LEFT, &prof_l) == ESP_OK) {
+                    ESP_LOGI(TAG, "%s: Applying saved preset left=%d", __func__, (int)prof_l);
+                    tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS_LEFT, prof_l);
+                }
+                if (tas5805m_settings_load_eq_profile(TAS5805M_EQ_CHANNELS_RIGHT, &prof_r) == ESP_OK) {
+                    ESP_LOGI(TAG, "%s: Applying saved preset right=%d", __func__, (int)prof_r);
+                    tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS_RIGHT, prof_r);
+                }
+            } else if (ui_mode == TAS5805M_EQ_UI_MODE_MANUAL) {
+                // Apply saved manual biquad coefficients
+                ESP_LOGI(TAG, "%s: Applying saved manual biquad coefficients", __func__);
+                for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
+                    float b0, b1, b2, a1, a2;
+                    if (tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band,
+                                                                    &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
+                        tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band, b0, b1, b2, a1, a2);
+                    }
+                    if (tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band,
+                                                                    &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
+                        tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band, b0, b1, b2, a1, a2);
+                    }
+                }
+                
+                // Sync from device to NVS when switching to manual mode
+                // This captures the current DAC state as the starting point for manual editing
+                ESP_LOGI(TAG, "%s: Syncing current DAC coefficients to NVS for manual mode", __func__);
+                for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
+                    float b0, b1, b2, a1, a2;
+                    if (tas5805m_read_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band, 
+                                                           &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
+                        tas5805m_settings_save_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band, b0, b1, b2, a1, a2);
+                    }
+                    if (tas5805m_read_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band,
+                                                           &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
+                        tas5805m_settings_save_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band, b0, b1, b2, a1, a2);
+                    }
+                }
+            }
+        }
+        else if (strcmp(key, "eq_profile_l") == 0 && cJSON_IsNumber(item)) {
+            TAS5805M_EQ_PROFILE prof = (TAS5805M_EQ_PROFILE)item->valueint;
+            ESP_LOGI(TAG, "%s: Setting EQ profile left to %d", __func__, (int)prof);
+            tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS_LEFT, prof);
+            tas5805m_settings_save_eq_profile(TAS5805M_EQ_CHANNELS_LEFT, prof);
+        }
+        else if (strcmp(key, "eq_profile_r") == 0 && cJSON_IsNumber(item)) {
+            TAS5805M_EQ_PROFILE prof = (TAS5805M_EQ_PROFILE)item->valueint;
+            ESP_LOGI(TAG, "%s: Setting EQ profile right to %d", __func__, (int)prof);
+            tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS_RIGHT, prof);
+            tas5805m_settings_save_eq_profile(TAS5805M_EQ_CHANNELS_RIGHT, prof);
+        }
+        else if (strcmp(key, "channel_gain_l") == 0 && cJSON_IsNumber(item)) {
+            int8_t gain = (int8_t)item->valueint;
+            ESP_LOGI(TAG, "%s: Setting channel gain left to %d", __func__, gain);
+            tas5805m_set_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, gain);
+            tas5805m_settings_save_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, gain);
+        }
+        else if (strcmp(key, "channel_gain_r") == 0 && cJSON_IsNumber(item)) {
+            int8_t gain = (int8_t)item->valueint;
+            ESP_LOGI(TAG, "%s: Setting channel gain right to %d", __func__, gain);
+            tas5805m_set_channel_gain(TAS5805M_EQ_CHANNELS_RIGHT, gain);
+            tas5805m_settings_save_channel_gain(TAS5805M_EQ_CHANNELS_RIGHT, gain);
+        }
+        else if (strncmp(key, "eq_gain_l_", 10) == 0 && cJSON_IsNumber(item)) {
+            int band = atoi(key + 10);
+            if (band >= 0 && band < TAS5805M_EQ_BANDS) {
+                int gain = item->valueint;
+                ESP_LOGI(TAG, "%s: Setting EQ gain left band %d to %d", __func__, band, gain);
+                tas5805m_set_eq_gain_channel(TAS5805M_EQ_CHANNELS_LEFT, band, gain);
+                tas5805m_settings_save_eq_gain(TAS5805M_EQ_CHANNELS_LEFT, band, gain);
+            }
+        }
+        else if (strncmp(key, "eq_gain_r_", 10) == 0 && cJSON_IsNumber(item)) {
+            int band = atoi(key + 10);
+            if (band >= 0 && band < TAS5805M_EQ_BANDS) {
+                int gain = item->valueint;
+                ESP_LOGI(TAG, "%s: Setting EQ gain right band %d to %d", __func__, band, gain);
+                tas5805m_set_eq_gain_channel(TAS5805M_EQ_CHANNELS_RIGHT, band, gain);
+                tas5805m_settings_save_eq_gain(TAS5805M_EQ_CHANNELS_RIGHT, band, gain);
+            }
+        }
+        else if (strncmp(key, "bq_", 3) == 0 && cJSON_IsNumber(item)) {
+            // Biquad coefficient - save to NVS but don't apply yet
+            // Format: bq_<l|r>_<band>_<coeff>
+            char ch = key[3];
+            int band = atoi(key + 5);
+            const char *coeff = strrchr(key, '_') + 1;
+            
+            if ((ch == 'l' || ch == 'r') && band >= 0 && band < TAS5805M_EQ_BANDS) {
+                TAS5805M_EQ_CHANNELS channel = (ch == 'l') ? TAS5805M_EQ_CHANNELS_LEFT : TAS5805M_EQ_CHANNELS_RIGHT;
+                float value = (float)item->valuedouble;
+                
+                // Load existing coefficients
+                float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f, a1 = 0.0f, a2 = 0.0f;
+                tas5805m_settings_load_biquad_coefficients(channel, band, &b0, &b1, &b2, &a1, &a2);
+                
+                // Update specific coefficient
+                if (strcmp(coeff, "b0") == 0) b0 = value;
+                else if (strcmp(coeff, "b1") == 0) b1 = value;
+                else if (strcmp(coeff, "b2") == 0) b2 = value;
+                else if (strcmp(coeff, "a1") == 0) a1 = value;
+                else if (strcmp(coeff, "a2") == 0) a2 = value;
+                
+                // Save back to NVS
+                tas5805m_settings_save_biquad_coefficients(channel, band, b0, b1, b2, a1, a2);
+                ESP_LOGD(TAG, "%s: Saved biquad %s band %d %s = %.6f", __func__, 
+                         ch == 'l' ? "left" : "right", band, coeff, value);
+            }
+        }
+    }
+
+    // Apply manual biquad coefficients if requested
+    if (apply_manual_bq) {
+        ESP_LOGI(TAG, "%s: Applying manual biquad coefficients to hardware", __func__);
+        for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
+            float b0, b1, b2, a1, a2;
+            
+            // Left channel
+            if (tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band,
+                                                            &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
+                tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band, b0, b1, b2, a1, a2);
+            }
+            
+            // Right channel
+            if (tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band,
+                                                            &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
+                tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band, b0, b1, b2, a1, a2);
+            }
+        }
+    }
+    
+    // Sync manual biquad coefficients from hardware if requested
+    if (sync_manual_bq) {
+        ESP_LOGI(TAG, "%s: Syncing biquad coefficients from hardware to NVS", __func__);
+        for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
+            float b0, b1, b2, a1, a2;
+            
+            // Left channel
+            if (tas5805m_read_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band,
+                                                   &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
+                tas5805m_settings_save_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band, b0, b1, b2, a1, a2);
+                ESP_LOGD(TAG, "%s: Synced L band %d: b0=%.6f b1=%.6f b2=%.6f a1=%.6f a2=%.6f",
+                         __func__, band, b0, b1, b2, a1, a2);
+            }
+            
+            // Right channel
+            if (tas5805m_read_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band,
+                                                   &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
+                tas5805m_settings_save_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band, b0, b1, b2, a1, a2);
+                ESP_LOGD(TAG, "%s: Synced R band %d: b0=%.6f b1=%.6f b2=%.6f a1=%.6f a2=%.6f",
+                         __func__, band, b0, b1, b2, a1, a2);
+            }
+        }
+    }
+#endif
+
+    cJSON_Delete(root);
     return ESP_OK;
 }
 
