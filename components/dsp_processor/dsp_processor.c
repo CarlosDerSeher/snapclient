@@ -233,9 +233,26 @@ static int32_t dsp_processor_gen_filter(ptype_t *filter, uint32_t cnt) {
  * Prevents overflow/clipping artifacts when gain is high
  */
 static inline int16_t float_to_int16_clamped(float value) {
-  // Clamp to ±1.0 range
+#ifdef CONFIG_USE_DSP_SOFT_CLIP
+  // Cubic soft clipping: y = x - x^3/3 for |x| < 1, y = 2/3 for |x| >= 1
+  // The output range is [-2/3, 2/3], so we normalize by 3/2 to get [-1, 1]
+  float clipped;
+  if (value > 1.0f) {
+    clipped = 2.0f / 3.0f;
+  } else if (value < -1.0f) {
+    clipped = -2.0f / 3.0f;
+  } else {
+    // Apply cubic soft clip: y = x - x^3/3
+    float x3 = value * value * value;
+    clipped = value - (x3 / 3.0f);
+  }
+  // Normalize from [-2/3, 2/3] to [-1, 1]
+  value = clipped * 1.5f;
+#else
+  // Hard clamp to ±1.0 range
   if (value > 1.0f) value = 1.0f;
   if (value < -1.0f) value = -1.0f;
+#endif
   
   return (int16_t)(value * INT16_MAX);
 }

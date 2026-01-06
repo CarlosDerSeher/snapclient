@@ -29,4 +29,12 @@ menu "ESP32 DSP processor config"
         help
             Use software volume mixer instead of hardware mixer (when your DAC does not support hardware volume control).
 
+    config USE_DSP_SOFT_CLIP
+        bool "Use cubic soft clipping"
+        default false
+        depends on USE_DSP_PROCESSOR
+        help
+            Apply cubic soft clipping to prevent hard clipping distortion when signal exceeds the ±1.0 range.
+            This provides a smoother transition when the signal approaches clipping, reducing harsh distortion.
+
 endmenu
