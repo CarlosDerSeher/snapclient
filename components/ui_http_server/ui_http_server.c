@@ -11,11 +11,13 @@
 #include "ui_http_server.h"
 
 #include <string.h>
+#include <stdio.h>
 
 #include "dsp_processor_settings.h"
 #include "esp_err.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
@@ -243,10 +245,10 @@ static esp_err_t root_post_handler(httpd_req_t *req) {
 		// Parse integer value; strtol skips leading whitespace
 		long v = strtol(valstr, NULL, 10);
 		urlBuf.int_value = (int32_t)v;
-		strncpy(urlBuf.key, param, sizeof(urlBuf.key) - 1);
+		snprintf(urlBuf.key, sizeof(urlBuf.key), "%s", param);
 		ret = 0;
-		ESP_LOGD(TAG, "%s: Received param=%s value=%d", __func__, urlBuf.key,
-				 urlBuf.int_value);
+		ESP_LOGD(TAG, "%s: Received param=%s value=%ld", __func__, urlBuf.key,
+			 (long)urlBuf.int_value);
 	} else {
 		ESP_LOGD(TAG, "%s: Invalid post: expected param=NAME&value=INT in URI",
 				 __func__);
@@ -444,10 +446,6 @@ static esp_err_t get_param_handler(httpd_req_t *req) {
 				value = (int32_t)params.fc_1;
 			} else if (strcmp(param, "gain_1") == 0) {
 				value = (int32_t)params.gain_1;
-			} else if (strcmp(param, "fc_2") == 0) {
-				value = (int32_t)params.fc_2;
-			} else if (strcmp(param, "gain_2") == 0) {
-				value = (int32_t)params.gain_2;
 			} else if (strcmp(param, "fc_3") == 0) {
 				value = (int32_t)params.fc_3;
 			} else if (strcmp(param, "gain_3") == 0) {
@@ -471,9 +469,9 @@ static esp_err_t get_param_handler(httpd_req_t *req) {
 		}
 #else
 		// Fallback: load from NVS using dsp_settings
-		dspFlows_t current_flow = dspfEQBassTreble;
+		dspFlows_t current_flow = dspfStereo;
 		if (dsp_settings_load_active_flow(&current_flow) != ESP_OK) {
-			current_flow = dspfEQBassTreble; // default
+			current_flow = dspfStereo; // default
 		}
 
 		int32_t value = 0;
@@ -604,6 +602,32 @@ static esp_err_t favicon_get_handler(httpd_req_t *req) {
 	httpd_resp_set_status(req, "404 Not Found");
 	httpd_resp_set_type(req, "text/plain");
 	httpd_resp_sendstr(req, "No favicon available");
+	return ESP_OK;
+}
+
+/* Restart handler: responds OK and schedules a restart shortly after */
+static void restart_task(void *pv) {
+	// give HTTP stack time to finish sending response
+	vTaskDelay(pdMS_TO_TICKS(200));
+	ESP_LOGI(TAG, "restart_task: calling esp_restart()");
+	esp_restart();
+	vTaskDelete(NULL);
+}
+
+static esp_err_t restart_post_handler(httpd_req_t *req) {
+	ESP_LOGD(TAG, "%s: uri=%s", __func__, req->uri);
+	set_cors_headers(req);
+
+	// Send immediate response before restarting
+	httpd_resp_set_status(req, "200 OK");
+	httpd_resp_sendstr(req, "restarting");
+
+	// Spawn a task that will restart the chip after a short delay
+	BaseType_t ok = xTaskCreate(restart_task, "restart_task", 2048, NULL, 5, NULL);
+	if (ok != pdPASS) {
+		ESP_LOGW(TAG, "%s: Failed to create restart task", __func__);
+	}
+
 	return ESP_OK;
 }
 
@@ -1033,6 +1057,14 @@ esp_err_t start_server(const char *base_path, int port) {
 	};
 	httpd_register_uri_handler(server, &_favicon_get_handler);
 
+	/* URI handler for restart (POST) */
+	httpd_uri_t _restart_post_handler = {
+		.uri = "/restart",
+		.method = HTTP_POST,
+		.handler = restart_post_handler,
+	};
+	httpd_register_uri_handler(server, &_restart_post_handler);
+
 	/* URI handler for OPTIONS (CORS preflight) - specific endpoints */
 	httpd_uri_t _options_post_handler = {
 		.uri = "/post",
@@ -1061,6 +1093,13 @@ esp_err_t start_server(const char *base_path, int port) {
 		.handler = options_handler,
 	};
 	httpd_register_uri_handler(server, &_options_capabilities_handler);
+
+	httpd_uri_t _options_restart_handler = {
+		.uri = "/restart",
+		.method = HTTP_OPTIONS,
+		.handler = options_handler,
+	};
+	httpd_register_uri_handler(server, &_options_restart_handler);
 
 #if CONFIG_DAC_TAS5805M
 	/* URI handlers for DAC settings API */
@@ -1150,13 +1189,6 @@ esp_err_t start_server(const char *base_path, int port) {
 				 __func__, esp_err_to_name(ret));
 	} else {
 		ESP_LOGI(TAG, "%s: Static file handler registered for /*", __func__);
-
-		/* Diagnostic: list all embedded files available at runtime */
-		ESP_LOGI(TAG, "%s: Embedded files: count=%zu", __func__, sizeof(embedded_files) / sizeof(embedded_file_t));
-		for (size_t i = 0; i < sizeof(embedded_files) / sizeof(embedded_file_t); ++i) {
-			size_t file_size = embedded_files[i].data_end - embedded_files[i].data_start;
-			ESP_LOGI(TAG, "%s: [%zu] uri=%s type=%s size=%zu", __func__, i, embedded_files[i].uri, embedded_files[i].content_type, file_size);
-		}
 	}
 
 	return ESP_OK;
@@ -1180,7 +1212,7 @@ static void http_server_task(void *pvParameters) {
 
 	// DSP processor already loads parameters from NVS in dsp_processor_init()
 	// Just get the current active flow and parameters from DSP processor
-	dspFlows_t active_flow = dspfEQBassTreble; // default
+	dspFlows_t active_flow = dspfStereo; // default
 	filterParams_t current_params;
 	memset(&current_params, 0, sizeof(filterParams_t));
 
@@ -1197,8 +1229,8 @@ static void http_server_task(void *pvParameters) {
 	while (1) {
 		// Waiting for post
 		if (xQueueReceive(xQueueHttp, &urlBuf, portMAX_DELAY) == pdTRUE) {
-			ESP_LOGI(TAG, "%s: received update: %s = %d", __func__, urlBuf.key,
-					 urlBuf.int_value);
+			ESP_LOGI(TAG, "%s: received update: %s = %ld", __func__, urlBuf.key,
+					 (long)urlBuf.int_value);
 
 		// Handle flow change specially
 		if (strcmp(urlBuf.key, "dspFlow") == 0) {
@@ -1225,12 +1257,6 @@ static void http_server_task(void *pvParameters) {
 			} else if (strcmp(urlBuf.key, "gain_1") == 0) {
 				current_params.gain_1 = (float)urlBuf.int_value;
 				param_recognized = true;
-			} else if (strcmp(urlBuf.key, "fc_2") == 0) {
-				current_params.fc_2 = (float)urlBuf.int_value;
-				param_recognized = true;
-			} else if (strcmp(urlBuf.key, "gain_2") == 0) {
-				current_params.gain_2 = (float)urlBuf.int_value;
-				param_recognized = true;
 			} else if (strcmp(urlBuf.key, "fc_3") == 0) {
 				current_params.fc_3 = (float)urlBuf.int_value;
 				param_recognized = true;
@@ -1247,10 +1273,10 @@ static void http_server_task(void *pvParameters) {
 		}
 
 #if CONFIG_USE_DSP_PROCESSOR
-		// Update settings and notify subscribers (includes NVS persistence)
-		dsp_settings_set_flow_params(current_flow, &current_params);
-		ESP_LOGD(TAG, "%s: Updated %s = %d", __func__, urlBuf.key,
-				 urlBuf.int_value);
+	// Update settings and notify subscribers (includes NVS persistence)
+	dsp_settings_set_flow_params(current_flow, &current_params);
+	ESP_LOGD(TAG, "%s: Updated %s = %ld", __func__, urlBuf.key,
+		 (long)urlBuf.int_value);
 #else
 		// Persist parameter using dsp_settings (values are stored as
 		// int32_t)
@@ -1259,8 +1285,8 @@ static void http_server_task(void *pvParameters) {
 			ESP_LOGW(TAG, "%s: Failed to persist param '%s' to NVS",
 					 __func__, urlBuf.key);
 		} else {
-			ESP_LOGD(TAG, "%s: Saved %s = %d to NVS", __func__, urlBuf.key,
-					 urlBuf.int_value);
+			ESP_LOGD(TAG, "%s: Saved %s = %ld to NVS", __func__, urlBuf.key,
+					 (long)urlBuf.int_value);
 		}
 #endif
 	}

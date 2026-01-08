@@ -235,13 +235,12 @@ esp_err_t settings_get_mdns_enabled(bool *enabled) {
         }
     }
     // Not present in NVS. Check sdkconfig if available, otherwise default true
-#ifdef CONFIG_SNAPSERVER_USE_MDNS
-    *enabled = (CONFIG_SNAPSERVER_USE_MDNS != 0);
-    ESP_LOGD(TAG, "%s: mdns from CONFIG_SNAPSERVER_USE_MDNS: %d", __func__, *enabled ? 1 : 0);
+#ifndef CONFIG_SNAPSERVER_USE_MDNS
+    *enabled = false;
 #else
     *enabled = true;
-    ESP_LOGD(TAG, "%s: mdns default: true", __func__);
 #endif
+    ESP_LOGD(TAG, "%s: mdns from CONFIG_SNAPSERVER_USE_MDNS: %d", __func__, *enabled ? 1 : 0);
     xSemaphoreGive(hostname_mutex);
     return ESP_OK;
 }
@@ -403,7 +402,7 @@ esp_err_t settings_get_server_port(int32_t *port) {
     // not present in NVS -> check sdkconfig fallbacks or default 0
 #ifdef CONFIG_SNAPSERVER_PORT
     *port = CONFIG_SNAPSERVER_PORT;
-    ESP_LOGD(TAG, "%s: server_port from CONFIG_SNAPSERVER_PORT: %d", __func__, *port);
+    ESP_LOGD(TAG, "%s: server_port from CONFIG_SNAPSERVER_PORT: %ld", __func__, (long)*port);
 #else
     *port = 0;
     ESP_LOGD(TAG, "%s: server_port not set (default 0)", __func__);
@@ -413,7 +412,7 @@ esp_err_t settings_get_server_port(int32_t *port) {
 }
 
 esp_err_t settings_set_server_port(int32_t port) {
-    ESP_LOGD(TAG, "%s: port=%d", __func__, port);
+    ESP_LOGD(TAG, "%s: port=%ld", __func__, (long)port);
     if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
     if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
 
@@ -430,7 +429,7 @@ esp_err_t settings_set_server_port(int32_t port) {
     nvs_close(h);
     xSemaphoreGive(hostname_mutex);
     if (err == ESP_OK) {
-        ESP_LOGI(TAG, "%s: server_port saved: %d", __func__, port);
+        ESP_LOGI(TAG, "%s: server_port saved: %ld", __func__, (long)port);
     } else {
         ESP_LOGE(TAG, "%s: Failed to save server_port: %s", __func__, esp_err_to_name(err));
     }
@@ -545,7 +544,7 @@ esp_err_t settings_get_json(char *json_out, size_t max_len) {
     json_out[max_len - 1] = '\0';
     cJSON_free(json_str);
 
-    ESP_LOGD(TAG, "%s: JSON generated: %s", __func__, json_out);
+    ESP_LOGV(TAG, "%s: JSON generated: %s", __func__, json_out);
     return ESP_OK;
 }
 
