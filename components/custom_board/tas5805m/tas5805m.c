@@ -631,7 +631,7 @@ esp_err_t tas5805m_set_mixer_mode(TAS5805M_MIXER_MODE mode)
 
 esp_err_t tas5805m_set_mixer_gain(TAS5805M_MIXER_CHANNELS channel, uint32_t gain)
 {
-  ESP_LOGD(TAG, "%s: Setting mixer gain for channel %d to 0x%08x", __func__, channel, gain);
+  ESP_LOGD(TAG, "%s: Setting mixer gain for channel %d to 0x%08x", __func__, channel, (unsigned int)gain);
   uint8_t reg;
 
   switch (channel)
@@ -691,7 +691,7 @@ esp_err_t tas5805m_set_channel_gain(TAS5805M_EQ_CHANNELS channel, int8_t gain_db
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "%s: Failed to write volume register 0x%02x: %s", __func__, reg, esp_err_to_name(ret));
   } else {
-    ESP_LOGD(TAG, "%s: Wrote volume register 0x%02x with value 0x%08x", __func__, reg, reg_value);
+    ESP_LOGD(TAG, "%s: Wrote volume register 0x%02x with value 0x%08x", __func__, reg, (unsigned int)reg_value);
   }
 
   TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_CONTROL_PORT, TAS5805M_REG_PAGE_ZERO);
@@ -914,7 +914,7 @@ esp_err_t tas5805m_set_eq_gain_channel(TAS5805M_EQ_CHANNELS channel, int band, i
 
       ESP_LOGV(TAG, "%s: + %d: w 0x%x 0x%x 0x%x 0x%x 0x%x -> 0x%x", __func__, i, 
              reg_value0->offset, reg_value0->value, 
-             reg_value1->value, reg_value2->value, reg_value3->value, value);
+             reg_value1->value, reg_value2->value, reg_value3->value, (unsigned int)value);
       ret = ret | tas5805m_write_bytes(&address, 1, (uint8_t *)&value, sizeof(value));
       if (ret != ESP_OK) { 
           ESP_LOGE(TAG, "%s: Error writing to register 0x%x", __func__, address); 
@@ -981,7 +981,7 @@ esp_err_t tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS channel, TAS5805M
    
     // ESP_LOGV(TAG, "%s: + %d: w 0x%x 0x%x 0x%x 0x%x 0x%x -> 0x%x", __func__, i, 
     //        reg_value0->offset, reg_value0->value, 
-    //        reg_value1->value, reg_value2->value, reg_value3->value, value);
+    //        reg_value1->value, reg_value2->value, reg_value3->value, (unsigned int)value);
     ret = ret | tas5805m_write_bytes(&address, 1, (uint8_t *)&value, sizeof(value));
     // ret = ret | tas5805m_write_byte(reg_value->offset, reg_value->value);
     if (ret != ESP_OK) { 
@@ -1080,7 +1080,7 @@ esp_err_t tas5805m_read_biquad_coefficients(TAS5805M_EQ_CHANNELS channel, int ba
     }
     
     *coeffs[i] = tas5805m_q5_27_to_float(raw_value);
-    ESP_LOGD(TAG, "%s: %s = %f (raw: 0x%08X)", __func__, names[i], *coeffs[i], raw_value);
+    ESP_LOGD(TAG, "%s: %s = %f (raw: 0x%08X)", __func__, names[i], *coeffs[i], (unsigned int)raw_value);
   }
   
   TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_CONTROL_PORT, TAS5805M_REG_PAGE_ZERO);
@@ -1117,7 +1117,7 @@ esp_err_t tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS channel, int b
     
     raw_value = tas5805m_float_to_q5_27(coeffs[i]);
     ESP_LOGD(TAG, "%s: Writing %s = %f -> 0x%08X to offset 0x%02X", 
-             __func__, names[i], coeffs[i], raw_value, offset);
+             __func__, names[i], coeffs[i], (unsigned int)raw_value, offset);
     
     ret = tas5805m_write_bytes(&offset, 1, (uint8_t *)&raw_value, sizeof(raw_value));
     if (ret != ESP_OK) {
@@ -1142,8 +1142,8 @@ float tas5805m_q9_23_to_float(uint32_t raw)
     uint32_t val = tas5805m_swap_endian_32(raw);
     int32_t signed_val = (int32_t)val;
     float result = (float)signed_val / 8388608.0f; // 2^23
-    ESP_LOGD(TAG, "%s: raw=0x%08X, signed_val=%d -> result=%f",
-             __func__, raw, signed_val, result);
+    // ESP_LOGD(TAG, "%s: raw=0x%08X, signed_val=%d -> result=%f",
+    //          __func__, (unsigned int)raw, signed_val, result);
     return result;
 }
 
@@ -1155,8 +1155,8 @@ uint32_t tas5805m_float_to_q9_23(float value)
     int32_t fixed_val = (int32_t)(value * (1 << 23));
     uint32_t le_val = tas5805m_swap_endian_32((uint32_t)fixed_val);
 
-    ESP_LOGD(TAG, "%s: value=%f -> fixed_val=%d, le_val=0x%08X",
-             __func__, value, fixed_val, le_val);
+    // ESP_LOGD(TAG, "%s: value=%f -> fixed_val=%d, le_val=0x%08X",
+    //          __func__, value, fixed_val, (unsigned int)le_val);
 
     return le_val;
 }
@@ -1166,8 +1166,8 @@ float tas5805m_q5_27_to_float(uint32_t raw)
     uint32_t val = tas5805m_swap_endian_32(raw);
     int32_t signed_val = (int32_t)val;
     float result = (float)signed_val / 134217728.0f; // 2^27
-    ESP_LOGD(TAG, "%s: raw=0x%08X, signed_val=%d -> result=%f",
-             __func__, raw, signed_val, result);
+    // ESP_LOGD(TAG, "%s: raw=0x%08X, signed_val=%d -> result=%f",
+    //          __func__, (unsigned int)raw, signed_val, result);
     return result;
 }
 
@@ -1179,8 +1179,8 @@ uint32_t tas5805m_float_to_q5_27(float value)
     int32_t fixed_val = (int32_t)(value * (1 << 27));
     uint32_t le_val = tas5805m_swap_endian_32((uint32_t)fixed_val);
 
-    ESP_LOGD(TAG, "%s: value=%f -> fixed_val=%d, le_val=0x%08X",
-             __func__, value, fixed_val, le_val);
+    // ESP_LOGD(TAG, "%s: value=%f -> fixed_val=%d, le_val=0x%08X",
+    //          __func__, value, fixed_val, (unsigned int)le_val);
 
     return le_val;
 }

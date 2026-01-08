@@ -27,8 +27,6 @@
 #ifndef _TAS5805M_H_
 #define _TAS5805M_H_
 
-#include "audio_hal.h"
-
 #include "board.h"
 #include "esp_err.h"
 #include "esp_log.h"
@@ -48,24 +46,6 @@ extern "C" {
 #define I2C_MASTER_TX_BUF_DISABLE 0 /*!< I2C master doesn't need buffer */
 #define I2C_MASTER_RX_BUF_DISABLE 0 /*!< I2C master doesn't need buffer */
 #define I2C_MASTER_TIMEOUT_MS 1000
-
-#define TAS5805M_VOLUME_MUTE    0xff // (-103.5 dB - actual mute)
-#define TAS5805M_VOLUME_MIN 	0xa8 // (   -60 dB - save value representing barely hearable volume)
-#define TAS5805M_VOLUME_MAX     0x30 // (     0 dB - maximum volume that guarantees no distortion )
-/*
-// TODO: make it available for user configuration
-#define TAS5805M_REG_VOLUME_MAX     0x00 // (+24 dB - maximum volume that DAC can do)
-*/
-
-typedef enum {
-	TAS5805M_CTRL_DEEP_SLEEP = 	0x00,	 					// Deep Sleep
-	TAS5805M_CTRL_SLEEP 	= 0x01,		 					// Sleep
-	TAS5805M_CTRL_HI_Z 		= 0x02,		 					// Hi-Z
-	TAS5805M_CTRL_PLAY 		= 0x03,			 				// Play
-	TAS5805M_CTRL_MUTE 		= 0x08,  					 	// Mute Flag
-															// Mute, but driver in PLAY state
-	TAS5805M_CTRL_PLAY_MUTE = TAS5805M_CTRL_MUTE | TAS5805M_CTRL_PLAY
-} TAS5805M_CTRL_STATE;
 
 /* Cached state structure */
 typedef struct {
