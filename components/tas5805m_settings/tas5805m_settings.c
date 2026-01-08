@@ -120,7 +120,6 @@ const char *tas5805m_eq_ui_mode_to_string(TAS5805M_EQ_UI_MODE m) {
         case TAS5805M_EQ_UI_MODE_15_BAND: return "15-band";
         case TAS5805M_EQ_UI_MODE_15_BAND_BIAMP: return "15-band (bi-amp)";
         case TAS5805M_EQ_UI_MODE_PRESETS: return "EQ Presets";
-        case TAS5805M_EQ_UI_MODE_MANUAL: return "Manual";
         default: return "Unknown";
     }
 }
@@ -695,138 +694,6 @@ esp_err_t tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS ch, int *gain
     return err;
 }
 
-/** Save manual biquad coefficients for a specific channel and band to NVS.
- *  Keys are formatted as: "bq_l_<band>_b0", "bq_l_<band>_b1", etc.
- */
-esp_err_t tas5805m_settings_save_biquad_coefficients(TAS5805M_EQ_CHANNELS ch, int band,
-                                                      float b0, float b1, float b2,
-                                                      float a1, float a2) {
-#if !defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
-    return ESP_ERR_NOT_SUPPORTED;
-#else
-    if (band < 0 || band >= TAS5805M_EQ_BANDS) {
-        ESP_LOGE(TAG, "%s: Invalid band %d", __func__, band);
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    ESP_LOGD(TAG, "%s: ch=%d band=%d b0=%f b1=%f b2=%f a1=%f a2=%f", 
-             __func__, (int)ch, band, b0, b1, b2, a1, a2);
-
-    if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
-
-    if (xSemaphoreTake(tas5805m_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
-        return ESP_ERR_TIMEOUT;
-    }
-
-    const char *prefix = (ch == TAS5805M_EQ_CHANNELS_LEFT) ? TAS5805M_NVS_KEY_BQ_L_PREFIX : TAS5805M_NVS_KEY_BQ_R_PREFIX;
-    char key[32];
-    
-    nvs_handle_t h;
-    esp_err_t err = nvs_open(TAS5805M_NVS_NAMESPACE, NVS_READWRITE, &h);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "%s: Failed to open NVS namespace '%s': %s", __func__, TAS5805M_NVS_NAMESPACE, esp_err_to_name(err));
-        xSemaphoreGive(tas5805m_settings_mutex);
-        return err;
-    }
-
-    // Save each coefficient as a 32-bit blob (float)
-    snprintf(key, sizeof(key), "%s%d_b0", prefix, band);
-    err |= nvs_set_blob(h, key, &b0, sizeof(float));
-    
-    snprintf(key, sizeof(key), "%s%d_b1", prefix, band);
-    err |= nvs_set_blob(h, key, &b1, sizeof(float));
-    
-    snprintf(key, sizeof(key), "%s%d_b2", prefix, band);
-    err |= nvs_set_blob(h, key, &b2, sizeof(float));
-    
-    snprintf(key, sizeof(key), "%s%d_a1", prefix, band);
-    err |= nvs_set_blob(h, key, &a1, sizeof(float));
-    
-    snprintf(key, sizeof(key), "%s%d_a2", prefix, band);
-    err |= nvs_set_blob(h, key, &a2, sizeof(float));
-
-    if (err == ESP_OK) {
-        err = nvs_commit(h);
-    }
-    nvs_close(h);
-
-    xSemaphoreGive(tas5805m_settings_mutex);
-    return err;
-#endif
-}
-
-/** Load manual biquad coefficients for a specific channel and band from NVS */
-esp_err_t tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS ch, int band,
-                                                      float *b0, float *b1, float *b2,
-                                                      float *a1, float *a2) {
-#if !defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
-    return ESP_ERR_NOT_SUPPORTED;
-#else
-    if (!b0 || !b1 || !b2 || !a1 || !a2) return ESP_ERR_INVALID_ARG;
-    
-    if (band < 0 || band >= TAS5805M_EQ_BANDS) {
-        ESP_LOGE(TAG, "%s: Invalid band %d", __func__, band);
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
-
-    if (xSemaphoreTake(tas5805m_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
-        return ESP_ERR_TIMEOUT;
-    }
-
-    const char *prefix = (ch == TAS5805M_EQ_CHANNELS_LEFT) ? TAS5805M_NVS_KEY_BQ_L_PREFIX : TAS5805M_NVS_KEY_BQ_R_PREFIX;
-    char key[32];
-    
-    nvs_handle_t h;
-    esp_err_t err = nvs_open(TAS5805M_NVS_NAMESPACE, NVS_READONLY, &h);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "%s: Failed to open NVS namespace '%s': %s", __func__, TAS5805M_NVS_NAMESPACE, esp_err_to_name(err));
-        xSemaphoreGive(tas5805m_settings_mutex);
-        return err;
-    }
-
-    // Load each coefficient as a 32-bit blob (float)
-    size_t sz = sizeof(float);
-    
-    snprintf(key, sizeof(key), "%s%d_b0", prefix, band);
-    err = nvs_get_blob(h, key, b0, &sz);
-    if (err != ESP_OK) goto cleanup;
-    
-    sz = sizeof(float);
-    snprintf(key, sizeof(key), "%s%d_b1", prefix, band);
-    err = nvs_get_blob(h, key, b1, &sz);
-    if (err != ESP_OK) goto cleanup;
-    
-    sz = sizeof(float);
-    snprintf(key, sizeof(key), "%s%d_b2", prefix, band);
-    err = nvs_get_blob(h, key, b2, &sz);
-    if (err != ESP_OK) goto cleanup;
-    
-    sz = sizeof(float);
-    snprintf(key, sizeof(key), "%s%d_a1", prefix, band);
-    err = nvs_get_blob(h, key, a1, &sz);
-    if (err != ESP_OK) goto cleanup;
-    
-    sz = sizeof(float);
-    snprintf(key, sizeof(key), "%s%d_a2", prefix, band);
-    err = nvs_get_blob(h, key, a2, &sz);
-    if (err != ESP_OK) goto cleanup;
-
-    ESP_LOGD(TAG, "%s: Loaded ch=%d band=%d: b0=%f b1=%f b2=%f a1=%f a2=%f", 
-             __func__, (int)ch, band, *b0, *b1, *b2, *a1, *a2);
-
-cleanup:
-    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
-        ESP_LOGW(TAG, "%s: Failed to read biquad coefficients for ch=%d band=%d: %s", 
-                 __func__, (int)ch, band, esp_err_to_name(err));
-    }
-    nvs_close(h);
-    xSemaphoreGive(tas5805m_settings_mutex);
-    return err;
-#endif
-}
-
 /** Load EQ mode from NVS */
 esp_err_t tas5805m_settings_load_eq_mode(TAS5805M_EQ_MODE *mode) {
     if (!mode) return ESP_ERR_INVALID_ARG;
@@ -1236,7 +1103,6 @@ esp_err_t tas5805m_settings_set_from_json(const char *json_in) {
             case TAS5805M_EQ_UI_MODE_15_BAND: drv = TAS5805M_EQ_MODE_ON; break;
             case TAS5805M_EQ_UI_MODE_15_BAND_BIAMP: drv = TAS5805M_EQ_MODE_BIAMP; break;
             case TAS5805M_EQ_UI_MODE_PRESETS: drv = TAS5805M_EQ_MODE_BIAMP; break;
-            case TAS5805M_EQ_UI_MODE_MANUAL: drv = TAS5805M_EQ_MODE_BIAMP; break;
             default: drv = TAS5805M_EQ_MODE_OFF; break;
         }
 
@@ -1405,106 +1271,6 @@ esp_err_t tas5805m_settings_set_from_json(const char *json_in) {
         }
     }
 
-    // Handle manual biquad coefficients (keys like "bq_l_0_b0", "bq_l_0_b1", etc.)
-    // Parse and save to NVS only. Application to hardware happens only when user clicks Apply.
-    for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
-        float b0_l = 1, b1_l = 0, b2_l = 0, a1_l = 0, a2_l = 0;
-        float b0_r = 1, b1_r = 0, b2_r = 0, a1_r = 0, a2_r = 0;
-        bool has_l = true, has_r = true;
-
-        // Parse left channel coefficients
-        char key[32];
-        snprintf(key, sizeof(key), "bq_l_%d_b0", band);
-        cJSON *item = cJSON_GetObjectItem(root, key);
-        if (cJSON_IsNumber(item)) b0_l = (float)item->valuedouble; else has_l = false;
-
-        snprintf(key, sizeof(key), "bq_l_%d_b1", band);
-        item = cJSON_GetObjectItem(root, key);
-        if (cJSON_IsNumber(item)) b1_l = (float)item->valuedouble; else has_l = false;
-
-        snprintf(key, sizeof(key), "bq_l_%d_b2", band);
-        item = cJSON_GetObjectItem(root, key);
-        if (cJSON_IsNumber(item)) b2_l = (float)item->valuedouble; else has_l = false;
-
-        snprintf(key, sizeof(key), "bq_l_%d_a1", band);
-        item = cJSON_GetObjectItem(root, key);
-        if (cJSON_IsNumber(item)) a1_l = (float)item->valuedouble; else has_l = false;
-
-        snprintf(key, sizeof(key), "bq_l_%d_a2", band);
-        item = cJSON_GetObjectItem(root, key);
-        if (cJSON_IsNumber(item)) a2_l = (float)item->valuedouble; else has_l = false;
-
-        // Parse right channel coefficients
-        snprintf(key, sizeof(key), "bq_r_%d_b0", band);
-        item = cJSON_GetObjectItem(root, key);
-        if (cJSON_IsNumber(item)) b0_r = (float)item->valuedouble; else has_r = false;
-
-        snprintf(key, sizeof(key), "bq_r_%d_b1", band);
-        item = cJSON_GetObjectItem(root, key);
-        if (cJSON_IsNumber(item)) b1_r = (float)item->valuedouble; else has_r = false;
-
-        snprintf(key, sizeof(key), "bq_r_%d_b2", band);
-        item = cJSON_GetObjectItem(root, key);
-        if (cJSON_IsNumber(item)) b2_r = (float)item->valuedouble; else has_r = false;
-
-        snprintf(key, sizeof(key), "bq_r_%d_a1", band);
-        item = cJSON_GetObjectItem(root, key);
-        if (cJSON_IsNumber(item)) a1_r = (float)item->valuedouble; else has_r = false;
-
-        snprintf(key, sizeof(key), "bq_r_%d_a2", band);
-        item = cJSON_GetObjectItem(root, key);
-        if (cJSON_IsNumber(item)) a2_r = (float)item->valuedouble; else has_r = false;
-
-        // Save to NVS if all coefficients were provided
-        if (has_l) {
-            esp_err_t perr = tas5805m_settings_save_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band,
-                                                                          b0_l, b1_l, b2_l, a1_l, a2_l);
-            if (perr == ESP_OK) {
-                ESP_LOGI(TAG, "%s: Saved manual BQ L band %d to NVS", __func__, band);
-            } else {
-                ESP_LOGW(TAG, "%s: Failed to save manual BQ L band %d: %s", __func__, band, esp_err_to_name(perr));
-            }
-        }
-
-        if (has_r) {
-            esp_err_t perr = tas5805m_settings_save_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band,
-                                                                          b0_r, b1_r, b2_r, a1_r, a2_r);
-            if (perr == ESP_OK) {
-                ESP_LOGI(TAG, "%s: Saved manual BQ R band %d to NVS", __func__, band);
-            } else {
-                ESP_LOGW(TAG, "%s: Failed to save manual BQ R band %d: %s", __func__, band, esp_err_to_name(perr));
-            }
-        }
-    }
-
-    // Check if user requested to apply manual coefficients (special "apply_manual_bq" flag)
-    cJSON *apply_item = cJSON_GetObjectItem(root, "apply_manual_bq");
-    if (cJSON_IsTrue(apply_item)) {
-        ESP_LOGI(TAG, "%s: Applying manual biquad coefficients to hardware", __func__);
-        for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
-            float b0, b1, b2, a1, a2;
-            // Left channel
-            if (tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band,
-                                                            &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
-                esp_err_t werr = tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band,
-                                                                      b0, b1, b2, a1, a2);
-                if (werr != ESP_OK) {
-                    ESP_LOGW(TAG, "%s: Failed to write manual BQ L band %d: %s", 
-                             __func__, band, esp_err_to_name(werr));
-                }
-            }
-            // Right channel
-            if (tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band,
-                                                            &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
-                esp_err_t werr = tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band,
-                                                                      b0, b1, b2, a1, a2);
-                if (werr != ESP_OK) {
-                    ESP_LOGW(TAG, "%s: Failed to write manual BQ R band %d: %s", 
-                             __func__, band, esp_err_to_name(werr));
-                }
-            }
-        }
-    }
 #else
     (void)root; // keep compiler happy when EQ support disabled
 #endif
@@ -1863,11 +1629,6 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     cJSON_AddNumberToObject(v_preset, "value", (int)TAS5805M_EQ_UI_MODE_PRESETS);
     cJSON_AddStringToObject(v_preset, "name", "EQ Presets");
     cJSON_AddItemToArray(eq_ui_values, v_preset);
-
-    cJSON *v_manual = cJSON_CreateObject();
-    cJSON_AddNumberToObject(v_manual, "value", (int)TAS5805M_EQ_UI_MODE_MANUAL);
-    cJSON_AddStringToObject(v_manual, "name", "Manual");
-    cJSON_AddItemToArray(eq_ui_values, v_manual);
 #else
     /* When EQ support is disabled expose only OFF and mark the control readonly
      * so the UI shows the section but doesn't allow changing it.
@@ -2057,88 +1818,6 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     // Add EQ band sub-groups to main groups array (after EQ group)
     cJSON_AddItemToArray(groups, eq_bands_left);
     cJSON_AddItemToArray(groups, eq_bands_right);
-
-    /* Add manual biquad coefficient groups for left and right channels */
-    cJSON *bq_left_group = cJSON_CreateObject();
-    cJSON_AddStringToObject(bq_left_group, "name", "Manual Biquad Coefficients (Left)");
-    cJSON_AddStringToObject(bq_left_group, "layout", "biquad-manual");
-    cJSON_AddStringToObject(bq_left_group, "channel", "left");
-    cJSON *bq_left_params = cJSON_CreateArray();
-
-    cJSON *bq_right_group = cJSON_CreateObject();
-    cJSON_AddStringToObject(bq_right_group, "name", "Manual Biquad Coefficients (Right)");
-    cJSON_AddStringToObject(bq_right_group, "layout", "biquad-manual");
-    cJSON_AddStringToObject(bq_right_group, "channel", "right");
-    cJSON *bq_right_params = cJSON_CreateArray();
-
-    // For each band, create 5 float inputs (B0, B1, B2, A1, A2) for both channels
-    for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
-        char freq_label[32];
-        snprintf(freq_label, sizeof(freq_label), "Band %d (%d Hz)", band, tas5805m_eq_bands[band]);
-
-        const char *coef_names[] = {"B0", "B1", "B2", "A1", "A2"};
-        const char *coef_keys[] = {"b0", "b1", "b2", "a1", "a2"};
-
-        for (int c = 0; c < 5; ++c) {
-            // Left channel
-            char key_l[32];
-            snprintf(key_l, sizeof(key_l), "bq_l_%d_%s", band, coef_keys[c]);
-            
-            cJSON *coef_l = cJSON_CreateObject();
-            cJSON_AddStringToObject(coef_l, "key", key_l);
-            cJSON_AddStringToObject(coef_l, "name", coef_names[c]);
-            cJSON_AddStringToObject(coef_l, "type", "float");
-            cJSON_AddStringToObject(coef_l, "band_label", freq_label);
-            cJSON_AddNumberToObject(coef_l, "band", band);
-            cJSON_AddNumberToObject(coef_l, "coef_index", c);
-            cJSON_AddNumberToObject(coef_l, "min", -16.0);
-            cJSON_AddNumberToObject(coef_l, "max", 15.999999);
-            cJSON_AddNumberToObject(coef_l, "step", 0.000001);
-            cJSON_AddNumberToObject(coef_l, "default", (c == 0) ? 1.0 : 0.0);  // B0 defaults to 1.0, others to 0.0
-            
-            // Try to load current value from NVS
-            float b0=1.0, b1=0.0, b2=0.0, a1=0.0, a2=0.0;
-            if (tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band, &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
-                float vals[] = {b0, b1, b2, a1, a2};
-                cJSON_AddNumberToObject(coef_l, "current", vals[c]);
-            } else {
-                cJSON_AddNumberToObject(coef_l, "current", (c == 0) ? 1.0 : 0.0);
-            }
-            cJSON_AddItemToArray(bq_left_params, coef_l);
-
-            // Right channel
-            char key_r[32];
-            snprintf(key_r, sizeof(key_r), "bq_r_%d_%s", band, coef_keys[c]);
-            
-            cJSON *coef_r = cJSON_CreateObject();
-            cJSON_AddStringToObject(coef_r, "key", key_r);
-            cJSON_AddStringToObject(coef_r, "name", coef_names[c]);
-            cJSON_AddStringToObject(coef_r, "type", "float");
-            cJSON_AddStringToObject(coef_r, "band_label", freq_label);
-            cJSON_AddNumberToObject(coef_r, "band", band);
-            cJSON_AddNumberToObject(coef_r, "coef_index", c);
-            cJSON_AddNumberToObject(coef_r, "min", -16.0);
-            cJSON_AddNumberToObject(coef_r, "max", 15.999999);
-            cJSON_AddNumberToObject(coef_r, "step", 0.000001);
-            cJSON_AddNumberToObject(coef_r, "default", (c == 0) ? 1.0 : 0.0);
-            
-            // Try to load current value from NVS
-            b0=1.0; b1=0.0; b2=0.0; a1=0.0; a2=0.0;
-            if (tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band, &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
-                float vals[] = {b0, b1, b2, a1, a2};
-                cJSON_AddNumberToObject(coef_r, "current", vals[c]);
-            } else {
-                cJSON_AddNumberToObject(coef_r, "current", (c == 0) ? 1.0 : 0.0);
-            }
-            cJSON_AddItemToArray(bq_right_params, coef_r);
-        }
-    }
-
-    cJSON_AddItemToObject(bq_left_group, "parameters", bq_left_params);
-    cJSON_AddItemToObject(bq_right_group, "parameters", bq_right_params);
-    
-    cJSON_AddItemToArray(groups, bq_left_group);
-    cJSON_AddItemToArray(groups, bq_right_group);
 #endif
     
     // End groups
@@ -2548,8 +2227,8 @@ esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
     cJSON_AddNumberToObject(eq_ui_mode_param, "current", (int)ui_mode);
     
     cJSON *eq_ui_mode_values = cJSON_CreateArray();
-    const char *ui_mode_names[] = {"Off", "15-Band", "15-Band Bi-Amp", "Presets", "Manual"};
-    for (int i = 0; i <= TAS5805M_EQ_UI_MODE_MANUAL; ++i) {
+    const char *ui_mode_names[] = {"Off", "15-Band", "15-Band Bi-Amp", "Presets"};
+    for (int i = 0; i <= TAS5805M_EQ_UI_MODE_PRESETS; ++i) {
         cJSON *val = cJSON_CreateObject();
         cJSON_AddNumberToObject(val, "value", i);
         cJSON_AddStringToObject(val, "name", ui_mode_names[i]);
@@ -2754,129 +2433,6 @@ esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
     }
     cJSON_AddItemToObject(eq_bands_right, "parameters", eq_bands_right_params);
     cJSON_AddItemToArray(groups, eq_bands_right);
-
-    // Biquad Coefficients (Left) - always visible, collapsible, editable only in manual mode
-    // Read actual coefficients from device to show current DSP state
-    cJSON *bq_manual_left = cJSON_CreateObject();
-    cJSON_AddStringToObject(bq_manual_left, "name", "Biquad Coefficients (Left)");
-    
-    const char *left_description;
-    if (ui_mode == TAS5805M_EQ_UI_MODE_MANUAL) {
-        left_description = "Direct biquad coefficient control for left channel. Use 'Sync' to read from DAC, 'Apply' to write to DAC";
-    } else {
-        left_description = "Stored manual biquad coefficients (read-only). Use 'Sync' to read current values from DAC";
-    }
-    cJSON_AddStringToObject(bq_manual_left, "description", left_description);
-    
-    cJSON_AddStringToObject(bq_manual_left, "layout", "biquad-manual");
-    cJSON_AddStringToObject(bq_manual_left, "channel", "left");
-    cJSON_AddBoolToObject(bq_manual_left, "collapsible", true);
-    cJSON_AddBoolToObject(bq_manual_left, "collapsed", ui_mode != TAS5805M_EQ_UI_MODE_MANUAL);
-    
-    cJSON *bq_manual_left_params = cJSON_CreateArray();
-    for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
-        float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f, a1 = 0.0f, a2 = 0.0f;
-        
-        // Load from NVS (stored manual coefficients)
-        tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band, &b0, &b1, &b2, &a1, &a2);
-        
-        char band_label[32];
-        snprintf(band_label, sizeof(band_label), "BQ %d", band);
-        
-        const char *coeff_names[] = {"b0", "b1", "b2", "a0", "a1", "a2"};
-        float coeff_values[6];
-        coeff_values[0] = b0; coeff_values[1] = b1; coeff_values[2] = b2;
-        coeff_values[3] = 1.0f; /* a0 is always 1.0 */
-        coeff_values[4] = a1; coeff_values[5] = a2;
-        
-        bool is_manual_mode = (ui_mode == TAS5805M_EQ_UI_MODE_MANUAL);
-        
-        for (int c = 0; c < 6; ++c) {
-            cJSON *coeff_param = cJSON_CreateObject();
-            char key[32];
-            snprintf(key, sizeof(key), "bq_l_%d_%s", band, coeff_names[c]);
-            
-            cJSON_AddStringToObject(coeff_param, "key", key);
-            cJSON_AddStringToObject(coeff_param, "name", coeff_names[c]);
-            cJSON_AddStringToObject(coeff_param, "type", "float");
-            cJSON_AddNumberToObject(coeff_param, "min", -16.0);
-            cJSON_AddNumberToObject(coeff_param, "max", 15.999999);
-            cJSON_AddNumberToObject(coeff_param, "step", 0.000001);
-            cJSON_AddNumberToObject(coeff_param, "current", coeff_values[c]);
-            
-            // a0 is always readonly (fixed at 1.0)
-            // Other coefficients are readonly unless in manual mode
-            if (c == 3 || !is_manual_mode) {
-                cJSON_AddBoolToObject(coeff_param, "readonly", true);
-            }
-            
-            cJSON_AddNumberToObject(coeff_param, "band", band);
-            cJSON_AddStringToObject(coeff_param, "band_label", band_label);
-            cJSON_AddStringToObject(coeff_param, "layout", "biquad-manual");
-            
-            cJSON_AddItemToArray(bq_manual_left_params, coeff_param);
-        }
-    }
-    cJSON_AddItemToObject(bq_manual_left, "parameters", bq_manual_left_params);
-    cJSON_AddItemToArray(groups, bq_manual_left);
-
-    // Biquad Coefficients (Right) - always visible, collapsible, editable only in manual mode
-    cJSON *bq_manual_right = cJSON_CreateObject();
-    cJSON_AddStringToObject(bq_manual_right, "name", "Biquad Coefficients (Right)");
-    
-    const char *right_description;
-    if (ui_mode == TAS5805M_EQ_UI_MODE_MANUAL) {
-        right_description = "Direct biquad coefficient control for right channel. Use 'Sync' to read from DAC, 'Apply' to write to DAC";
-    } else {
-        right_description = "Stored manual biquad coefficients (read-only). Use 'Sync' to read current values from DAC";
-    }
-    cJSON_AddStringToObject(bq_manual_right, "description", right_description);
-    
-    cJSON_AddStringToObject(bq_manual_right, "layout", "biquad-manual");
-    cJSON_AddStringToObject(bq_manual_right, "channel", "right");
-    cJSON_AddBoolToObject(bq_manual_right, "collapsible", true);
-    cJSON_AddBoolToObject(bq_manual_right, "collapsed", ui_mode != TAS5805M_EQ_UI_MODE_MANUAL);
-    
-    cJSON *bq_manual_right_params = cJSON_CreateArray();
-    for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
-        float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f, a1 = 0.0f, a2 = 0.0f;
-        
-        // Load from NVS (stored manual coefficients)
-        tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band, &b0, &b1, &b2, &a1, &a2);
-        
-        char band_label[32];
-        snprintf(band_label, sizeof(band_label), "BQ %d", band);
-        
-        const char *coeff_names[] = {"b0", "b1", "b2", "a0", "a1", "a2"};
-        float coeff_values[6];
-        coeff_values[0] = b0; coeff_values[1] = b1; coeff_values[2] = b2;
-        coeff_values[3] = 1.0f; /* a0 */
-        coeff_values[4] = a1; coeff_values[5] = a2;
-        
-        bool is_manual_mode = (ui_mode == TAS5805M_EQ_UI_MODE_MANUAL);
-        
-        for (int c = 0; c < 6; ++c) {
-            cJSON *coeff_param = cJSON_CreateObject();
-            char key[32];
-            snprintf(key, sizeof(key), "bq_r_%d_%s", band, coeff_names[c]);
-            
-            cJSON_AddStringToObject(coeff_param, "key", key);
-            cJSON_AddStringToObject(coeff_param, "name", coeff_names[c]);
-            cJSON_AddStringToObject(coeff_param, "type", "float");
-            cJSON_AddNumberToObject(coeff_param, "min", -16.0);
-            cJSON_AddNumberToObject(coeff_param, "max", 15.999999);
-            cJSON_AddNumberToObject(coeff_param, "step", 0.000001);
-            cJSON_AddNumberToObject(coeff_param, "current", coeff_values[c]);
-            
-            // a0 is always readonly (fixed at 1.0)and", band);
-            cJSON_AddStringToObject(coeff_param, "band_label", band_label);
-            cJSON_AddStringToObject(coeff_param, "layout", "biquad-manual");
-            
-            cJSON_AddItemToArray(bq_manual_right_params, coeff_param);
-        }
-    }
-    cJSON_AddItemToObject(bq_manual_right, "parameters", bq_manual_right_params);
-    cJSON_AddItemToArray(groups, bq_manual_right);
 #endif
 
     cJSON_AddItemToObject(root, "groups", groups);
@@ -3056,32 +2612,6 @@ esp_err_t tas5805m_settings_apply_delayed(void) {
                 ESP_LOGI(TAG, "%s: Restored Channel Gain R = %d dB", __func__, ch_gain);
             }
         }
-    } else if (ui_mode == TAS5805M_EQ_UI_MODE_MANUAL) {
-        // Apply persisted manual biquad coefficients for both channels
-        ESP_LOGI(TAG, "%s: Restoring manual biquad coefficients", __func__);
-        for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
-            float b0, b1, b2, a1, a2;
-            // Left channel
-            if (tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band,
-                                                            &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
-                if (tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band,
-                                                        b0, b1, b2, a1, a2) != ESP_OK) {
-                    ESP_LOGW(TAG, "%s: Failed to apply saved manual BQ L band %d", __func__, band);
-                } else {
-                    ESP_LOGD(TAG, "%s: Restored manual BQ L band %d", __func__, band);
-                }
-            }
-            // Right channel
-            if (tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band,
-                                                            &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
-                if (tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band,
-                                                        b0, b1, b2, a1, a2) != ESP_OK) {
-                    ESP_LOGW(TAG, "%s: Failed to apply saved manual BQ R band %d", __func__, band);
-                } else {
-                    ESP_LOGD(TAG, "%s: Restored manual BQ R band %d", __func__, band);
-                }
-            }
-        }
     }
 #endif
 
@@ -3230,44 +2760,6 @@ esp_err_t tas5805m_settings_get_eq_json(char *json_out, size_t max_len) {
         cJSON_AddNumberToObject(root, key, gain_l);
         snprintf(key, sizeof(key), "eq_gain_r_%d", band);
         cJSON_AddNumberToObject(root, key, gain_r);
-    }
-
-    // Get manual biquad coefficients if in manual mode
-    if (ui_mode == TAS5805M_EQ_UI_MODE_MANUAL) {
-        for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
-            float b0, b1, b2, a1, a2;
-            char key[32];
-            
-            // Left channel
-            if (tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band,
-                                                            &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
-                snprintf(key, sizeof(key), "bq_l_%d_b0", band);
-                cJSON_AddNumberToObject(root, key, b0);
-                snprintf(key, sizeof(key), "bq_l_%d_b1", band);
-                cJSON_AddNumberToObject(root, key, b1);
-                snprintf(key, sizeof(key), "bq_l_%d_b2", band);
-                cJSON_AddNumberToObject(root, key, b2);
-                snprintf(key, sizeof(key), "bq_l_%d_a1", band);
-                cJSON_AddNumberToObject(root, key, a1);
-                snprintf(key, sizeof(key), "bq_l_%d_a2", band);
-                cJSON_AddNumberToObject(root, key, a2);
-            }
-            
-            // Right channel
-            if (tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band,
-                                                            &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
-                snprintf(key, sizeof(key), "bq_r_%d_b0", band);
-                cJSON_AddNumberToObject(root, key, b0);
-                snprintf(key, sizeof(key), "bq_r_%d_b1", band);
-                cJSON_AddNumberToObject(root, key, b1);
-                snprintf(key, sizeof(key), "bq_r_%d_b2", band);
-                cJSON_AddNumberToObject(root, key, b2);
-                snprintf(key, sizeof(key), "bq_r_%d_a1", band);
-                cJSON_AddNumberToObject(root, key, a1);
-                snprintf(key, sizeof(key), "bq_r_%d_a2", band);
-                cJSON_AddNumberToObject(root, key, a2);
-            }
-        }
     }
 #else
     // EQ support disabled
@@ -3524,36 +3016,7 @@ esp_err_t tas5805m_settings_set_eq_from_json(const char *json_in) {
                     ESP_LOGI(TAG, "%s: Applying saved preset right=%d", __func__, (int)prof_r);
                     tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS_RIGHT, prof_r);
                 }
-            } else if (ui_mode == TAS5805M_EQ_UI_MODE_MANUAL) {
-                // Apply saved manual biquad coefficients
-                ESP_LOGI(TAG, "%s: Applying saved manual biquad coefficients", __func__);
-                for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
-                    float b0, b1, b2, a1, a2;
-                    if (tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band,
-                                                                    &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
-                        tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band, b0, b1, b2, a1, a2);
-                    }
-                    if (tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band,
-                                                                    &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
-                        tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band, b0, b1, b2, a1, a2);
-                    }
-                }
-                
-                // Sync from device to NVS when switching to manual mode
-                // This captures the current DAC state as the starting point for manual editing
-                ESP_LOGI(TAG, "%s: Syncing current DAC coefficients to NVS for manual mode", __func__);
-                for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
-                    float b0, b1, b2, a1, a2;
-                    if (tas5805m_read_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band, 
-                                                           &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
-                        tas5805m_settings_save_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band, b0, b1, b2, a1, a2);
-                    }
-                    if (tas5805m_read_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band,
-                                                           &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
-                        tas5805m_settings_save_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band, b0, b1, b2, a1, a2);
-                    }
-                }
-            }
+            } 
         }
         else if (strcmp(key, "eq_profile_l") == 0 && cJSON_IsNumber(item)) {
             TAS5805M_EQ_PROFILE prof = (TAS5805M_EQ_PROFILE)item->valueint;
@@ -3595,78 +3058,6 @@ esp_err_t tas5805m_settings_set_eq_from_json(const char *json_in) {
                 ESP_LOGI(TAG, "%s: Setting EQ gain right band %d to %d", __func__, band, gain);
                 tas5805m_set_eq_gain_channel(TAS5805M_EQ_CHANNELS_RIGHT, band, gain);
                 tas5805m_settings_save_eq_gain(TAS5805M_EQ_CHANNELS_RIGHT, band, gain);
-            }
-        }
-        else if (strncmp(key, "bq_", 3) == 0 && cJSON_IsNumber(item)) {
-            // Biquad coefficient - save to NVS but don't apply yet
-            // Format: bq_<l|r>_<band>_<coeff>
-            char ch = key[3];
-            int band = atoi(key + 5);
-            const char *coeff = strrchr(key, '_') + 1;
-            
-            if ((ch == 'l' || ch == 'r') && band >= 0 && band < TAS5805M_EQ_BANDS) {
-                TAS5805M_EQ_CHANNELS channel = (ch == 'l') ? TAS5805M_EQ_CHANNELS_LEFT : TAS5805M_EQ_CHANNELS_RIGHT;
-                float value = (float)item->valuedouble;
-                
-                // Load existing coefficients
-                float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f, a1 = 0.0f, a2 = 0.0f;
-                tas5805m_settings_load_biquad_coefficients(channel, band, &b0, &b1, &b2, &a1, &a2);
-                
-                // Update specific coefficient
-                if (strcmp(coeff, "b0") == 0) b0 = value;
-                else if (strcmp(coeff, "b1") == 0) b1 = value;
-                else if (strcmp(coeff, "b2") == 0) b2 = value;
-                else if (strcmp(coeff, "a1") == 0) a1 = value;
-                else if (strcmp(coeff, "a2") == 0) a2 = value;
-                
-                // Save back to NVS
-                tas5805m_settings_save_biquad_coefficients(channel, band, b0, b1, b2, a1, a2);
-                ESP_LOGD(TAG, "%s: Saved biquad %s band %d %s = %.6f", __func__, 
-                         ch == 'l' ? "left" : "right", band, coeff, value);
-            }
-        }
-    }
-
-    // Apply manual biquad coefficients if requested
-    if (apply_manual_bq) {
-        ESP_LOGI(TAG, "%s: Applying manual biquad coefficients to hardware", __func__);
-        for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
-            float b0, b1, b2, a1, a2;
-            
-            // Left channel
-            if (tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band,
-                                                            &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
-                tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band, b0, b1, b2, a1, a2);
-            }
-            
-            // Right channel
-            if (tas5805m_settings_load_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band,
-                                                            &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
-                tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band, b0, b1, b2, a1, a2);
-            }
-        }
-    }
-    
-    // Sync manual biquad coefficients from hardware if requested
-    if (sync_manual_bq) {
-        ESP_LOGI(TAG, "%s: Syncing biquad coefficients from hardware to NVS", __func__);
-        for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
-            float b0, b1, b2, a1, a2;
-            
-            // Left channel
-            if (tas5805m_read_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band,
-                                                   &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
-                tas5805m_settings_save_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT, band, b0, b1, b2, a1, a2);
-                ESP_LOGD(TAG, "%s: Synced L band %d: b0=%.6f b1=%.6f b2=%.6f a1=%.6f a2=%.6f",
-                         __func__, band, b0, b1, b2, a1, a2);
-            }
-            
-            // Right channel
-            if (tas5805m_read_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band,
-                                                   &b0, &b1, &b2, &a1, &a2) == ESP_OK) {
-                tas5805m_settings_save_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT, band, b0, b1, b2, a1, a2);
-                ESP_LOGD(TAG, "%s: Synced R band %d: b0=%.6f b1=%.6f b2=%.6f a1=%.6f a2=%.6f",
-                         __func__, band, b0, b1, b2, a1, a2);
             }
         }
     }

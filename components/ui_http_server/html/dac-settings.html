@@ -695,7 +695,23 @@
         
         console.log(`Successfully updated ${paramKey} to ${value}`);
         
-        // Reload current settings and update UI
+        // Update local currentSettings immediately to prevent race condition
+        // where device hasn't committed to NVS yet or driver hasn't updated
+        if (currentSettings) {
+          currentSettings[paramKey] = parseInt(value);
+        }
+        
+        // Re-render immediately with optimistic update
+        renderUI();
+        
+        // For modulation parameters, add a delay before fetching to allow
+        // the driver to update (modulation mode is read from hardware, not cached)
+        if (paramKey === 'modulation_mode' || paramKey === 'sw_freq' || paramKey === 'bd_freq') {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        
+        // Reload current settings from device to sync any merged updates
+        // (e.g., modulation mode updates all three related parameters)
         await loadCurrentSettings();
         renderUI();
         
