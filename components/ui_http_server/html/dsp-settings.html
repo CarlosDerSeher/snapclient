@@ -252,13 +252,26 @@
       }
     }
 
-    // Handle parameter value changes
+    // Handle parameter value changes with debouncing
+    // Debounce timers stored per parameter to avoid flooding the device
+    const debounceTimers = {};
+    
     function handleParameterChange(paramKey, value, unit) {
       const valueSpan = document.getElementById(`${paramKey}-value`);
       if (valueSpan) {
         valueSpan.textContent = `${parseFloat(value).toFixed(1)} ${unit}`;
       }
-      setParameter(paramKey, Math.round(value));
+      
+      // Debounce: clear any pending update for this parameter
+      if (debounceTimers[paramKey]) {
+        clearTimeout(debounceTimers[paramKey]);
+      }
+      
+      // Send the update after 300ms of no changes
+      debounceTimers[paramKey] = setTimeout(() => {
+        setParameter(paramKey, Math.round(value));
+        delete debounceTimers[paramKey];
+      }, 300);
     }
 
     // Handle DSP flow changes
@@ -290,8 +303,25 @@
       renderParameters();
     }
 
+    // Flush any pending debounced parameter updates before navigating away
+    function flushPendingUpdates() {
+      for (const paramKey of Object.keys(debounceTimers)) {
+        clearTimeout(debounceTimers[paramKey]);
+        // Get current slider value and send it immediately
+        const slider = document.getElementById(paramKey);
+        if (slider) {
+          setParameter(paramKey, Math.round(parseFloat(slider.value)));
+        }
+        delete debounceTimers[paramKey];
+      }
+    }
+
     // Initialize on page load
     document.addEventListener('DOMContentLoaded', loadCapabilities);
+    
+    // Ensure pending updates are sent if user navigates away
+    window.addEventListener('beforeunload', flushPendingUpdates);
+    window.addEventListener('pagehide', flushPendingUpdates);
   </script>
 </body>
 </html>
