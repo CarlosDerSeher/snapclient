@@ -70,6 +70,79 @@ static void tas5805m_poll_for_play_task(void *arg)
 }
 
 /**
+ * Create JSON array with all fault status indicators
+ */
+static cJSON* tas5805m_create_faults_array(TAS5805M_FAULT fault) {
+    cJSON *faults = cJSON_CreateArray();
+    if (!faults) {
+        return NULL;
+    }
+
+    // err0 faults
+    cJSON *fault_obj;
+    
+    fault_obj = cJSON_CreateObject();
+    cJSON_AddStringToObject(fault_obj, "name", "Right channel over current");
+    cJSON_AddBoolToObject(fault_obj, "active", (fault.err0 & (1 << 0)) != 0);
+    cJSON_AddItemToArray(faults, fault_obj);
+    
+    fault_obj = cJSON_CreateObject();
+    cJSON_AddStringToObject(fault_obj, "name", "Left channel over current");
+    cJSON_AddBoolToObject(fault_obj, "active", (fault.err0 & (1 << 1)) != 0);
+    cJSON_AddItemToArray(faults, fault_obj);
+    
+    fault_obj = cJSON_CreateObject();
+    cJSON_AddStringToObject(fault_obj, "name", "Right channel DC fault");
+    cJSON_AddBoolToObject(fault_obj, "active", (fault.err0 & (1 << 2)) != 0);
+    cJSON_AddItemToArray(faults, fault_obj);
+    
+    fault_obj = cJSON_CreateObject();
+    cJSON_AddStringToObject(fault_obj, "name", "Left channel DC fault");
+    cJSON_AddBoolToObject(fault_obj, "active", (fault.err0 & (1 << 3)) != 0);
+    cJSON_AddItemToArray(faults, fault_obj);
+    
+    // err1 faults
+    fault_obj = cJSON_CreateObject();
+    cJSON_AddStringToObject(fault_obj, "name", "PVDD undervoltage");
+    cJSON_AddBoolToObject(fault_obj, "active", (fault.err1 & (1 << 0)) != 0);
+    cJSON_AddItemToArray(faults, fault_obj);
+    
+    fault_obj = cJSON_CreateObject();
+    cJSON_AddStringToObject(fault_obj, "name", "PVDD overvoltage");
+    cJSON_AddBoolToObject(fault_obj, "active", (fault.err1 & (1 << 1)) != 0);
+    cJSON_AddItemToArray(faults, fault_obj);
+    
+    fault_obj = cJSON_CreateObject();
+    cJSON_AddStringToObject(fault_obj, "name", "Clock fault");
+    cJSON_AddBoolToObject(fault_obj, "active", (fault.err1 & (1 << 2)) != 0);
+    cJSON_AddItemToArray(faults, fault_obj);
+    
+    fault_obj = cJSON_CreateObject();
+    cJSON_AddStringToObject(fault_obj, "name", "BQ write failed");
+    cJSON_AddBoolToObject(fault_obj, "active", (fault.err1 & (1 << 6)) != 0);
+    cJSON_AddItemToArray(faults, fault_obj);
+    
+    fault_obj = cJSON_CreateObject();
+    cJSON_AddStringToObject(fault_obj, "name", "OTP CRC error");
+    cJSON_AddBoolToObject(fault_obj, "active", (fault.err1 & (1 << 7)) != 0);
+    cJSON_AddItemToArray(faults, fault_obj);
+    
+    // err2 faults
+    fault_obj = cJSON_CreateObject();
+    cJSON_AddStringToObject(fault_obj, "name", "Over temperature shutdown");
+    cJSON_AddBoolToObject(fault_obj, "active", (fault.err2 & (1 << 0)) != 0);
+    cJSON_AddItemToArray(faults, fault_obj);
+    
+    // ot_warn
+    fault_obj = cJSON_CreateObject();
+    cJSON_AddStringToObject(fault_obj, "name", "Over temperature warning");
+    cJSON_AddBoolToObject(fault_obj, "active", (fault.ot_warn & (1 << 2)) != 0);
+    cJSON_AddItemToArray(faults, fault_obj);
+    
+    return faults;
+}
+
+/**
  * Convert TAS5805M_CTRL_STATE enum to human-readable string
  */
 static const char* tas5805m_state_to_string(TAS5805M_CTRL_STATE state) {
@@ -1983,6 +2056,35 @@ esp_err_t tas5805m_settings_get_dac_schema_json(char *json_out, size_t max_len) 
     cJSON_AddItemToObject(state_group, "parameters", state_params);
     cJSON_AddItemToArray(groups, state_group);
 
+    // Faults Group
+    cJSON *faults_group = cJSON_CreateObject();
+    cJSON_AddStringToObject(faults_group, "name", "Faults");
+    cJSON_AddStringToObject(faults_group, "description", "Current fault status indicators");
+    cJSON_AddStringToObject(faults_group, "layout", "faults");
+    
+    cJSON *faults_params = cJSON_CreateArray();
+    
+    // Get current faults to populate schema
+    TAS5805M_FAULT current_fault = {0};
+    tas5805m_get_faults(&current_fault);
+    
+    // Create fault status parameter (readonly, displayed as list)
+    cJSON *faults_param = cJSON_CreateObject();
+    cJSON_AddStringToObject(faults_param, "key", "faults");
+    cJSON_AddStringToObject(faults_param, "name", "Fault Status");
+    cJSON_AddStringToObject(faults_param, "type", "faults-list");
+    cJSON_AddBoolToObject(faults_param, "readonly", true);
+    
+    // Add current fault data
+    cJSON *faults_array = tas5805m_create_faults_array(current_fault);
+    if (faults_array) {
+        cJSON_AddItemToObject(faults_param, "current", faults_array);
+    }
+    
+    cJSON_AddItemToArray(faults_params, faults_param);
+    cJSON_AddItemToObject(faults_group, "parameters", faults_params);
+    cJSON_AddItemToArray(groups, faults_group);
+
     // DAC Configuration Group - simplified
     cJSON *dac_config_group = cJSON_CreateObject();
     cJSON_AddStringToObject(dac_config_group, "name", "DAC Configuration");
@@ -2681,6 +2783,15 @@ esp_err_t tas5805m_settings_get_dac_json(char *json_out, size_t max_len) {
     cJSON_AddNumberToObject(root, "sw_freq", (int)sw_freq);
     cJSON_AddNumberToObject(root, "bd_freq", (int)bd_freq);
     cJSON_AddNumberToObject(root, "mixer_mode", (int)dac_state.mixer_mode);
+
+    // Get and add faults
+    TAS5805M_FAULT fault;
+    if (tas5805m_get_faults(&fault) == ESP_OK) {
+        cJSON *faults_array = tas5805m_create_faults_array(fault);
+        if (faults_array) {
+            cJSON_AddItemToObject(root, "faults", faults_array);
+        }
+    }
 
     // Render to string
     char *json_str = cJSON_PrintUnformatted(root);

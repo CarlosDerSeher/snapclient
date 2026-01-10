@@ -49,6 +49,9 @@ static TAS5805_STATE tas5805m_state = {
   .channel_gain_r = 0,
 };
 
+/* Task handle for fault monitoring */
+static TaskHandle_t tas5805m_fault_monitor_task_handle = NULL;
+
 /* Default I2C config */
 static i2c_config_t i2c_cfg = {
     .mode = I2C_MODE_MASTER,
@@ -71,6 +74,40 @@ audio_hal_func_t AUDIO_CODEC_TAS5805M_DEFAULT_HANDLE = {
     .audio_hal_lock = NULL,
     .handle = NULL,
 };
+
+/* Fault monitoring task */
+static void tas5805m_fault_monitor_task(void *pvParameters) {
+  TAS5805M_FAULT fault;
+  ESP_LOGI(TAG, "Fault monitoring task started");
+  
+  while (1) {
+    // Read fault registers
+    esp_err_t ret = tas5805m_get_faults(&fault);
+    if (ret == ESP_OK) {
+      // Check if any faults are present
+      if (fault.err0 || fault.err1 || fault.err2 || fault.ot_warn) {
+        ESP_LOGW(TAG, "Faults detected: err0=0x%02x, err1=0x%02x, err2=0x%02x, ot_warn=0x%02x",
+                 fault.err0, fault.err1, fault.err2, fault.ot_warn);
+        
+        // Decode and log the faults
+        tas5805m_decode_faults(fault);
+        
+        // Clear the faults
+        ret = tas5805m_clear_faults();
+        if (ret == ESP_OK) {
+          ESP_LOGI(TAG, "Faults cleared");
+        } else {
+          ESP_LOGE(TAG, "Failed to clear faults: %s", esp_err_to_name(ret));
+        }
+      }
+    } else {
+      ESP_LOGE(TAG, "Failed to read faults: %s", esp_err_to_name(ret));
+    }
+    
+    // Wait for 1 second
+    vTaskDelay(pdMS_TO_TICKS(5000));
+  }
+}
 
 /* Init the I2C Driver */
 void i2c_master_init() {
@@ -263,6 +300,23 @@ esp_err_t tas5805m_init() {
      compile-time bridge-mode options, re-add the Kconfig choice and the
      corresponding conditional code here. */
 
+  /* Start fault monitoring task */
+  BaseType_t task_ret = xTaskCreate(
+    tas5805m_fault_monitor_task,
+    "tas5805m_faults",
+    2048,
+    NULL,
+    5,
+    &tas5805m_fault_monitor_task_handle
+  );
+  
+  if (task_ret != pdPASS) {
+    ESP_LOGE(TAG, "%s: Failed to create fault monitoring task", __func__);
+    return ESP_FAIL;
+  }
+  
+  ESP_LOGI(TAG, "%s: Fault monitoring task created", __func__);
+
   return ret;
 }
 
@@ -372,6 +426,13 @@ esp_err_t tas5805m_get_digital_volume(uint8_t *vol)
 
 // Deinit the TAS5805M
 esp_err_t tas5805m_deinit(void) {
+  /* Stop fault monitoring task */
+  if (tas5805m_fault_monitor_task_handle != NULL) {
+    vTaskDelete(tas5805m_fault_monitor_task_handle);
+    tas5805m_fault_monitor_task_handle = NULL;
+    ESP_LOGI(TAG, "%s: Fault monitoring task deleted", __func__);
+  }
+  
   ESP_ERROR_CHECK(tas5805m_set_state(TAS5805M_CTRL_HI_Z));
   gpio_set_level(TAS5805M_GPIO_PDN, 0);
   vTaskDelay(6 / portTICK_PERIOD_MS);

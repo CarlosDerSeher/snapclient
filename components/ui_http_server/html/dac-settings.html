@@ -256,6 +256,87 @@
       }
     }
 
+    /* Faults list styles */
+    .faults-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .fault-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 15px;
+      border-radius: 6px;
+      background-color: #f8f9fa;
+      border-left: 3px solid #6c757d;
+      transition: all 0.2s ease;
+    }
+
+    .fault-item.active {
+      background-color: #fff3cd;
+      border-left-color: #ff9800;
+    }
+
+    .fault-item.critical {
+      background-color: #f8d7da;
+      border-left-color: #dc3545;
+    }
+
+    .fault-indicator {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background-color: #6c757d;
+      flex-shrink: 0;
+    }
+
+    .fault-item.active .fault-indicator {
+      background-color: #ff9800;
+      box-shadow: 0 0 8px rgba(255, 152, 0, 0.5);
+      animation: fault-pulse 1.5s ease-in-out infinite;
+    }
+
+    .fault-item.critical .fault-indicator {
+      background-color: #dc3545;
+      box-shadow: 0 0 8px rgba(220, 53, 69, 0.5);
+      animation: fault-pulse 1s ease-in-out infinite;
+    }
+
+    @keyframes fault-pulse {
+      0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+      }
+      50% {
+        opacity: 0.7;
+        transform: scale(1.1);
+      }
+    }
+
+    .fault-name {
+      flex-grow: 1;
+      font-size: 14px;
+      color: #333;
+    }
+
+    .fault-status {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      color: #6c757d;
+    }
+
+    .fault-item.active .fault-status {
+      color: #ff9800;
+    }
+
+    .fault-item.critical .fault-status {
+      color: #dc3545;
+    }
+
     /* EQ Bands Layout - Vertical Sliders */
     .eq-bands-container {
       display: flex;
@@ -362,6 +443,14 @@
       const v = parseInt(localStorage.getItem('dac_poll_interval_sec'));
       return Number.isInteger(v) ? v : 2;
     })();
+
+    // Helper function to determine if a fault is critical
+    function isCriticalFault(faultName) {
+      const criticalFaults = [
+        'Over temperature shutdown'
+      ];
+      return criticalFaults.some(cf => faultName.includes(cf));
+    }
 
     // Fetch DAC schema from the device
     async function loadSchema() {
@@ -633,6 +722,30 @@
             html += '<div class="range-labels">';
             html += `<span>${displayMin} ${param.unit}</span>`;
             html += `<span>${displayMax} ${param.unit}</span>`;
+            html += '</div>';
+          } else if (param.type === 'faults-list') {
+            // Create list of faults with status indicators
+            html += '<div class="faults-list">';
+            
+            if (param.current && Array.isArray(param.current)) {
+              for (const fault of param.current) {
+                const isActive = fault.active;
+                const isCritical = isCriticalFault(fault.name);
+                let itemClass = 'fault-item';
+                if (isActive) {
+                  itemClass += isCritical ? ' critical' : ' active';
+                }
+                
+                html += `<div class="${itemClass}">`;
+                html += '<span class="fault-indicator"></span>';
+                html += `<span class="fault-name">${fault.name}</span>`;
+                html += `<span class="fault-status">${isActive ? 'ACTIVE' : 'OK'}</span>`;
+                html += '</div>';
+              }
+            } else {
+              html += '<div class="fault-item"><span class="fault-name">No fault data available</span></div>';
+            }
+            
             html += '</div>';
           } else {
             html += `<p>Parameter type '${param.type}' not yet implemented</p>`;
