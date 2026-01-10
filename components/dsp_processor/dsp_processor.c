@@ -172,16 +172,21 @@ esp_err_t dsp_processor_update_filter_params(filterParams_t *params) {
       all_params.flow_params[flow].gain_1 = params->gain_1;
       all_params.flow_params[flow].fc_3 = params->fc_3;
       all_params.flow_params[flow].gain_3 = params->gain_3;
-      xSemaphoreGive(paramsChangedSemaphoreHandle);
+      if (paramsChangedSemaphoreHandle) {
+        xSemaphoreGive(paramsChangedSemaphoreHandle);
+      }
       xSemaphoreGive(params_mutex);
     } else {
       // No mutex available: best-effort update
+      ESP_LOGW(TAG, "%s: params mutex not available, proceeding without mutex", __func__);
       all_params.active_flow = flow;
       all_params.flow_params[flow].fc_1 = params->fc_1;
       all_params.flow_params[flow].gain_1 = params->gain_1;
       all_params.flow_params[flow].fc_3 = params->fc_3;
       all_params.flow_params[flow].gain_3 = params->gain_3;
-      xSemaphoreGive(paramsChangedSemaphoreHandle);
+      if (paramsChangedSemaphoreHandle) {
+        xSemaphoreGive(paramsChangedSemaphoreHandle);
+      }
     }
   }
   

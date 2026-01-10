@@ -1433,6 +1433,11 @@ static void player_task(void *pvParameters) {
               // chnk->fragment->size);
             }
 
+            // If we still don't have a chunk, wait and retry
+            if (chnk == NULL) {
+              continue;
+            }
+
             fragment = chnk->fragment;
             p_payload = fragment->payload;
             size = fragment->size;
@@ -1696,10 +1701,12 @@ static void player_task(void *pvParameters) {
 
           // resync hard if we are getting very late / early.
           // rest gets tuned in through apll speed control or sample insertion
-          if ((msgWaiting == 0) ||
-              (MEDIANFILTER_isFull(&shortMedianFilter, 0) &&
+          // Note: Don't resync immediately on empty queue - wait for data to arrive
+          // Only resync on empty queue if we're also significantly out of sync
+          if ((MEDIANFILTER_isFull(&shortMedianFilter, 0) &&
                ((shortMedian > hardResyncThreshold) ||
-                (shortMedian < -hardResyncThreshold)))) 
+                (shortMedian < -hardResyncThreshold))) ||
+              (msgWaiting == 0 && (age > 50000 || age < -50000)))  // 50ms threshold for empty queue 
           {
             if (chnk != NULL) {
               free_pcm_chunk(chnk);
