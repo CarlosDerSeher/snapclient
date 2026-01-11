@@ -195,6 +195,9 @@ void wifi_start(void) {
   esp_wifi_netif = esp_netif_create_wifi(WIFI_IF_STA, &esp_netif_config);
   esp_wifi_set_default_wifi_sta_handlers();
 
+  // esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+  //   esp_wifi_set_ps(WIFI_PS_NONE);
+
 #if ENABLE_WIFI_PROVISIONING
   /* Start Wi-Fi station */
   ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
