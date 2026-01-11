@@ -284,7 +284,7 @@ int dsp_processor_worker(void *p_pcmChnk, const void *p_scSet) {
   }
 
   // If parameters were changed by API, copy them from centralized storage
-  if (xSemaphoreTake(paramsChangedSemaphoreHandle, 0) == pdTRUE) {
+  if (paramsChangedSemaphoreHandle && xSemaphoreTake(paramsChangedSemaphoreHandle, 0) == pdTRUE) {
     // Copy under mutex to avoid torn reads
     if (params_mutex) {
       xSemaphoreTake(params_mutex, portMAX_DELAY);
