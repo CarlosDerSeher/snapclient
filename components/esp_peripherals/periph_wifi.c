@@ -464,8 +464,7 @@ static esp_err_t _wifi_init(esp_periph_handle_t self) {
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
-    // Disable power save for lower latency audio streaming
-    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_MIN_MODEM));
   }
   if (periph_wifi->wpa2_e_cfg->diasble_wpa2_e) {
     unsigned int ca_pem_bytes = periph_wifi->wpa2_e_cfg->ca_pem_end -
