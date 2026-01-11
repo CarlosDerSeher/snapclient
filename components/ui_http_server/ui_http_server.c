@@ -1278,7 +1278,29 @@ static void http_server_task(void *pvParameters) {
 		// Always read active flow fresh from NVS to ensure we save to the correct flow
 		// (the UI may have changed the flow before this task's cached value was updated)
 		dspFlows_t save_flow = dsp_settings_get_active_flow();
-		dsp_settings_set_flow_params(save_flow, &current_params);
+		
+		// Fetch the current params for THIS flow fresh from NVS
+		// This prevents overwriting other params with stale cached values
+		filterParams_t save_params;
+		dsp_settings_get_flow_params(save_flow, &save_params);
+		
+		// Update only the changed parameter
+		if (strcmp(urlBuf.key, "fc_1") == 0) {
+			save_params.fc_1 = (float)urlBuf.int_value;
+		} else if (strcmp(urlBuf.key, "gain_1") == 0) {
+			save_params.gain_1 = (float)urlBuf.int_value;
+		} else if (strcmp(urlBuf.key, "fc_3") == 0) {
+			save_params.fc_3 = (float)urlBuf.int_value;
+		} else if (strcmp(urlBuf.key, "gain_3") == 0) {
+			save_params.gain_3 = (float)urlBuf.int_value;
+		}
+		
+		// Update our cached params if this is the current flow
+		if (save_flow == active_flow) {
+			current_params = save_params;
+		}
+		
+		dsp_settings_set_flow_params(save_flow, &save_params);
 		ESP_LOGI(TAG, "%s: Saved %s = %ld to flow %d", __func__, urlBuf.key,
 				 (long)urlBuf.int_value, save_flow);
 #else
