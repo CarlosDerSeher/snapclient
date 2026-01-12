@@ -2715,6 +2715,26 @@ esp_err_t tas5805m_settings_apply_delayed(void) {
             }
         }
     }
+    
+    // Restore channel gain for all EQ modes (not just presets)
+    // Channel gain is independent of EQ band settings
+    if (ui_mode != TAS5805M_EQ_UI_MODE_OFF && ui_mode != TAS5805M_EQ_UI_MODE_PRESETS) {
+        int ch_gain = 0;
+        if (tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, &ch_gain) == ESP_OK) {
+            if (tas5805m_set_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, (int8_t)ch_gain) != ESP_OK) {
+                ESP_LOGW(TAG, "%s: Failed to apply saved Channel Gain L", __func__);
+            } else {
+                ESP_LOGI(TAG, "%s: Restored Channel Gain L = %d dB", __func__, ch_gain);
+            }
+        }
+        if (tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS_RIGHT, &ch_gain) == ESP_OK) {
+            if (tas5805m_set_channel_gain(TAS5805M_EQ_CHANNELS_RIGHT, (int8_t)ch_gain) != ESP_OK) {
+                ESP_LOGW(TAG, "%s: Failed to apply saved Channel Gain R", __func__);
+            } else {
+                ESP_LOGI(TAG, "%s: Restored Channel Gain R = %d dB", __func__, ch_gain);
+            }
+        }
+    }
 #endif
 
     ESP_LOGI(TAG, "%s: Delayed persisted settings application complete", __func__);
