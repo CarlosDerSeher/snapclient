@@ -66,14 +66,31 @@ bool network_is_netif_up(esp_netif_t *esp_netif) {
   return esp_netif_is_netif_up(esp_netif);
 }
 
+/**
+ * @brief Check whether the given network interface has a valid IP address assigned.
+ */
 bool network_has_ip(esp_netif_t *esp_netif) {
   if (!esp_netif) return false;
   if (!esp_netif_is_netif_up(esp_netif)) return false;
-  
+
   esp_netif_ip_info_t ip_info;
-  if (esp_netif_get_ip_info(esp_netif, &ip_info) != ESP_OK) return false;
-  
+  esp_err_t err = esp_netif_get_ip_info(esp_netif, &ip_info);
+
+#if CONFIG_SNAPCLIENT_CONNECT_IPV6
+  // Prefer IPv4 when available
+  if (err == ESP_OK && ip_info.ip.addr != 0) {
+    return true;
+  }
+  // Fall back to IPv6 link-local check when IPv4 is not available
+  esp_ip6_addr_t ip6;
+  if (esp_netif_get_ip6_linklocal(esp_netif, &ip6) == ESP_OK) {
+    return true;
+  }
+  return false;
+#else
+  if (err != ESP_OK) return false;
   return ip_info.ip.addr != 0;
+#endif
 }
 
 bool network_if_get_ip(esp_netif_ip_info_t *ip) {
