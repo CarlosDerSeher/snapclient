@@ -84,7 +84,10 @@ bool network_has_ip(esp_netif_t *esp_netif) {
   // Fall back to IPv6 link-local check when IPv4 is not available
   esp_ip6_addr_t ip6;
   if (esp_netif_get_ip6_linklocal(esp_netif, &ip6) == ESP_OK) {
-    return true;
+    // Verify the IPv6 address is not all zeros
+    if (!ip6_addr_isany(&ip6)) {
+      return true;
+    }
   }
   return false;
 #else
