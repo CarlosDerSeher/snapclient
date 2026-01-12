@@ -645,7 +645,6 @@ static void http_get_task(void *pvParameters) {
 
     // Find first valid mDNS result with correct address type
     // Don't change netif - keep using the interface we already verified is UP
-    ip_addr_t remote_ip;
     mdns_result_t *re = r;
     while (re) {
       mdns_ip_addr_t *a = re->addr;
