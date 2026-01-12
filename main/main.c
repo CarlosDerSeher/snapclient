@@ -565,22 +565,44 @@ static void http_get_task(void *pvParameters) {
 #endif
     esp_netif_t *sta_netif =
         network_get_netif_from_desc(NETWORK_INTERFACE_DESC_STA);
+    
+    // Wait for network with Ethernet priority
+    // If WiFi comes up first, wait a bit longer to see if Ethernet comes up
+#if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
+    CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
+    int eth_wait_count = 0;
+    const int ETH_WAIT_MAX = 5;  // Wait up to 5 seconds for Ethernet after WiFi is up
+#endif
     while (1) {
 #if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
     CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
-      bool ethUp = network_is_netif_up(eth_netif);
+      bool ethUp = network_has_ip(eth_netif);
 
       if (ethUp) {
         netif = eth_netif;
-
+        ESP_LOGI(TAG, "Using Ethernet interface");
+        // Disable WiFi to save power and avoid interference
+        ESP_LOGI(TAG, "Disabling WiFi (Ethernet active)");
+        esp_wifi_stop();
         break;
       }
 #endif
 
-      bool staUp = network_is_netif_up(sta_netif);
+      bool staUp = network_has_ip(sta_netif);
       if (staUp) {
+#if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
+    CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
+        // WiFi is up but Ethernet isn't - wait a bit for Ethernet
+        if (eth_wait_count < ETH_WAIT_MAX) {
+          ESP_LOGI(TAG, "WiFi up, waiting for Ethernet (%d/%d)...", eth_wait_count + 1, ETH_WAIT_MAX);
+          eth_wait_count++;
+          vTaskDelay(pdMS_TO_TICKS(1000));
+          continue;
+        }
+        ESP_LOGW(TAG, "Ethernet not available, falling back to WiFi");
+#endif
         netif = sta_netif;
-
+        ESP_LOGI(TAG, "Using WiFi interface");
         break;
       }
 
@@ -610,26 +632,26 @@ static void http_get_task(void *pvParameters) {
     mdns_print_results(r);
     ESP_LOGI(TAG, "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
 
-    ip_addr_t remote_ip;
-    mdns_result_t *re = r;
-    while (re) {
-      mdns_ip_addr_t *a = re->addr;
+      // Find first valid mDNS result with correct address type
+      // Don't change netif - keep using the interface we already verified is UP
+      mdns_result_t *re = r;
+      while (re) {
+        mdns_ip_addr_t *a = re->addr;
+        if (a == NULL) {
+          re = re->next;
+          continue;
+        }
 #if CONFIG_SNAPCLIENT_CONNECT_IPV6
-      if (a->addr.type == IPADDR_TYPE_V6) {
-        netif = re->esp_netif;
-        break;
-      }
-
-      // TODO: fall back to IPv4 if no IPv6 was available
+        if (a->addr.type == IPADDR_TYPE_V6) {
+          break;  // Found valid IPv6 result
+        }
 #else
-      if (a->addr.type == IPADDR_TYPE_V4) {
-        netif = re->esp_netif;
-        break;
-      }
+        if (a->addr.type == IPADDR_TYPE_V4) {
+          break;  // Found valid IPv4 result
+        }
 #endif
-
-      re = re->next;
-    }
+        re = re->next;
+      }
 
     if (!re) {
       mdns_query_results_free(r);

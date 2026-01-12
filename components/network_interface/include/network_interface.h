@@ -24,6 +24,7 @@ esp_netif_t *network_get_netif_from_desc(const char *desc);
 const char *network_get_ifkey(esp_netif_t *esp_netif);
 bool network_if_get_ip(esp_netif_ip_info_t *ip);
 bool network_is_netif_up(esp_netif_t *esp_netif);
+bool network_has_ip(esp_netif_t *esp_netif);
 bool network_is_our_netif(const char *prefix, esp_netif_t *netif);
 void network_if_init(void);
 

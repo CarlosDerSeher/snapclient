@@ -66,6 +66,16 @@ bool network_is_netif_up(esp_netif_t *esp_netif) {
   return esp_netif_is_netif_up(esp_netif);
 }
 
+bool network_has_ip(esp_netif_t *esp_netif) {
+  if (!esp_netif) return false;
+  if (!esp_netif_is_netif_up(esp_netif)) return false;
+  
+  esp_netif_ip_info_t ip_info;
+  if (esp_netif_get_ip_info(esp_netif, &ip_info) != ESP_OK) return false;
+  
+  return ip_info.ip.addr != 0;
+}
+
 bool network_if_get_ip(esp_netif_ip_info_t *ip) {
 #if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
     CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
