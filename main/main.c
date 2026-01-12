@@ -561,7 +561,7 @@ static void http_get_task(void *pvParameters) {
     
     // Ensure WiFi is started (may have been stopped if Ethernet was previously active)
     esp_err_t wifi_err = esp_wifi_start();
-    if (wifi_err != ESP_OK && wifi_err != ESP_ERR_WIFI_CONN) {
+    if (wifi_err != ESP_OK && wifi_err != ESP_ERR_WIFI_STATE) {
       ESP_LOGW(TAG, "esp_wifi_start() returned %s", esp_err_to_name(wifi_err));
     }
     
