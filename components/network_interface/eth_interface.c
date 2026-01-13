@@ -17,6 +17,10 @@
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
 #include "sdkconfig.h"
+#include "esp_wifi.h"
+
+/* Access player playback state to avoid interrupting active playback */
+extern bool playerstarted;
 #if CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
 #include "driver/spi_master.h"
 #endif
@@ -30,6 +34,9 @@ static uint8_t eth_port_cnt = 0;
 static esp_netif_ip_info_t ip_info = {{0}, {0}, {0}};
 static bool connected = false;
 static SemaphoreHandle_t connIpSemaphoreHandle = NULL;
+/* Track takeover intent and whether we stopped WiFi */
+static bool we_stopped_wifi = false;
+static bool want_eth_takeover = false;
 
 #if CONFIG_SNAPCLIENT_SPI_ETHERNETS_NUM
 #define SPI_ETHERNETS_NUM CONFIG_SNAPCLIENT_SPI_ETHERNETS_NUM
@@ -365,10 +372,34 @@ static void eth_event_handler(void *arg, esp_event_base_t event_base,
 
       ESP_ERROR_CHECK(esp_netif_create_ip6_linklocal(netif));
 
+      // If WiFi is currently up and has an IP, plan to prefer Ethernet once
+      // Ethernet has acquired an IP (wait until DHCP/static applied).
+      esp_netif_t *sta_netif = network_get_netif_from_desc(NETWORK_INTERFACE_DESC_STA);
+      if (sta_netif && network_has_ip(sta_netif)) {
+        xSemaphoreTake(connIpSemaphoreHandle, portMAX_DELAY);
+        want_eth_takeover = true;
+        xSemaphoreGive(connIpSemaphoreHandle);
+        ESP_LOGI(TAG, "Ethernet present and WiFi active; will prefer Ethernet after IP acquired");
+      }
+
       break;
     case ETHERNET_EVENT_DISCONNECTED:
       xSemaphoreTake(connIpSemaphoreHandle, portMAX_DELAY);
       connected = false;
+
+      /* If we previously stopped WiFi to prefer Ethernet, restart it now so
+       * the system falls back to WiFi when Ethernet is removed.
+       */
+      if (we_stopped_wifi) {
+        ESP_LOGI(TAG, "Ethernet disconnected; restarting WiFi fallback");
+        esp_err_t start_err = esp_wifi_start();
+        if (start_err != ESP_OK) {
+          ESP_LOGW(TAG, "Failed to start WiFi: %s", esp_err_to_name(start_err));
+        } else {
+          we_stopped_wifi = false;
+        }
+      }
+
       xSemaphoreGive(connIpSemaphoreHandle);
 
       ESP_LOGI(TAG, "Ethernet Link Down");
@@ -431,14 +462,36 @@ static void got_ip_event_handler(void *arg, esp_event_base_t event_base,
              sizeof(esp_netif_ip_info_t));
       connected = true;
 
-      xSemaphoreGive(connIpSemaphoreHandle);
-
       ESP_LOGI(TAG, "Ethernet Got IP Address");
       ESP_LOGI(TAG, "~~~~~~~~~~~");
       ESP_LOGI(TAG, "ETHIP:" IPSTR, IP2STR(&ip_info.ip));
       ESP_LOGI(TAG, "ETHMASK:" IPSTR, IP2STR(&ip_info.netmask));
       ESP_LOGI(TAG, "ETHGW:" IPSTR, IP2STR(&ip_info.gw));
       ESP_LOGI(TAG, "~~~~~~~~~~~");
+
+      /* If we previously detected that WiFi was active and we wanted to
+       * prefer Ethernet, stop WiFi now that Ethernet has an IP. Respect
+       * active playback to avoid interruptions.
+       */
+      if (want_eth_takeover) {
+        if (!playerstarted) {
+          ESP_LOGI(TAG, "Preferring Ethernet: stopping WiFi now that ETH has IP");
+          esp_err_t stop_err = esp_wifi_stop();
+          if (stop_err != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to stop WiFi: %s", esp_err_to_name(stop_err));
+          } else {
+            we_stopped_wifi = true;
+          }
+        } else {
+          ESP_LOGI(TAG, "Playback in progress; delaying Ethernet takeover");
+        }
+        /* Clear the desire to takeover for this link-up cycle; if you want
+         * retries later, implement that separately.
+         */
+        want_eth_takeover = false;
+      }
+
+      xSemaphoreGive(connIpSemaphoreHandle);
 
       break;
     }
