@@ -282,8 +282,8 @@
 
         const staticDisabled = currentEthMode !== 2;
 
-        html += '<label for="eth-ip">Static IP Address</label>';
-        html += `<div id="eth-static-fields" style="display: ${staticDisabled ? 'none' : 'block'}">`;
+            html += `<div id="eth-static-fields" style="display: ${staticDisabled ? 'none' : 'block'}">`;
+            html += '<label for="eth-ip">Static IP Address</label>';
         html += `<input type="text" id="eth-ip" value="${escapeHtml(currentEthStaticIp)}" placeholder="192.168.1.100" maxlength="15" oninput="handleEthFieldChange()">`;
         html += '<div id="eth-ip-validation" class="validation-error"></div>';
 
