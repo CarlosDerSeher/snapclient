@@ -14,26 +14,6 @@ menu "ESP32 DSP processor config"
         help
             mix stereo audio (left and right channel) to mono and play it on the left AND the right channel
 
-    choice SNAPCLIENT_DSP_FLOW
-        prompt "DSP flow"
-        default SNAPCLIENT_DSP_FLOW_STEREO
-        depends on USE_DSP_PROCESSOR
-        help
-            Select the DSP flow to use.
-
-        config SNAPCLIENT_DSP_FLOW_STEREO
-            bool "Stereo flow"
-
-        config SNAPCLIENT_DSP_FLOW_BASSBOOST
-            bool "Bassboost flow"
-
-        config SNAPCLIENT_DSP_FLOW_BIAMP
-            bool "Bi-Amp flow"
-
-        config SNAPCLIENT_DSP_FLOW_BASS_TREBLE_EQ
-            bool "Bass Treble EQ"
-    endchoice
-
     config USE_BIQUAD_ASM
         bool "Use optimized asm version of Biquad_f32"
         default y if IDF_TARGET_ESP32
@@ -47,6 +27,6 @@ menu "ESP32 DSP processor config"
         default false
         depends on USE_DSP_PROCESSOR
         help
-            Use software volume mixer instead of hardware mixer.
+            Use software volume mixer instead of hardware mixer (when your DAC does not support hardware volume control).
 
 endmenu

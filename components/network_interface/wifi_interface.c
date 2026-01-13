@@ -14,6 +14,7 @@
 #include "esp_netif_types.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
+#include "esp_wifi_types.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
 #include "freertos/semphr.h"

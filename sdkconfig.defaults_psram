@@ -1,13 +1,9 @@
-# Additional settings for ESP32 S3
+# Additional settings for psram enabled boards
 #
 # This file was generated using idf.py save-defconfig. It can be edited manually.
 # Espressif IoT Development Framework (ESP-IDF) 5.5.1 Project Minimal Configuration
 #
-CONFIG_IDF_TARGET="esp32s3"
-CONFIG_FREERTOS_IDLE_TASK_STACKSIZE=1536
-CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=y
 CONFIG_SPIRAM=y
-CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_FETCH_INSTRUCTIONS=y
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 CONFIG_LWIP_TCP_OOSEQ_MAX_PBUFS=4
