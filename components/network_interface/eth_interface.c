@@ -19,6 +19,7 @@
 #include "sdkconfig.h"
 #include "ping/ping_sock.h"
 #include "lwip/inet.h"
+#include <lwip/sockets.h>
 #if CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
 #include "driver/spi_master.h"
 #endif

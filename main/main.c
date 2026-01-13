@@ -2864,10 +2864,11 @@ void app_main(void) {
     init_http_server_task("WIFI_STA_DEF");
   #endif
   */
-  network_if_init();
-
   // Initialize settings manager (hostname + snapserver settings)
   settings_manager_init();
+
+  // Initialize network interfaces (reads settings during startup)
+  network_if_init();
   
   // Get hostname for mDNS
   char mdns_hostname[64] = {0};
