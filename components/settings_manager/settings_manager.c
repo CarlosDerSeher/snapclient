@@ -924,6 +924,13 @@ esp_err_t settings_get_json(char *json_out, size_t max_len) {
         cJSON_AddStringToObject(root, "eth_dns", eth_dns);
     }
 
+    // Indicate whether Ethernet support is available in this build
+#if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
+    cJSON_AddBoolToObject(root, "eth_available", true);
+#else
+    cJSON_AddBoolToObject(root, "eth_available", false);
+#endif
+
     // Render to string
     char *json_str = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);

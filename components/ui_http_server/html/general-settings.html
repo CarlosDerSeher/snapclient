@@ -187,6 +187,7 @@
     let currentEthNetmask = '255.255.255.0';
     let currentEthGateway = '';
     let currentEthDns = '';
+    let ethAvailable = true; // whether Ethernet settings should be shown
     let needsRestart = false; // Track if device needs restart
     let isDirty = false;
 
@@ -209,6 +210,7 @@
         currentSnapPort = capabilities.server_port || '';
 
         // Ethernet settings
+        ethAvailable = capabilities.eth_available !== undefined ? capabilities.eth_available : true;
         currentEthMode = capabilities.eth_mode !== undefined ? capabilities.eth_mode : 1;
         currentEthStaticIp = capabilities.eth_static_ip || '';
         currentEthNetmask = capabilities.eth_netmask || '255.255.255.0';
@@ -265,42 +267,51 @@
       html += '</div>';
       html += '</div>'; // .setting-control.setting-section (snapserver)
 
-      // Ethernet Configuration Section
-      html += '<div class="setting-control setting-section">';
-      html += '<div class="section-title">Ethernet Configuration</div>';
-      html += '<label for="eth-mode">Ethernet Mode</label>';
-      html += '<div class="description">Choose how Ethernet interface is configured. Static IP requires manual configuration.</div>';
-      html += '<select id="eth-mode" onchange="handleEthModeChange(this.value)">';
-      html += `<option value="0" ${currentEthMode === 0 ? 'selected' : ''}>Disabled</option>`;
-      html += `<option value="1" ${currentEthMode === 1 ? 'selected' : ''}>DHCP (Automatic)</option>`;
-      html += `<option value="2" ${currentEthMode === 2 ? 'selected' : ''}>Static IP (Manual)</option>`;
-      html += '</select>';
-      html += '<div style="height:12px"></div>';
+      // Ethernet Configuration Section (render only if available)
+      if (ethAvailable) {
+        html += '<div class="setting-control setting-section">';
+        html += '<div class="section-title">Ethernet Configuration</div>';
+        html += '<label for="eth-mode">Ethernet Mode</label>';
+        html += '<div class="description">Choose how Ethernet interface is configured. Static IP requires manual configuration.</div>';
+        html += '<select id="eth-mode" onchange="handleEthModeChange(this.value)">';
+        html += `<option value="0" ${currentEthMode === 0 ? 'selected' : ''}>Disabled</option>`;
+        html += `<option value="1" ${currentEthMode === 1 ? 'selected' : ''}>DHCP (Automatic)</option>`;
+        html += `<option value="2" ${currentEthMode === 2 ? 'selected' : ''}>Static IP (Manual)</option>`;
+        html += '</select>';
+        html += '<div style="height:12px"></div>';
 
-      const staticDisabled = currentEthMode !== 2;
+        const staticDisabled = currentEthMode !== 2;
 
-      html += '<label for="eth-ip">Static IP Address</label>';
-      html += `<input type="text" id="eth-ip" value="${escapeHtml(currentEthStaticIp)}" placeholder="192.168.1.100" maxlength="15" oninput="handleEthFieldChange()" ${staticDisabled ? 'disabled' : ''}>`;
-      html += '<div id="eth-ip-validation" class="validation-error"></div>';
+        html += '<label for="eth-ip">Static IP Address</label>';
+        html += `<div id="eth-static-fields" style="display: ${staticDisabled ? 'none' : 'block'}">`;
+        html += `<input type="text" id="eth-ip" value="${escapeHtml(currentEthStaticIp)}" placeholder="192.168.1.100" maxlength="15" oninput="handleEthFieldChange()">`;
+        html += '<div id="eth-ip-validation" class="validation-error"></div>';
 
-      html += '<label for="eth-netmask">Netmask</label>';
-      html += `<input type="text" id="eth-netmask" value="${escapeHtml(currentEthNetmask)}" placeholder="255.255.255.0" maxlength="15" oninput="handleEthFieldChange()" ${staticDisabled ? 'disabled' : ''}>`;
-      html += '<div id="eth-netmask-validation" class="validation-error"></div>';
+        html += '<label for="eth-netmask">Netmask</label>';
+        html += `<input type="text" id="eth-netmask" value="${escapeHtml(currentEthNetmask)}" placeholder="255.255.255.0" maxlength="15" oninput="handleEthFieldChange()">`;
+        html += '<div id="eth-netmask-validation" class="validation-error"></div>';
 
-      html += '<label for="eth-gateway">Gateway</label>';
-      html += `<input type="text" id="eth-gateway" value="${escapeHtml(currentEthGateway)}" placeholder="192.168.1.1" maxlength="15" oninput="handleEthFieldChange()" ${staticDisabled ? 'disabled' : ''}>`;
-      html += '<div id="eth-gateway-validation" class="validation-error"></div>';
+        html += '<label for="eth-gateway">Gateway</label>';
+        html += `<input type="text" id="eth-gateway" value="${escapeHtml(currentEthGateway)}" placeholder="192.168.1.1" maxlength="15" oninput="handleEthFieldChange()">`;
+        html += '<div id="eth-gateway-validation" class="validation-error"></div>';
 
-      html += '<label for="eth-dns">DNS Server (optional)</label>';
-      html += `<input type="text" id="eth-dns" value="${escapeHtml(currentEthDns)}" placeholder="8.8.8.8" maxlength="15" oninput="handleEthFieldChange()" ${staticDisabled ? 'disabled' : ''}>`;
-      html += '<div id="eth-dns-validation" class="validation-error"></div>';
+        html += '<label for="eth-dns">DNS Server (optional)</label>';
+        html += `<input type="text" id="eth-dns" value="${escapeHtml(currentEthDns)}" placeholder="8.8.8.8" maxlength="15" oninput="handleEthFieldChange()">`;
+        html += '<div id="eth-dns-validation" class="validation-error"></div>';
+        html += '</div>'; // #eth-static-fields
 
-      html += '<div class="button-group">';
-      html += '<button class="btn btn-primary" id="save-eth-btn" onclick="saveEthernetSettings()" disabled>Save Changes</button>';
-      html += '<button class="btn btn-secondary" onclick="resetEthernetSettings()">Reset</button>';
-      html += '<button class="btn btn-danger" id="restart-btn-eth" onclick="requestRestart()" style="background-color:#e74c3c;" disabled>Restart</button>';
-      html += '</div>';
-      html += '</div>'; // .setting-control.setting-section (ethernet)
+        html += '<div class="button-group">';
+        html += '<button class="btn btn-primary" id="save-eth-btn" onclick="saveEthernetSettings()" disabled>Save Changes</button>';
+        html += '<button class="btn btn-secondary" onclick="resetEthernetSettings()">Reset</button>';
+        html += '<button class="btn btn-danger" id="restart-btn-eth" onclick="requestRestart()" style="background-color:#e74c3c;" disabled>Restart</button>';
+        html += '</div>';
+        html += '</div>'; // .setting-control.setting-section (ethernet)
+      } else {
+        html += '<div class="setting-control setting-section">';
+        html += '<div class="section-title">Ethernet</div>';
+        html += '<div class="description">Ethernet support is not available in this firmware build.</div>';
+        html += '</div>';
+      }
 
       html += '</div>'; // .settings-container
 
@@ -478,11 +489,21 @@
       const mode = parseInt(value, 10);
       const staticEnabled = (mode === 2);
 
-      // Enable/disable static IP fields
-      document.getElementById('eth-ip').disabled = !staticEnabled;
-      document.getElementById('eth-netmask').disabled = !staticEnabled;
-      document.getElementById('eth-gateway').disabled = !staticEnabled;
-      document.getElementById('eth-dns').disabled = !staticEnabled;
+      // Show/hide static IP field container
+      const staticContainer = document.getElementById('eth-static-fields');
+      if (staticContainer) {
+        staticContainer.style.display = staticEnabled ? 'block' : 'none';
+      }
+
+      // Also enable/disable inputs inside (for accessibility)
+      const ipEl = document.getElementById('eth-ip');
+      const maskEl = document.getElementById('eth-netmask');
+      const gwEl = document.getElementById('eth-gateway');
+      const dnsEl = document.getElementById('eth-dns');
+      if (ipEl) ipEl.disabled = !staticEnabled;
+      if (maskEl) maskEl.disabled = !staticEnabled;
+      if (gwEl) gwEl.disabled = !staticEnabled;
+      if (dnsEl) dnsEl.disabled = !staticEnabled;
 
       // Update save button state
       updateEthSaveButton();
