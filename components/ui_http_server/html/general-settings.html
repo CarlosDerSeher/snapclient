@@ -182,6 +182,11 @@
     let currentSnapUseMDNS = true;
     let currentSnapHost = '';
     let currentSnapPort = '';
+    let currentEthMode = 1;  // 0=Disabled, 1=DHCP, 2=Static
+    let currentEthStaticIp = '';
+    let currentEthNetmask = '255.255.255.0';
+    let currentEthGateway = '';
+    let currentEthDns = '';
     let needsRestart = false; // Track if device needs restart
     let isDirty = false;
 
@@ -202,7 +207,14 @@
         currentSnapUseMDNS = capabilities.mdns_enabled !== undefined ? capabilities.mdns_enabled : true;
         currentSnapHost = capabilities.server_host || '';
         currentSnapPort = capabilities.server_port || '';
-        
+
+        // Ethernet settings
+        currentEthMode = capabilities.eth_mode !== undefined ? capabilities.eth_mode : 1;
+        currentEthStaticIp = capabilities.eth_static_ip || '';
+        currentEthNetmask = capabilities.eth_netmask || '255.255.255.0';
+        currentEthGateway = capabilities.eth_gateway || '';
+        currentEthDns = capabilities.eth_dns || '';
+
         renderUI();
       } catch (error) {
         console.error('Error loading settings:', error);
@@ -251,9 +263,47 @@
       html += '<button class="btn btn-secondary" onclick="resetSnapserverSettings()">Reset</button>';
       html += '<button class="btn btn-danger" id="restart-btn-snap" onclick="requestRestart()" style="background-color:#e74c3c;" disabled>Restart</button>';
       html += '</div>';
-      html += '</div>'; // .setting-control.setting-section
+      html += '</div>'; // .setting-control.setting-section (snapserver)
+
+      // Ethernet Configuration Section
+      html += '<div class="setting-control setting-section">';
+      html += '<div class="section-title">Ethernet Configuration</div>';
+      html += '<label for="eth-mode">Ethernet Mode</label>';
+      html += '<div class="description">Choose how Ethernet interface is configured. Static IP requires manual configuration.</div>';
+      html += '<select id="eth-mode" onchange="handleEthModeChange(this.value)">';
+      html += `<option value="0" ${currentEthMode === 0 ? 'selected' : ''}>Disabled</option>`;
+      html += `<option value="1" ${currentEthMode === 1 ? 'selected' : ''}>DHCP (Automatic)</option>`;
+      html += `<option value="2" ${currentEthMode === 2 ? 'selected' : ''}>Static IP (Manual)</option>`;
+      html += '</select>';
+      html += '<div style="height:12px"></div>';
+
+      const staticDisabled = currentEthMode !== 2;
+
+      html += '<label for="eth-ip">Static IP Address</label>';
+      html += `<input type="text" id="eth-ip" value="${escapeHtml(currentEthStaticIp)}" placeholder="192.168.1.100" maxlength="15" oninput="handleEthFieldChange()" ${staticDisabled ? 'disabled' : ''}>`;
+      html += '<div id="eth-ip-validation" class="validation-error"></div>';
+
+      html += '<label for="eth-netmask">Netmask</label>';
+      html += `<input type="text" id="eth-netmask" value="${escapeHtml(currentEthNetmask)}" placeholder="255.255.255.0" maxlength="15" oninput="handleEthFieldChange()" ${staticDisabled ? 'disabled' : ''}>`;
+      html += '<div id="eth-netmask-validation" class="validation-error"></div>';
+
+      html += '<label for="eth-gateway">Gateway</label>';
+      html += `<input type="text" id="eth-gateway" value="${escapeHtml(currentEthGateway)}" placeholder="192.168.1.1" maxlength="15" oninput="handleEthFieldChange()" ${staticDisabled ? 'disabled' : ''}>`;
+      html += '<div id="eth-gateway-validation" class="validation-error"></div>';
+
+      html += '<label for="eth-dns">DNS Server (optional)</label>';
+      html += `<input type="text" id="eth-dns" value="${escapeHtml(currentEthDns)}" placeholder="8.8.8.8" maxlength="15" oninput="handleEthFieldChange()" ${staticDisabled ? 'disabled' : ''}>`;
+      html += '<div id="eth-dns-validation" class="validation-error"></div>';
+
+      html += '<div class="button-group">';
+      html += '<button class="btn btn-primary" id="save-eth-btn" onclick="saveEthernetSettings()" disabled>Save Changes</button>';
+      html += '<button class="btn btn-secondary" onclick="resetEthernetSettings()">Reset</button>';
+      html += '<button class="btn btn-danger" id="restart-btn-eth" onclick="requestRestart()" style="background-color:#e74c3c;" disabled>Restart</button>';
       html += '</div>';
-      
+      html += '</div>'; // .setting-control.setting-section (ethernet)
+
+      html += '</div>'; // .settings-container
+
       // Info message
       html += '<div class="info">';
       html += '<strong>Note:</strong> After changing the settings, you will need to restart the device for the changes to take effect.';
@@ -362,6 +412,10 @@
       if (restartBtnSnap) {
         restartBtnSnap.disabled = !needsRestart;
       }
+      const restartBtnEth = document.getElementById('restart-btn-eth');
+      if (restartBtnEth) {
+        restartBtnEth.disabled = !needsRestart;
+      }
     }
 
     function requestRestart() {
@@ -388,7 +442,7 @@
       if (!confirm('Clear Snapserver settings from NVS and reset to defaults?')) {
         return;
       }
-      
+
       // Clear all 3 Snapserver values from NVS using DELETE
       Promise.all([
         deleteParameter('snapserver_use_mdns'),
@@ -400,6 +454,171 @@
       }).catch(error => {
         console.error('Error clearing snapserver settings:', error);
         alert('Failed to clear settings. Please try again.');
+      });
+    }
+
+    // ============ Ethernet Configuration Handlers ============
+
+    // Validate IPv4 address format
+    function validateIPv4(ip) {
+      if (!ip || ip.length === 0) return null; // Empty is OK (for optional fields)
+      const parts = ip.split('.');
+      if (parts.length !== 4) return 'Must be in format x.x.x.x';
+      for (const part of parts) {
+        const num = parseInt(part, 10);
+        if (isNaN(num) || num < 0 || num > 255 || part !== String(num)) {
+          return 'Each octet must be 0-255';
+        }
+      }
+      return null;
+    }
+
+    // Handle Ethernet mode dropdown change
+    function handleEthModeChange(value) {
+      const mode = parseInt(value, 10);
+      const staticEnabled = (mode === 2);
+
+      // Enable/disable static IP fields
+      document.getElementById('eth-ip').disabled = !staticEnabled;
+      document.getElementById('eth-netmask').disabled = !staticEnabled;
+      document.getElementById('eth-gateway').disabled = !staticEnabled;
+      document.getElementById('eth-dns').disabled = !staticEnabled;
+
+      // Update save button state
+      updateEthSaveButton();
+    }
+
+    // Handle changes to any Ethernet field
+    function handleEthFieldChange() {
+      // Validate IP fields
+      const ipError = validateIPv4(document.getElementById('eth-ip').value);
+      const netmaskError = validateIPv4(document.getElementById('eth-netmask').value);
+      const gatewayError = validateIPv4(document.getElementById('eth-gateway').value);
+      const dnsError = validateIPv4(document.getElementById('eth-dns').value);
+
+      document.getElementById('eth-ip-validation').textContent = ipError || '';
+      document.getElementById('eth-netmask-validation').textContent = netmaskError || '';
+      document.getElementById('eth-gateway-validation').textContent = gatewayError || '';
+      document.getElementById('eth-dns-validation').textContent = dnsError || '';
+
+      updateEthSaveButton();
+    }
+
+    // Update Ethernet save button enabled state
+    function updateEthSaveButton() {
+      const saveBtn = document.getElementById('save-eth-btn');
+      if (!saveBtn) return;
+
+      const mode = parseInt(document.getElementById('eth-mode').value, 10);
+      const ip = document.getElementById('eth-ip').value.trim();
+      const netmask = document.getElementById('eth-netmask').value.trim();
+      const gateway = document.getElementById('eth-gateway').value.trim();
+      const dns = document.getElementById('eth-dns').value.trim();
+
+      // Check for validation errors
+      const hasIpError = mode === 2 && ip && validateIPv4(ip);
+      const hasNetmaskError = mode === 2 && netmask && validateIPv4(netmask);
+      const hasGatewayError = mode === 2 && gateway && validateIPv4(gateway);
+      const hasDnsError = mode === 2 && dns && validateIPv4(dns);
+
+      if (hasIpError || hasNetmaskError || hasGatewayError || hasDnsError) {
+        saveBtn.disabled = true;
+        return;
+      }
+
+      // Check if anything has changed
+      const modeChanged = mode !== currentEthMode;
+      const ipChanged = ip !== currentEthStaticIp;
+      const netmaskChanged = netmask !== currentEthNetmask;
+      const gatewayChanged = gateway !== currentEthGateway;
+      const dnsChanged = dns !== currentEthDns;
+
+      const hasChanges = modeChanged || ipChanged || netmaskChanged || gatewayChanged || dnsChanged;
+      saveBtn.disabled = !hasChanges;
+    }
+
+    // Save Ethernet settings
+    async function saveEthernetSettings() {
+      const saveBtn = document.getElementById('save-eth-btn');
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving...';
+
+      const mode = parseInt(document.getElementById('eth-mode').value, 10);
+      const ip = document.getElementById('eth-ip').value.trim();
+      const netmask = document.getElementById('eth-netmask').value.trim();
+      const gateway = document.getElementById('eth-gateway').value.trim();
+      const dns = document.getElementById('eth-dns').value.trim();
+
+      try {
+        // Save all Ethernet settings
+        const modeSuccess = await setParameter('eth_mode', String(mode));
+        if (!modeSuccess) throw new Error('Failed to save Ethernet mode');
+
+        if (mode === 2) {
+          // Static mode - save IP settings
+          if (ip) {
+            const ipSuccess = await setParameter('eth_static_ip', ip);
+            if (!ipSuccess) throw new Error('Failed to save static IP');
+          }
+          if (netmask) {
+            const netmaskSuccess = await setParameter('eth_netmask', netmask);
+            if (!netmaskSuccess) throw new Error('Failed to save netmask');
+          }
+          if (gateway) {
+            const gatewaySuccess = await setParameter('eth_gateway', gateway);
+            if (!gatewaySuccess) throw new Error('Failed to save gateway');
+          }
+          if (dns) {
+            const dnsSuccess = await setParameter('eth_dns', dns);
+            if (!dnsSuccess) throw new Error('Failed to save DNS');
+          }
+        }
+
+        // Update current values
+        currentEthMode = mode;
+        currentEthStaticIp = ip;
+        currentEthNetmask = netmask;
+        currentEthGateway = gateway;
+        currentEthDns = dns;
+        needsRestart = true;
+        updateRestartButton();
+
+        // Show success message
+        const app = document.getElementById('app');
+        const successDiv = document.createElement('div');
+        successDiv.className = 'success';
+        successDiv.textContent = 'Ethernet settings saved successfully! Please restart the device for changes to take effect.';
+        app.insertBefore(successDiv, app.firstChild);
+        setTimeout(() => { successDiv.remove(); }, 5000);
+
+        saveBtn.textContent = 'Save Changes';
+      } catch (err) {
+        console.error('Error saving Ethernet settings:', err);
+        alert(err.message || 'Failed to save Ethernet settings');
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Changes';
+      }
+    }
+
+    // Reset Ethernet settings to defaults
+    function resetEthernetSettings() {
+      if (!confirm('Clear Ethernet settings from NVS and reset to DHCP mode?')) {
+        return;
+      }
+
+      // Clear all Ethernet values from NVS using DELETE
+      Promise.all([
+        deleteParameter('eth_mode'),
+        deleteParameter('eth_static_ip'),
+        deleteParameter('eth_netmask'),
+        deleteParameter('eth_gateway'),
+        deleteParameter('eth_dns')
+      ]).then(() => {
+        // Reload settings from server (which will return defaults)
+        location.reload();
+      }).catch(error => {
+        console.error('Error clearing Ethernet settings:', error);
+        alert('Failed to clear Ethernet settings. Please try again.');
       });
     }
 

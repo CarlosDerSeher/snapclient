@@ -17,11 +17,14 @@
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
 #include "sdkconfig.h"
+#include "ping/ping_sock.h"
+#include "lwip/inet.h"
 #if CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
 #include "driver/spi_master.h"
 #endif
 
 #include "network_interface.h"
+#include "settings_manager.h"
 
 static const char *TAG = "ETH_IF";
 
@@ -30,6 +33,14 @@ static uint8_t eth_port_cnt = 0;
 static esp_netif_ip_info_t ip_info = {{0}, {0}, {0}};
 static bool connected = false;
 static SemaphoreHandle_t connIpSemaphoreHandle = NULL;
+
+// Ethernet mode: 0=Disabled, 1=DHCP, 2=Static
+static int32_t current_eth_mode = 1;
+static esp_netif_t *primary_eth_netif = NULL;
+
+// Gateway ping state
+static SemaphoreHandle_t ping_done_sem = NULL;
+static bool ping_success = false;
 
 #if CONFIG_SNAPCLIENT_SPI_ETHERNETS_NUM
 #define SPI_ETHERNETS_NUM CONFIG_SNAPCLIENT_SPI_ETHERNETS_NUM
@@ -347,6 +358,162 @@ err:
 #endif
 }
 
+/* ============ Gateway Ping Check ============ */
+
+static void ping_on_success(esp_ping_handle_t hdl, void *args) {
+  ping_success = true;
+  xSemaphoreGive(ping_done_sem);
+}
+
+static void ping_on_timeout(esp_ping_handle_t hdl, void *args) {
+  // Don't signal yet - let it try all attempts
+}
+
+static void ping_on_end(esp_ping_handle_t hdl, void *args) {
+  if (!ping_success) {
+    xSemaphoreGive(ping_done_sem);  // Signal failure after all retries
+  }
+}
+
+/**
+ * @brief Check if gateway is reachable via ICMP ping
+ * @param netif The network interface to check
+ * @return true if gateway responds to ping, false otherwise
+ */
+static bool eth_check_gateway_reachable(esp_netif_t *netif) {
+  esp_netif_ip_info_t ip;
+  if (esp_netif_get_ip_info(netif, &ip) != ESP_OK || ip.gw.addr == 0) {
+    ESP_LOGW(TAG, "No gateway configured, skipping reachability check");
+    return true;  // No gateway to check - assume OK
+  }
+
+  if (!ping_done_sem) {
+    ping_done_sem = xSemaphoreCreateBinary();
+  }
+  ping_success = false;
+
+  esp_ping_config_t ping_config = ESP_PING_DEFAULT_CONFIG();
+  ping_config.target_addr.u_addr.ip4.addr = ip.gw.addr;
+  ping_config.target_addr.type = ESP_IPADDR_TYPE_V4;
+  ping_config.count = 3;           // 3 attempts
+  ping_config.timeout_ms = 1000;   // 1 second per attempt
+  ping_config.interface = esp_netif_get_netif_impl_index(netif);
+
+  esp_ping_callbacks_t cbs = {
+      .on_ping_success = ping_on_success,
+      .on_ping_timeout = ping_on_timeout,
+      .on_ping_end = ping_on_end,
+  };
+
+  esp_ping_handle_t ping;
+  if (esp_ping_new_session(&ping_config, &cbs, &ping) != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to create ping session");
+    return false;
+  }
+
+  esp_ping_start(ping);
+
+  // Wait for ping to complete (max 5 seconds)
+  if (xSemaphoreTake(ping_done_sem, pdMS_TO_TICKS(5000)) != pdTRUE) {
+    ESP_LOGW(TAG, "Ping timed out");
+    ping_success = false;
+  }
+
+  esp_ping_stop(ping);
+  esp_ping_delete_session(ping);
+
+  if (ping_success) {
+    ESP_LOGI(TAG, "Gateway " IPSTR " is reachable", IP2STR(&ip.gw));
+  } else {
+    ESP_LOGW(TAG, "Gateway " IPSTR " not reachable", IP2STR(&ip.gw));
+  }
+
+  return ping_success;
+}
+
+/**
+ * @brief Apply static IP configuration from settings
+ * @param netif The network interface to configure
+ * @return ESP_OK on success
+ */
+static esp_err_t eth_apply_static_ip(esp_netif_t *netif) {
+  char ip_str[16] = {0};
+  char netmask_str[16] = {0};
+  char gw_str[16] = {0};
+  char dns_str[16] = {0};
+
+  settings_get_eth_static_ip(ip_str, sizeof(ip_str));
+  settings_get_eth_netmask(netmask_str, sizeof(netmask_str));
+  settings_get_eth_gateway(gw_str, sizeof(gw_str));
+  settings_get_eth_dns(dns_str, sizeof(dns_str));
+
+  // Validate required fields
+  if (ip_str[0] == '\0') {
+    ESP_LOGW(TAG, "Static IP not configured, falling back to DHCP");
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  esp_netif_ip_info_t static_ip_info = {0};
+
+  // Parse IP addresses
+  if (inet_pton(AF_INET, ip_str, &static_ip_info.ip) != 1) {
+    ESP_LOGE(TAG, "Invalid static IP: %s", ip_str);
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  if (netmask_str[0] != '\0') {
+    if (inet_pton(AF_INET, netmask_str, &static_ip_info.netmask) != 1) {
+      ESP_LOGE(TAG, "Invalid netmask: %s", netmask_str);
+      return ESP_ERR_INVALID_ARG;
+    }
+  } else {
+    // Default netmask
+    inet_pton(AF_INET, "255.255.255.0", &static_ip_info.netmask);
+  }
+
+  if (gw_str[0] != '\0') {
+    if (inet_pton(AF_INET, gw_str, &static_ip_info.gw) != 1) {
+      ESP_LOGE(TAG, "Invalid gateway: %s", gw_str);
+      return ESP_ERR_INVALID_ARG;
+    }
+  }
+
+  // Stop DHCP client before setting static IP
+  esp_netif_dhcpc_stop(netif);
+
+  // Apply static IP configuration
+  esp_err_t err = esp_netif_set_ip_info(netif, &static_ip_info);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to set static IP: %s", esp_err_to_name(err));
+    // Re-enable DHCP on failure
+    esp_netif_dhcpc_start(netif);
+    return err;
+  }
+
+  ESP_LOGI(TAG, "Static IP configured: " IPSTR, IP2STR(&static_ip_info.ip));
+  ESP_LOGI(TAG, "Netmask: " IPSTR, IP2STR(&static_ip_info.netmask));
+  ESP_LOGI(TAG, "Gateway: " IPSTR, IP2STR(&static_ip_info.gw));
+
+  // Set DNS if configured
+  if (dns_str[0] != '\0') {
+    esp_netif_dns_info_t dns_info = {0};
+    if (inet_pton(AF_INET, dns_str, &dns_info.ip.u_addr.ip4) == 1) {
+      dns_info.ip.type = ESP_IPADDR_TYPE_V4;
+      esp_netif_set_dns_info(netif, ESP_NETIF_DNS_MAIN, &dns_info);
+      ESP_LOGI(TAG, "DNS: %s", dns_str);
+    }
+  }
+
+  // Manually update the connection state since esp_netif_set_ip_info()
+  // does NOT trigger IP_EVENT_ETH_GOT_IP
+  xSemaphoreTake(connIpSemaphoreHandle, portMAX_DELAY);
+  memcpy(&ip_info, &static_ip_info, sizeof(esp_netif_ip_info_t));
+  connected = true;
+  xSemaphoreGive(connIpSemaphoreHandle);
+
+  return ESP_OK;
+}
+
 /** Event handler for Ethernet events */
 static void eth_event_handler(void *arg, esp_event_base_t event_base,
                               int32_t event_id, void *event_data) {
@@ -365,6 +532,32 @@ static void eth_event_handler(void *arg, esp_event_base_t event_base,
 
       ESP_ERROR_CHECK(esp_netif_create_ip6_linklocal(netif));
 
+      // Handle static IP mode
+      if (current_eth_mode == 2) {  // Static
+        // Wait for link to stabilize
+        vTaskDelay(pdMS_TO_TICKS(500));
+
+        // Apply static IP configuration
+        if (eth_apply_static_ip(netif) == ESP_OK) {
+          // Give time for IP to be applied before checking gateway
+          vTaskDelay(pdMS_TO_TICKS(500));
+
+          // Check gateway reachability
+          if (!eth_check_gateway_reachable(netif)) {
+            ESP_LOGW(TAG, "Static IP failed gateway check, falling back to DHCP");
+            // Clear connected state
+            xSemaphoreTake(connIpSemaphoreHandle, portMAX_DELAY);
+            connected = false;
+            xSemaphoreGive(connIpSemaphoreHandle);
+            // Start DHCP
+            esp_netif_dhcpc_start(netif);
+            // connected flag will be set by got_ip_event_handler when DHCP succeeds
+          }
+        } else {
+          // Static IP configuration failed, DHCP is already running
+          ESP_LOGW(TAG, "Static IP configuration failed, using DHCP");
+        }
+      }
       break;
     case ETHERNET_EVENT_DISCONNECTED:
       xSemaphoreTake(connIpSemaphoreHandle, portMAX_DELAY);
@@ -476,12 +669,25 @@ static void eth_on_got_ipv6(void *arg, esp_event_base_t event_base,
 
 /** Init function that exposes to the main application */
 void eth_start(void) {
-  // Initialize Ethernet driver
-  esp_eth_handle_t *eth_handles;
-
+  // Initialize semaphore first (needed even if Ethernet is disabled)
   if (!connIpSemaphoreHandle) {
     connIpSemaphoreHandle = xSemaphoreCreateMutex();
   }
+
+  // Check Ethernet mode from settings
+  settings_get_eth_mode(&current_eth_mode);
+  ESP_LOGI(TAG, "Ethernet mode: %ld (%s)", (long)current_eth_mode,
+           current_eth_mode == 0 ? "Disabled" :
+           current_eth_mode == 1 ? "DHCP" : "Static");
+
+  // If Ethernet is disabled, skip all initialization
+  if (current_eth_mode == 0) {
+    ESP_LOGI(TAG, "Ethernet disabled by configuration");
+    return;
+  }
+
+  // Initialize Ethernet driver
+  esp_eth_handle_t *eth_handles;
 
   ESP_ERROR_CHECK(eth_init(&eth_handles, &eth_port_cnt));
 

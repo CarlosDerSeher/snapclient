@@ -41,6 +41,29 @@ esp_err_t settings_get_server_port(int32_t *port);
 esp_err_t settings_set_server_port(int32_t port);
 esp_err_t settings_clear_server_port(void);
 
+/* Ethernet mode and static IP settings
+ * Mode values: 0=Disabled, 1=DHCP (default), 2=Static
+ */
+esp_err_t settings_get_eth_mode(int32_t *mode);
+esp_err_t settings_set_eth_mode(int32_t mode);
+esp_err_t settings_clear_eth_mode(void);
+
+esp_err_t settings_get_eth_static_ip(char *ip, size_t max_len);
+esp_err_t settings_set_eth_static_ip(const char *ip);
+esp_err_t settings_clear_eth_static_ip(void);
+
+esp_err_t settings_get_eth_netmask(char *netmask, size_t max_len);
+esp_err_t settings_set_eth_netmask(const char *netmask);
+esp_err_t settings_clear_eth_netmask(void);
+
+esp_err_t settings_get_eth_gateway(char *gw, size_t max_len);
+esp_err_t settings_set_eth_gateway(const char *gw);
+esp_err_t settings_clear_eth_gateway(void);
+
+esp_err_t settings_get_eth_dns(char *dns, size_t max_len);
+esp_err_t settings_set_eth_dns(const char *dns);
+esp_err_t settings_clear_eth_dns(void);
+
 /**
  * Get all settings as a JSON string
  * @param json_out Buffer to store JSON string (caller must allocate)

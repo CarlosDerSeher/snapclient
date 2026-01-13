@@ -229,6 +229,80 @@ static esp_err_t root_post_handler(httpd_req_t *req) {
 			return ESP_OK;
 		}
 
+		// Ethernet mode (integer: 0=Disabled, 1=DHCP, 2=Static)
+		if (strcmp(param, "eth_mode") == 0) {
+			long v = strtol(valstr, NULL, 10);
+			ESP_LOGI(TAG, "%s: Setting eth_mode to: %ld", __func__, v);
+			if (settings_set_eth_mode((int32_t)v) == ESP_OK) {
+				httpd_resp_set_status(req, "200 OK");
+				httpd_resp_sendstr(req, "ok");
+			} else {
+				httpd_resp_set_status(req, "500 Internal Server Error");
+				httpd_resp_sendstr(req, "error");
+			}
+			return ESP_OK;
+		}
+
+		// Ethernet static IP (string)
+		if (strcmp(param, "eth_static_ip") == 0) {
+			char decoded_ip[16] = {0};
+			url_decode(decoded_ip, valstr, sizeof(decoded_ip));
+			ESP_LOGI(TAG, "%s: Setting eth_static_ip to: %s", __func__, decoded_ip);
+			if (settings_set_eth_static_ip(decoded_ip) == ESP_OK) {
+				httpd_resp_set_status(req, "200 OK");
+				httpd_resp_sendstr(req, "ok");
+			} else {
+				httpd_resp_set_status(req, "400 Bad Request");
+				httpd_resp_sendstr(req, "Invalid IP address");
+			}
+			return ESP_OK;
+		}
+
+		// Ethernet netmask (string)
+		if (strcmp(param, "eth_netmask") == 0) {
+			char decoded_netmask[16] = {0};
+			url_decode(decoded_netmask, valstr, sizeof(decoded_netmask));
+			ESP_LOGI(TAG, "%s: Setting eth_netmask to: %s", __func__, decoded_netmask);
+			if (settings_set_eth_netmask(decoded_netmask) == ESP_OK) {
+				httpd_resp_set_status(req, "200 OK");
+				httpd_resp_sendstr(req, "ok");
+			} else {
+				httpd_resp_set_status(req, "400 Bad Request");
+				httpd_resp_sendstr(req, "Invalid netmask");
+			}
+			return ESP_OK;
+		}
+
+		// Ethernet gateway (string)
+		if (strcmp(param, "eth_gateway") == 0) {
+			char decoded_gw[16] = {0};
+			url_decode(decoded_gw, valstr, sizeof(decoded_gw));
+			ESP_LOGI(TAG, "%s: Setting eth_gateway to: %s", __func__, decoded_gw);
+			if (settings_set_eth_gateway(decoded_gw) == ESP_OK) {
+				httpd_resp_set_status(req, "200 OK");
+				httpd_resp_sendstr(req, "ok");
+			} else {
+				httpd_resp_set_status(req, "400 Bad Request");
+				httpd_resp_sendstr(req, "Invalid gateway");
+			}
+			return ESP_OK;
+		}
+
+		// Ethernet DNS (string)
+		if (strcmp(param, "eth_dns") == 0) {
+			char decoded_dns[16] = {0};
+			url_decode(decoded_dns, valstr, sizeof(decoded_dns));
+			ESP_LOGI(TAG, "%s: Setting eth_dns to: %s", __func__, decoded_dns);
+			if (settings_set_eth_dns(decoded_dns) == ESP_OK) {
+				httpd_resp_set_status(req, "200 OK");
+				httpd_resp_sendstr(req, "ok");
+			} else {
+				httpd_resp_set_status(req, "400 Bad Request");
+				httpd_resp_sendstr(req, "Invalid DNS");
+			}
+			return ESP_OK;
+		}
+
 		// Parse integer value; strtol skips leading whitespace
 		long v = strtol(valstr, NULL, 10);
 		urlBuf.int_value = (int32_t)v;
@@ -319,6 +393,71 @@ static esp_err_t root_delete_handler(httpd_req_t *req) {
 	if (strcmp(param, "snapserver_port") == 0) {
 		ESP_LOGI(TAG, "%s: Clearing snapserver_port from NVS", __func__);
 		if (settings_clear_server_port() == ESP_OK) {
+			httpd_resp_set_status(req, "200 OK");
+			httpd_resp_sendstr(req, "ok");
+		} else {
+			httpd_resp_set_status(req, "500 Internal Server Error");
+			httpd_resp_sendstr(req, "error");
+		}
+		return ESP_OK;
+	}
+
+	// Handle eth_mode clear
+	if (strcmp(param, "eth_mode") == 0) {
+		ESP_LOGI(TAG, "%s: Clearing eth_mode from NVS", __func__);
+		if (settings_clear_eth_mode() == ESP_OK) {
+			httpd_resp_set_status(req, "200 OK");
+			httpd_resp_sendstr(req, "ok");
+		} else {
+			httpd_resp_set_status(req, "500 Internal Server Error");
+			httpd_resp_sendstr(req, "error");
+		}
+		return ESP_OK;
+	}
+
+	// Handle eth_static_ip clear
+	if (strcmp(param, "eth_static_ip") == 0) {
+		ESP_LOGI(TAG, "%s: Clearing eth_static_ip from NVS", __func__);
+		if (settings_clear_eth_static_ip() == ESP_OK) {
+			httpd_resp_set_status(req, "200 OK");
+			httpd_resp_sendstr(req, "ok");
+		} else {
+			httpd_resp_set_status(req, "500 Internal Server Error");
+			httpd_resp_sendstr(req, "error");
+		}
+		return ESP_OK;
+	}
+
+	// Handle eth_netmask clear
+	if (strcmp(param, "eth_netmask") == 0) {
+		ESP_LOGI(TAG, "%s: Clearing eth_netmask from NVS", __func__);
+		if (settings_clear_eth_netmask() == ESP_OK) {
+			httpd_resp_set_status(req, "200 OK");
+			httpd_resp_sendstr(req, "ok");
+		} else {
+			httpd_resp_set_status(req, "500 Internal Server Error");
+			httpd_resp_sendstr(req, "error");
+		}
+		return ESP_OK;
+	}
+
+	// Handle eth_gateway clear
+	if (strcmp(param, "eth_gateway") == 0) {
+		ESP_LOGI(TAG, "%s: Clearing eth_gateway from NVS", __func__);
+		if (settings_clear_eth_gateway() == ESP_OK) {
+			httpd_resp_set_status(req, "200 OK");
+			httpd_resp_sendstr(req, "ok");
+		} else {
+			httpd_resp_set_status(req, "500 Internal Server Error");
+			httpd_resp_sendstr(req, "error");
+		}
+		return ESP_OK;
+	}
+
+	// Handle eth_dns clear
+	if (strcmp(param, "eth_dns") == 0) {
+		ESP_LOGI(TAG, "%s: Clearing eth_dns from NVS", __func__);
+		if (settings_clear_eth_dns() == ESP_OK) {
 			httpd_resp_set_status(req, "200 OK");
 			httpd_resp_sendstr(req, "ok");
 		} else {
@@ -419,7 +558,59 @@ static esp_err_t get_param_handler(httpd_req_t *req) {
 						 __func__);
 			}
 			return ESP_OK;
-	}
+		}
+
+		if (strcmp(param, "eth_mode") == 0) {
+			int32_t mode = 1;
+			settings_get_eth_mode(&mode);
+			char resp[8];
+			snprintf(resp, sizeof(resp), "%d", (int)mode);
+			httpd_resp_set_status(req, "200 OK");
+			httpd_resp_set_type(req, "text/plain");
+			httpd_resp_sendstr(req, resp);
+			ESP_LOGD(TAG, "%s: eth_mode=%d", __func__, (int)mode);
+			return ESP_OK;
+		}
+
+		if (strcmp(param, "eth_static_ip") == 0) {
+			char ip[16] = {0};
+			settings_get_eth_static_ip(ip, sizeof(ip));
+			httpd_resp_set_status(req, "200 OK");
+			httpd_resp_set_type(req, "text/plain");
+			httpd_resp_sendstr(req, ip);
+			ESP_LOGD(TAG, "%s: eth_static_ip=%s", __func__, ip);
+			return ESP_OK;
+		}
+
+		if (strcmp(param, "eth_netmask") == 0) {
+			char netmask[16] = {0};
+			settings_get_eth_netmask(netmask, sizeof(netmask));
+			httpd_resp_set_status(req, "200 OK");
+			httpd_resp_set_type(req, "text/plain");
+			httpd_resp_sendstr(req, netmask);
+			ESP_LOGD(TAG, "%s: eth_netmask=%s", __func__, netmask);
+			return ESP_OK;
+		}
+
+		if (strcmp(param, "eth_gateway") == 0) {
+			char gw[16] = {0};
+			settings_get_eth_gateway(gw, sizeof(gw));
+			httpd_resp_set_status(req, "200 OK");
+			httpd_resp_set_type(req, "text/plain");
+			httpd_resp_sendstr(req, gw);
+			ESP_LOGD(TAG, "%s: eth_gateway=%s", __func__, gw);
+			return ESP_OK;
+		}
+
+		if (strcmp(param, "eth_dns") == 0) {
+			char dns[16] = {0};
+			settings_get_eth_dns(dns, sizeof(dns));
+			httpd_resp_set_status(req, "200 OK");
+			httpd_resp_set_type(req, "text/plain");
+			httpd_resp_sendstr(req, dns);
+			ESP_LOGD(TAG, "%s: eth_dns=%s", __func__, dns);
+			return ESP_OK;
+		}
 
 #if CONFIG_USE_DSP_PROCESSOR
 	// Get current flow from settings

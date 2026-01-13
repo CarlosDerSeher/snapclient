@@ -22,6 +22,13 @@ static const char *NVS_KEY_MDNS = "mdns";        // int32 0/1
 static const char *NVS_KEY_SERVER_HOST = "server_host"; // string
 static const char *NVS_KEY_SERVER_PORT = "server_port"; // int32
 
+// Ethernet static IP settings
+static const char *NVS_KEY_ETH_MODE = "eth_mode";       // int32: 0=Disabled, 1=DHCP, 2=Static
+static const char *NVS_KEY_ETH_IP = "eth_ip";           // string "192.168.1.100"
+static const char *NVS_KEY_ETH_NETMASK = "eth_netmask"; // string "255.255.255.0"
+static const char *NVS_KEY_ETH_GATEWAY = "eth_gw";      // string "192.168.1.1"
+static const char *NVS_KEY_ETH_DNS = "eth_dns";         // string "8.8.8.8"
+
 // Mutex for thread-safe NVS access
 static SemaphoreHandle_t hostname_mutex = NULL;
 
@@ -55,6 +62,35 @@ static bool validate_hostname(const char *hostname) {
         }
     }
     ESP_LOGD(TAG, "%s: hostname '%s' valid", __func__, hostname);
+    return true;
+}
+
+/**
+ * @brief Validate IPv4 address format
+ * @return true if valid IPv4 address (a.b.c.d where each octet is 0-255)
+ */
+static bool validate_ip_address(const char *ip) {
+    if (!ip || strlen(ip) == 0) {
+        return false;
+    }
+
+    unsigned int a, b, c, d;
+    char extra;
+    int ret = sscanf(ip, "%u.%u.%u.%u%c", &a, &b, &c, &d, &extra);
+
+    // Must have exactly 4 octets, no trailing characters
+    if (ret != 4) {
+        ESP_LOGD(TAG, "%s: invalid format '%s'", __func__, ip);
+        return false;
+    }
+
+    // Each octet must be 0-255
+    if (a > 255 || b > 255 || c > 255 || d > 255) {
+        ESP_LOGD(TAG, "%s: octet out of range in '%s'", __func__, ip);
+        return false;
+    }
+
+    ESP_LOGD(TAG, "%s: IP '%s' valid", __func__, ip);
     return true;
 }
 
@@ -469,6 +505,356 @@ esp_err_t settings_clear_server_port(void) {
     return err;
 }
 
+/* ============ Ethernet Static IP Settings ============ */
+
+esp_err_t settings_get_eth_mode(int32_t *mode) {
+    ESP_LOGD(TAG, "%s: entered", __func__);
+    if (!mode) return ESP_ERR_INVALID_ARG;
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &h);
+    if (err == ESP_OK) {
+        int32_t v = 1;  // Default to DHCP
+        err = nvs_get_i32(h, NVS_KEY_ETH_MODE, &v);
+        nvs_close(h);
+        if (err == ESP_OK) {
+            *mode = v;
+            ESP_LOGD(TAG, "%s: eth_mode from NVS: %ld", __func__, (long)*mode);
+            xSemaphoreGive(hostname_mutex);
+            return ESP_OK;
+        }
+        if (err != ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGW(TAG, "%s: NVS read error: %s", __func__, esp_err_to_name(err));
+        }
+    }
+
+    // Default: DHCP (1)
+    *mode = 1;
+    ESP_LOGD(TAG, "%s: eth_mode default: %ld", __func__, (long)*mode);
+    xSemaphoreGive(hostname_mutex);
+    return ESP_OK;
+}
+
+esp_err_t settings_set_eth_mode(int32_t mode) {
+    ESP_LOGD(TAG, "%s: mode=%ld", __func__, (long)mode);
+    if (mode < 0 || mode > 2) return ESP_ERR_INVALID_ARG;  // 0=Disabled, 1=DHCP, 2=Static
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        xSemaphoreGive(hostname_mutex);
+        return err;
+    }
+
+    err = nvs_set_i32(h, NVS_KEY_ETH_MODE, mode);
+    if (err == ESP_OK) err = nvs_commit(h);
+
+    nvs_close(h);
+    xSemaphoreGive(hostname_mutex);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "%s: eth_mode saved: %ld", __func__, (long)mode);
+    } else {
+        ESP_LOGE(TAG, "%s: Failed to save eth_mode: %s", __func__, esp_err_to_name(err));
+    }
+    return err;
+}
+
+esp_err_t settings_clear_eth_mode(void) {
+    ESP_LOGD(TAG, "%s: entered", __func__);
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        xSemaphoreGive(hostname_mutex);
+        return (err == ESP_ERR_NVS_NOT_FOUND) ? ESP_OK : err;
+    }
+
+    err = nvs_erase_key(h, NVS_KEY_ETH_MODE);
+    if (err == ESP_OK || err == ESP_ERR_NVS_NOT_FOUND) {
+        nvs_commit(h);
+        err = ESP_OK;
+        ESP_LOGI(TAG, "%s: eth_mode cleared from NVS", __func__);
+    }
+
+    nvs_close(h);
+    xSemaphoreGive(hostname_mutex);
+    return err;
+}
+
+esp_err_t settings_get_eth_static_ip(char *ip, size_t max_len) {
+    ESP_LOGD(TAG, "%s: entered", __func__);
+    if (!ip || max_len == 0) return ESP_ERR_INVALID_ARG;
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &h);
+    if (err == ESP_OK) {
+        size_t required = max_len;
+        err = nvs_get_str(h, NVS_KEY_ETH_IP, ip, &required);
+        nvs_close(h);
+        if (err == ESP_OK) {
+            ESP_LOGD(TAG, "%s: eth_ip from NVS: %s", __func__, ip);
+            xSemaphoreGive(hostname_mutex);
+            return ESP_OK;
+        }
+        if (err != ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGW(TAG, "%s: NVS read error: %s", __func__, esp_err_to_name(err));
+        }
+    }
+
+    ip[0] = '\0';
+    xSemaphoreGive(hostname_mutex);
+    return ESP_OK;
+}
+
+esp_err_t settings_set_eth_static_ip(const char *ip) {
+    ESP_LOGD(TAG, "%s: ip='%s'", __func__, ip ? ip : "(null)");
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+
+    // Validate IP if not clearing
+    if (ip && ip[0] != '\0' && !validate_ip_address(ip)) {
+        ESP_LOGE(TAG, "%s: Invalid IP address: %s", __func__, ip);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        xSemaphoreGive(hostname_mutex);
+        return err;
+    }
+
+    if (ip == NULL || ip[0] == '\0') {
+        err = nvs_erase_key(h, NVS_KEY_ETH_IP);
+        if (err == ESP_OK) err = nvs_commit(h);
+    } else {
+        err = nvs_set_str(h, NVS_KEY_ETH_IP, ip);
+        if (err == ESP_OK) err = nvs_commit(h);
+    }
+
+    nvs_close(h);
+    xSemaphoreGive(hostname_mutex);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "%s: eth_ip saved: %s", __func__, ip ? ip : "(erased)");
+    }
+    return err;
+}
+
+esp_err_t settings_clear_eth_static_ip(void) {
+    return settings_set_eth_static_ip(NULL);
+}
+
+esp_err_t settings_get_eth_netmask(char *netmask, size_t max_len) {
+    ESP_LOGD(TAG, "%s: entered", __func__);
+    if (!netmask || max_len == 0) return ESP_ERR_INVALID_ARG;
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &h);
+    if (err == ESP_OK) {
+        size_t required = max_len;
+        err = nvs_get_str(h, NVS_KEY_ETH_NETMASK, netmask, &required);
+        nvs_close(h);
+        if (err == ESP_OK) {
+            ESP_LOGD(TAG, "%s: eth_netmask from NVS: %s", __func__, netmask);
+            xSemaphoreGive(hostname_mutex);
+            return ESP_OK;
+        }
+        if (err != ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGW(TAG, "%s: NVS read error: %s", __func__, esp_err_to_name(err));
+        }
+    }
+
+    // Default netmask
+    strncpy(netmask, "255.255.255.0", max_len - 1);
+    netmask[max_len - 1] = '\0';
+    xSemaphoreGive(hostname_mutex);
+    return ESP_OK;
+}
+
+esp_err_t settings_set_eth_netmask(const char *netmask) {
+    ESP_LOGD(TAG, "%s: netmask='%s'", __func__, netmask ? netmask : "(null)");
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (netmask && netmask[0] != '\0' && !validate_ip_address(netmask)) {
+        ESP_LOGE(TAG, "%s: Invalid netmask: %s", __func__, netmask);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        xSemaphoreGive(hostname_mutex);
+        return err;
+    }
+
+    if (netmask == NULL || netmask[0] == '\0') {
+        err = nvs_erase_key(h, NVS_KEY_ETH_NETMASK);
+        if (err == ESP_OK) err = nvs_commit(h);
+    } else {
+        err = nvs_set_str(h, NVS_KEY_ETH_NETMASK, netmask);
+        if (err == ESP_OK) err = nvs_commit(h);
+    }
+
+    nvs_close(h);
+    xSemaphoreGive(hostname_mutex);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "%s: eth_netmask saved: %s", __func__, netmask ? netmask : "(erased)");
+    }
+    return err;
+}
+
+esp_err_t settings_clear_eth_netmask(void) {
+    return settings_set_eth_netmask(NULL);
+}
+
+esp_err_t settings_get_eth_gateway(char *gw, size_t max_len) {
+    ESP_LOGD(TAG, "%s: entered", __func__);
+    if (!gw || max_len == 0) return ESP_ERR_INVALID_ARG;
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &h);
+    if (err == ESP_OK) {
+        size_t required = max_len;
+        err = nvs_get_str(h, NVS_KEY_ETH_GATEWAY, gw, &required);
+        nvs_close(h);
+        if (err == ESP_OK) {
+            ESP_LOGD(TAG, "%s: eth_gateway from NVS: %s", __func__, gw);
+            xSemaphoreGive(hostname_mutex);
+            return ESP_OK;
+        }
+        if (err != ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGW(TAG, "%s: NVS read error: %s", __func__, esp_err_to_name(err));
+        }
+    }
+
+    gw[0] = '\0';
+    xSemaphoreGive(hostname_mutex);
+    return ESP_OK;
+}
+
+esp_err_t settings_set_eth_gateway(const char *gw) {
+    ESP_LOGD(TAG, "%s: gw='%s'", __func__, gw ? gw : "(null)");
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (gw && gw[0] != '\0' && !validate_ip_address(gw)) {
+        ESP_LOGE(TAG, "%s: Invalid gateway: %s", __func__, gw);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        xSemaphoreGive(hostname_mutex);
+        return err;
+    }
+
+    if (gw == NULL || gw[0] == '\0') {
+        err = nvs_erase_key(h, NVS_KEY_ETH_GATEWAY);
+        if (err == ESP_OK) err = nvs_commit(h);
+    } else {
+        err = nvs_set_str(h, NVS_KEY_ETH_GATEWAY, gw);
+        if (err == ESP_OK) err = nvs_commit(h);
+    }
+
+    nvs_close(h);
+    xSemaphoreGive(hostname_mutex);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "%s: eth_gateway saved: %s", __func__, gw ? gw : "(erased)");
+    }
+    return err;
+}
+
+esp_err_t settings_clear_eth_gateway(void) {
+    return settings_set_eth_gateway(NULL);
+}
+
+esp_err_t settings_get_eth_dns(char *dns, size_t max_len) {
+    ESP_LOGD(TAG, "%s: entered", __func__);
+    if (!dns || max_len == 0) return ESP_ERR_INVALID_ARG;
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &h);
+    if (err == ESP_OK) {
+        size_t required = max_len;
+        err = nvs_get_str(h, NVS_KEY_ETH_DNS, dns, &required);
+        nvs_close(h);
+        if (err == ESP_OK) {
+            ESP_LOGD(TAG, "%s: eth_dns from NVS: %s", __func__, dns);
+            xSemaphoreGive(hostname_mutex);
+            return ESP_OK;
+        }
+        if (err != ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGW(TAG, "%s: NVS read error: %s", __func__, esp_err_to_name(err));
+        }
+    }
+
+    dns[0] = '\0';
+    xSemaphoreGive(hostname_mutex);
+    return ESP_OK;
+}
+
+esp_err_t settings_set_eth_dns(const char *dns) {
+    ESP_LOGD(TAG, "%s: dns='%s'", __func__, dns ? dns : "(null)");
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (dns && dns[0] != '\0' && !validate_ip_address(dns)) {
+        ESP_LOGE(TAG, "%s: Invalid DNS: %s", __func__, dns);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        xSemaphoreGive(hostname_mutex);
+        return err;
+    }
+
+    if (dns == NULL || dns[0] == '\0') {
+        err = nvs_erase_key(h, NVS_KEY_ETH_DNS);
+        if (err == ESP_OK) err = nvs_commit(h);
+    } else {
+        err = nvs_set_str(h, NVS_KEY_ETH_DNS, dns);
+        if (err == ESP_OK) err = nvs_commit(h);
+    }
+
+    nvs_close(h);
+    xSemaphoreGive(hostname_mutex);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "%s: eth_dns saved: %s", __func__, dns ? dns : "(erased)");
+    }
+    return err;
+}
+
+esp_err_t settings_clear_eth_dns(void) {
+    return settings_set_eth_dns(NULL);
+}
+
 esp_err_t settings_get_json(char *json_out, size_t max_len) {
     ESP_LOGD(TAG, "%s: entered", __func__);
     
@@ -510,6 +896,33 @@ esp_err_t settings_get_json(char *json_out, size_t max_len) {
 #else
     cJSON_AddBoolToObject(root, "dsp_available", false);
 #endif
+
+    // Get Ethernet mode
+    int32_t eth_mode = 1;
+    if (settings_get_eth_mode(&eth_mode) == ESP_OK) {
+        cJSON_AddNumberToObject(root, "eth_mode", eth_mode);
+    }
+
+    // Get Ethernet static IP settings
+    char eth_ip[16] = {0};
+    if (settings_get_eth_static_ip(eth_ip, sizeof(eth_ip)) == ESP_OK && eth_ip[0] != '\0') {
+        cJSON_AddStringToObject(root, "eth_static_ip", eth_ip);
+    }
+
+    char eth_netmask[16] = {0};
+    if (settings_get_eth_netmask(eth_netmask, sizeof(eth_netmask)) == ESP_OK) {
+        cJSON_AddStringToObject(root, "eth_netmask", eth_netmask);
+    }
+
+    char eth_gw[16] = {0};
+    if (settings_get_eth_gateway(eth_gw, sizeof(eth_gw)) == ESP_OK && eth_gw[0] != '\0') {
+        cJSON_AddStringToObject(root, "eth_gateway", eth_gw);
+    }
+
+    char eth_dns[16] = {0};
+    if (settings_get_eth_dns(eth_dns, sizeof(eth_dns)) == ESP_OK && eth_dns[0] != '\0') {
+        cJSON_AddStringToObject(root, "eth_dns", eth_dns);
+    }
 
     // Render to string
     char *json_str = cJSON_PrintUnformatted(root);
@@ -583,6 +996,56 @@ esp_err_t settings_set_from_json(const char *json_in) {
         esp_err_t save_err = settings_set_server_port((int32_t)port->valueint);
         if (save_err != ESP_OK) {
             ESP_LOGW(TAG, "%s: Failed to save server_port", __func__);
+            err = save_err;
+        }
+    }
+
+    // Update eth_mode if present
+    cJSON *eth_mode = cJSON_GetObjectItem(root, "eth_mode");
+    if (cJSON_IsNumber(eth_mode)) {
+        esp_err_t save_err = settings_set_eth_mode((int32_t)eth_mode->valueint);
+        if (save_err != ESP_OK) {
+            ESP_LOGW(TAG, "%s: Failed to save eth_mode", __func__);
+            err = save_err;
+        }
+    }
+
+    // Update eth_static_ip if present
+    cJSON *eth_ip = cJSON_GetObjectItem(root, "eth_static_ip");
+    if (cJSON_IsString(eth_ip) && eth_ip->valuestring) {
+        esp_err_t save_err = settings_set_eth_static_ip(eth_ip->valuestring);
+        if (save_err != ESP_OK) {
+            ESP_LOGW(TAG, "%s: Failed to save eth_static_ip", __func__);
+            err = save_err;
+        }
+    }
+
+    // Update eth_netmask if present
+    cJSON *eth_netmask = cJSON_GetObjectItem(root, "eth_netmask");
+    if (cJSON_IsString(eth_netmask) && eth_netmask->valuestring) {
+        esp_err_t save_err = settings_set_eth_netmask(eth_netmask->valuestring);
+        if (save_err != ESP_OK) {
+            ESP_LOGW(TAG, "%s: Failed to save eth_netmask", __func__);
+            err = save_err;
+        }
+    }
+
+    // Update eth_gateway if present
+    cJSON *eth_gw = cJSON_GetObjectItem(root, "eth_gateway");
+    if (cJSON_IsString(eth_gw) && eth_gw->valuestring) {
+        esp_err_t save_err = settings_set_eth_gateway(eth_gw->valuestring);
+        if (save_err != ESP_OK) {
+            ESP_LOGW(TAG, "%s: Failed to save eth_gateway", __func__);
+            err = save_err;
+        }
+    }
+
+    // Update eth_dns if present
+    cJSON *eth_dns = cJSON_GetObjectItem(root, "eth_dns");
+    if (cJSON_IsString(eth_dns) && eth_dns->valuestring) {
+        esp_err_t save_err = settings_set_eth_dns(eth_dns->valuestring);
+        if (save_err != ESP_OK) {
+            ESP_LOGW(TAG, "%s: Failed to save eth_dns", __func__);
             err = save_err;
         }
     }
