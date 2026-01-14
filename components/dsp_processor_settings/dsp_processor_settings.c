@@ -585,8 +585,8 @@ esp_err_t dsp_settings_set_flow_params(dspFlows_t flow,
 		return ESP_ERR_INVALID_ARG;
 	}
 
-	ESP_LOGI(TAG, "Setting params for flow %d: fc_1=%.1f gain_1=%.1f", flow,
-			 params->fc_1, params->gain_1);
+	ESP_LOGI(TAG, "Setting params for flow %d: fc_1=%.1f gain_1=%.1f fc_3=%.1f gain_3=%.1f", 
+			 flow, params->fc_1, params->gain_1, params->fc_3, params->gain_3);
 
 	// Save to NVS
 	esp_err_t err = ESP_OK;

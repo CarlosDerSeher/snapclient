@@ -59,6 +59,9 @@
 #include "snapcast.h"
 #include "ui_http_server.h"
 #include "settings_manager.h"
+#if CONFIG_DAC_TAS5805M
+#include "tas5805m_settings.h"
+#endif
 
 static bool isCachedChunk = false;
 static uint32_t cachedBlocks = 0;
@@ -606,6 +609,11 @@ static void http_get_task(void *pvParameters) {
       mdns_result_t *re = r;
       while (re) {
         mdns_ip_addr_t *a = re->addr;
+        if (a == NULL) {
+          // No address in this result, skip to next
+          re = re->next;
+          continue;
+        }
 #if CONFIG_SNAPCLIENT_CONNECT_IPV6
         if (a->addr.type == IPADDR_TYPE_V6) {
           netif = re->esp_netif;
@@ -623,7 +631,7 @@ static void http_get_task(void *pvParameters) {
         re = re->next;
       }
 
-      if (!re) {
+      if (!re || !re->addr) {
         mdns_query_results_free(r);
 
         ESP_LOGW(TAG, "didn't find any valid IP in MDNS query");
@@ -2795,6 +2803,13 @@ void app_main(void) {
   init_snapcast(audioQHdl);
   init_player(i2s_pin_config0, I2S_NUM_0);
 
+  #if CONFIG_DAC_TAS5805M
+  // Apply persisted TAS5805M settings now that the codec has been initialized
+  if (tas5805m_settings_init() != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to init persisted TAS5805M settings");
+  }
+  #endif
+
   // ensure there is no noise from DAC
   {
     gpio_config_t gpioCfg = {
@@ -2854,8 +2869,8 @@ void app_main(void) {
 #endif
 
 #if CONFIG_USE_DSP_PROCESSOR
-  dsp_processor_init();
-  dsp_settings_init();
+  dsp_processor_init();  // Must init processor first (creates mutexes/semaphores)
+  dsp_settings_init();   // Then settings can restore params into the processor
 #endif
 
   xTaskCreatePinnedToCore(&ota_server_task, "ota", 14 * 256, NULL,
