@@ -2275,9 +2275,30 @@ esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
 
         cJSON *ch_params = cJSON_CreateArray();
 
+        // Prefer reading current driver state; fall back to NVS for persisted values
         int8_t cur_ch_l = 0, cur_ch_r = 0;
-        if (tas5805m_get_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, &cur_ch_l) != ESP_OK) cur_ch_l = 0;
-        if (tas5805m_get_channel_gain(TAS5805M_EQ_CHANNELS_RIGHT, &cur_ch_r) != ESP_OK) cur_ch_r = 0;
+        if (tas5805m_settings_restored) {
+            if (tas5805m_get_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, &cur_ch_l) != ESP_OK) {
+                int tmp = 0;
+                if (tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, &tmp) == ESP_OK) {
+                    cur_ch_l = (int8_t)tmp;
+                }
+            }
+            if (tas5805m_get_channel_gain(TAS5805M_EQ_CHANNELS_RIGHT, &cur_ch_r) != ESP_OK) {
+                int tmp = 0;
+                if (tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS_RIGHT, &tmp) == ESP_OK) {
+                    cur_ch_r = (int8_t)tmp;
+                }
+            }
+        } else {
+            int tmp = 0;
+            if (tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, &tmp) == ESP_OK) {
+                cur_ch_l = (int8_t)tmp;
+            }
+            if (tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS_RIGHT, &tmp) == ESP_OK) {
+                cur_ch_r = (int8_t)tmp;
+            }
+        }
 
         cJSON *ch_l_param = cJSON_CreateObject();
         cJSON_AddStringToObject(ch_l_param, "key", TAS5805M_NVS_KEY_CHANNEL_GAIN_L);
@@ -2474,8 +2495,15 @@ esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
     cJSON *eq_bands_left_params = cJSON_CreateArray();
     for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
         int gain = 0;
-        tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_LEFT, band, &gain);
-        
+        // Prefer reading current driver state; fall back to NVS
+        if (tas5805m_settings_restored) {
+            if (tas5805m_get_eq_gain_channel(TAS5805M_EQ_CHANNELS_LEFT, band, &gain) != ESP_OK) {
+                tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_LEFT, band, &gain);
+            }
+        } else {
+            tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_LEFT, band, &gain);
+        }
+
         cJSON *band_param = cJSON_CreateObject();
         char key[32];
         char freq_label[32];
@@ -2510,8 +2538,15 @@ esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
     cJSON *eq_bands_right_params = cJSON_CreateArray();
     for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
         int gain = 0;
-        tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_RIGHT, band, &gain);
-        
+        // Prefer reading current driver state; fall back to NVS
+        if (tas5805m_settings_restored) {
+            if (tas5805m_get_eq_gain_channel(TAS5805M_EQ_CHANNELS_RIGHT, band, &gain) != ESP_OK) {
+                tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_RIGHT, band, &gain);
+            }
+        } else {
+            tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_RIGHT, band, &gain);
+        }
+
         cJSON *band_param = cJSON_CreateObject();
         char key[32];
         char freq_label[32];
@@ -2874,21 +2909,54 @@ esp_err_t tas5805m_settings_get_eq_json(char *json_out, size_t max_len) {
     cJSON_AddNumberToObject(root, "eq_profile_right", (int)prof_r);
 
     // Get channel gains
+    // Prefer reading current driver state; if driver isn't ready or returns an error
+    // fall back to persisted values from NVS so the UI reflects saved settings.
     int ch_gain_l = 0, ch_gain_r = 0;
-    tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, &ch_gain_l);
-    tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS_RIGHT, &ch_gain_r);
+    int8_t chg = 0;
+    if (tas5805m_settings_restored) {
+        if (tas5805m_get_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, &chg) == ESP_OK) {
+            ch_gain_l = (int)chg;
+        } else {
+            tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, &ch_gain_l);
+        }
+        if (tas5805m_get_channel_gain(TAS5805M_EQ_CHANNELS_RIGHT, &chg) == ESP_OK) {
+            ch_gain_r = (int)chg;
+        } else {
+            tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS_RIGHT, &ch_gain_r);
+        }
+    } else {
+        tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, &ch_gain_l);
+        tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS_RIGHT, &ch_gain_r);
+    }
     cJSON_AddNumberToObject(root, "channel_gain_left", ch_gain_l);
     cJSON_AddNumberToObject(root, "channel_gain_right", ch_gain_r);
 
     // Get per-band gains
+    // Prefer reading current driver state; if driver isn't ready or returns an error
+    // fall back to persisted values from NVS so the UI reflects saved settings.
     for (int band = 0; band < TAS5805M_EQ_BANDS; ++band) {
         int gain_l = 0, gain_r = 0;
-        tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_LEFT, band, &gain_l);
-        tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_RIGHT, band, &gain_r);
-        
         char key[32];
+
+        // Left channel: prefer driver value, otherwise load persisted NVS value
+        if (tas5805m_settings_restored) {
+            if (tas5805m_get_eq_gain_channel(TAS5805M_EQ_CHANNELS_LEFT, band, &gain_l) != ESP_OK) {
+                tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_LEFT, band, &gain_l);
+            }
+        } else {
+            tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_LEFT, band, &gain_l);
+        }
         snprintf(key, sizeof(key), "eq_gain_l_%d", band);
         cJSON_AddNumberToObject(root, key, gain_l);
+
+        // Right channel: prefer driver value, otherwise load persisted NVS value
+        if (tas5805m_settings_restored) {
+            if (tas5805m_get_eq_gain_channel(TAS5805M_EQ_CHANNELS_RIGHT, band, &gain_r) != ESP_OK) {
+                tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_RIGHT, band, &gain_r);
+            }
+        } else {
+            tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS_RIGHT, band, &gain_r);
+        }
         snprintf(key, sizeof(key), "eq_gain_r_%d", band);
         cJSON_AddNumberToObject(root, key, gain_r);
     }
