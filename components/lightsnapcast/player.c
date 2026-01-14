@@ -31,6 +31,8 @@
 #include "driver/i2s_std.h"
 #include "player.h"
 #include "snapcast.h"
+/* avoid header include-path issues; declare the hook we call when playback stops */
+extern void eth_on_playback_stopped(void);
 
 #define USE_SAMPLE_INSERTION CONFIG_USE_SAMPLE_INSERTION
 
@@ -462,12 +464,20 @@ int start_player(snapcastSetting_t *setting) {
   // create message queue to inform task of changed settings
   snapcastSettingQueueHandle = xQueueCreate(1, sizeof(uint8_t));
   
-  if (pcmChkQHdl == NULL) 
+  if (pcmChkQHdl == NULL)
   {
     snapcastSetting_t scSet;
     memset(&scSet, 0, sizeof(snapcastSetting_t));
     player_get_snapcast_settings(&scSet);
-    
+
+    // Guard against divide-by-zero when chkInFrames hasn't been set yet
+    // (can happen during reconnection before first wire chunk is received)
+    if (scSet.chkInFrames == 0) {
+      ESP_LOGW(TAG, "chkInFrames is 0, cannot create queue yet");
+      playerstarted = false;
+      return -1;
+    }
+
     int entries = ceil(((float)scSet.sr / (float)scSet.chkInFrames) *
                         ((float)scSet.buf_ms / 1000));
 
@@ -1938,6 +1948,10 @@ static void player_task(void *pvParameters) {
 
   tg0_timer_deinit();
   playerstarted = false;
+  /* Notify network layer that playback stopped so pending Ethernet takeover
+   * can proceed if one was waiting.
+   */
+  eth_on_playback_stopped();
   ESP_LOGI(TAG, "stop player done");
   playerTaskHandle = NULL;
   vTaskDelete(NULL);

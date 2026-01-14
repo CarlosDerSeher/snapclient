@@ -34,8 +34,8 @@ static uint8_t eth_port_cnt = 0;
 static esp_netif_ip_info_t ip_info = {{0}, {0}, {0}};
 static bool connected = false;
 static SemaphoreHandle_t connIpSemaphoreHandle = NULL;
-/* Track takeover intent and whether we stopped WiFi */
-static bool we_stopped_wifi = false;
+/* Track takeover intent and whether we changed the default netif to prefer Ethernet */
+static bool we_changed_default_netif = false;
 static bool want_eth_takeover = false;
 
 #if CONFIG_SNAPCLIENT_SPI_ETHERNETS_NUM
@@ -387,20 +387,20 @@ static void eth_event_handler(void *arg, esp_event_base_t event_base,
       xSemaphoreTake(connIpSemaphoreHandle, portMAX_DELAY);
       connected = false;
 
-      /* If we previously stopped WiFi to prefer Ethernet, restart it now so
-       * the system falls back to WiFi when Ethernet is removed.
+      /* If we previously changed the default netif to prefer Ethernet, reset
+       * the flag and trigger a reconnect so the system falls back to WiFi.
        */
-      if (we_stopped_wifi) {
-        ESP_LOGI(TAG, "Ethernet disconnected; restarting WiFi fallback");
-        esp_err_t start_err = esp_wifi_start();
-        if (start_err != ESP_OK) {
-          ESP_LOGW(TAG, "Failed to start WiFi: %s", esp_err_to_name(start_err));
-        } else {
-          we_stopped_wifi = false;
-        }
+      if (we_changed_default_netif) {
+        ESP_LOGI(TAG, "Ethernet disconnected; triggering WiFi fallback");
+        we_changed_default_netif = false;
+        want_eth_takeover = false;
+        xSemaphoreGive(connIpSemaphoreHandle);
+        /* Request reconnect so main re-evaluates network and uses WiFi */
+        extern void app_request_reconnect(void);
+        app_request_reconnect();
+      } else {
+        xSemaphoreGive(connIpSemaphoreHandle);
       }
-
-      xSemaphoreGive(connIpSemaphoreHandle);
 
       ESP_LOGI(TAG, "Ethernet Link Down");
       break;
@@ -470,25 +470,26 @@ static void got_ip_event_handler(void *arg, esp_event_base_t event_base,
       ESP_LOGI(TAG, "~~~~~~~~~~~");
 
       /* If we previously detected that WiFi was active and we wanted to
-       * prefer Ethernet, stop WiFi now that Ethernet has an IP. Respect
-       * active playback to avoid interruptions.
+       * prefer Ethernet, set the default netif to Ethernet now that it has
+       * an IP. Respect active playback to avoid interruptions.
        */
-      if (want_eth_takeover) {
+      if (want_eth_takeover && !we_changed_default_netif) {
         if (!playerstarted) {
-          ESP_LOGI(TAG, "Preferring Ethernet: stopping WiFi now that ETH has IP");
-          esp_err_t stop_err = esp_wifi_stop();
-          if (stop_err != ESP_OK) {
-            ESP_LOGW(TAG, "Failed to stop WiFi: %s", esp_err_to_name(stop_err));
-          } else {
-            we_stopped_wifi = true;
-          }
+          ESP_LOGI(TAG, "Preferring Ethernet: setting default netif to ETH (no active playback)");
+          esp_netif_set_default_netif(event->esp_netif);
+          we_changed_default_netif = true;
+          want_eth_takeover = false;
+          /* Request main to reconnect so the snapclient binds to the preferred
+           * interface (ETH) for the next connection cycle.
+           */
+          extern void app_request_reconnect(void);
+          app_request_reconnect();
         } else {
-          ESP_LOGI(TAG, "Playback in progress; delaying Ethernet takeover");
+          ESP_LOGI(TAG, "Playback in progress; will complete Ethernet takeover when playback stops");
+          /* Keep want_eth_takeover = true so eth_on_playback_stopped() can
+           * complete the takeover later.
+           */
         }
-        /* Clear the desire to takeover for this link-up cycle; if you want
-         * retries later, implement that separately.
-         */
-        want_eth_takeover = false;
       }
 
       xSemaphoreGive(connIpSemaphoreHandle);
@@ -511,6 +512,39 @@ bool eth_get_ip(esp_netif_ip_info_t *ip) {
   xSemaphoreGive(connIpSemaphoreHandle);
 
   return _connected;
+}
+
+/* Called by player code when playback stops so we can complete a pending
+ * Ethernet takeover that was delayed during active playback.
+ */
+void eth_on_playback_stopped(void) {
+  bool do_takeover = false;
+
+  xSemaphoreTake(connIpSemaphoreHandle, portMAX_DELAY);
+  if (want_eth_takeover && connected && !we_changed_default_netif) {
+    do_takeover = true;
+    /* consume the takeover request; we'll set we_changed_default_netif if succeed */
+    want_eth_takeover = false;
+  }
+  xSemaphoreGive(connIpSemaphoreHandle);
+
+  if (do_takeover) {
+    ESP_LOGI(TAG, "Playback stopped: performing pending Ethernet takeover (prefer ETH)");
+    esp_netif_t *eth_netif = network_get_netif_from_desc(NETWORK_INTERFACE_DESC_ETH);
+    if (eth_netif) {
+      esp_netif_set_default_netif(eth_netif);
+      xSemaphoreTake(connIpSemaphoreHandle, portMAX_DELAY);
+      we_changed_default_netif = true;
+      xSemaphoreGive(connIpSemaphoreHandle);
+      /* Request main to reconnect so the snapclient binds to the preferred
+       * interface (ETH) for the next connection cycle.
+       */
+      extern void app_request_reconnect(void);
+      app_request_reconnect();
+    } else {
+      ESP_LOGW(TAG, "Playback-stopped takeover: ETH netif not found");
+    }
+  }
 }
 
 static void eth_on_got_ipv6(void *arg, esp_event_base_t event_base,

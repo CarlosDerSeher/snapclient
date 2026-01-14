@@ -100,6 +100,19 @@ struct timeval tdif, tavg;
 /* Logging tag */
 static const char *TAG = "SC";
 
+/* If set to true by external modules, main will restart the connection
+ * loop on the next opportunity.
+ */
+volatile bool reconnect_requested = false;
+
+/* Called by other modules to request the snapclient reconnect to the
+ * server (useful when the preferred network interface changes).
+ */
+void app_request_reconnect(void) {
+  reconnect_requested = true;
+  ESP_LOGI(TAG, "app_request_reconnect(): reconnect requested by external module");
+}
+
 // static QueueHandle_t playerChunkQueueHandle = NULL;
 SemaphoreHandle_t timeSyncSemaphoreHandle = NULL;
 
@@ -547,6 +560,23 @@ static void http_get_task(void *pvParameters) {
     esp_netif_t *sta_netif =
         network_get_netif_from_desc(NETWORK_INTERFACE_DESC_STA);
 
+    // If an external module has set a preferred/default netif, prefer it
+    // when it already has an IP. This helps when `eth_interface.c` sets the
+    // default netif to Ethernet — main will then bind/connect using that
+    // default instead of falling back to WiFi.
+    esp_netif_t *default_netif = esp_netif_get_default_netif();
+    if (default_netif != NULL) {
+      if (network_has_ip(default_netif)) {
+        netif = default_netif;
+        ESP_LOGI(TAG, "Using default netif: %s", network_get_ifkey(netif));
+        // Do not stop WiFi here; network selection is purely logical.
+        // Skip the network waiting loop and go directly to connection
+        goto network_selected;
+      } else {
+        ESP_LOGI(TAG, "Default netif present but no IP yet: %s", network_get_ifkey(default_netif));
+      }
+    }
+
     // Wait for network with Ethernet priority
     // If WiFi comes up first, wait a bit longer to see if Ethernet comes up
 #if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
@@ -555,6 +585,23 @@ static void http_get_task(void *pvParameters) {
     const int ETH_WAIT_MAX = 5;  // Wait up to 5 seconds for Ethernet after WiFi is up
 #endif
     while (1) {
+      // If an external module requested a reconnect, close any existing
+      // netconn immediately and restart the loop so we re-evaluate the
+      // preferred network interface. This makes reconnects observable in
+      // the logs and reduces the time to rebind to the new default netif.
+      if (reconnect_requested) {
+        reconnect_requested = false;
+        if (lwipNetconn != NULL) {
+          ESP_LOGI(TAG, "Reconnect requested: closing existing netconn (loop start)");
+          netconn_close(lwipNetconn);
+          netconn_delete(lwipNetconn);
+          lwipNetconn = NULL;
+        } else {
+          ESP_LOGI(TAG, "Reconnect requested: no active netconn (loop start)");
+        }
+        // Small delay to let network stack settle
+        vTaskDelay(pdMS_TO_TICKS(50));
+      }
 #if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
     CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
       bool ethUp = network_has_ip(eth_netif);
@@ -594,6 +641,7 @@ static void http_get_task(void *pvParameters) {
       vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
+network_selected:
     /* Decide at runtime whether to use mDNS or static server config.
      * The settings_manager holds the mdns flag and optional server host/port.
      */
@@ -729,9 +777,12 @@ static void http_get_task(void *pvParameters) {
 
 #ifdef USE_INTERFACE_BIND  // use interface to bind connection
     uint8_t netifIdx = esp_netif_get_netif_impl_index(netif);
+    ESP_LOGI(TAG, "Binding netconn to interface %s (idx %u)", network_get_ifkey(netif), netifIdx);
     rc1 = netconn_bind_if(lwipNetconn, netifIdx);
     if (rc1 != ERR_OK) {
-      ESP_LOGE(TAG, "can't bind interface %s", network_get_ifkey(netif));
+      ESP_LOGE(TAG, "can't bind interface %s, err %d", network_get_ifkey(netif), rc1);
+    } else {
+      ESP_LOGI(TAG, "Successfully bound netconn to %s (idx %u)", network_get_ifkey(netif), netifIdx);
     }
 #else  // use IP to bind connection
     if (remote_ip.type == IPADDR_TYPE_V4) {
@@ -747,6 +798,8 @@ static void http_get_task(void *pvParameters) {
 #endif
 //tcp_nagle_disable(pcb)
 
+    ESP_LOGI(TAG, "Connecting to remote %s:%d using local interface %s",
+             ipaddr_ntoa(&remote_ip), remotePort, network_get_ifkey(netif));
     rc2 = netconn_connect(lwipNetconn, &remote_ip, remotePort);
     if (rc2 != ERR_OK) {
       ESP_LOGE(TAG, "can't connect to remote %s:%d, err %d",
@@ -762,6 +815,19 @@ static void http_get_task(void *pvParameters) {
       netconn_delete(lwipNetconn);
       lwipNetconn = NULL;
 
+      continue;
+    }
+
+    // allow external modules to request a reconnect (set by app_request_reconnect())
+    extern volatile bool reconnect_requested;
+    if (reconnect_requested) {
+      reconnect_requested = false;
+      if (lwipNetconn != NULL) {
+        netconn_close(lwipNetconn);
+        netconn_delete(lwipNetconn);
+        lwipNetconn = NULL;
+      }
+      ESP_LOGI(TAG, "Reconnect requested: restarting connection loop");
       continue;
     }
 
@@ -885,12 +951,31 @@ static void http_get_task(void *pvParameters) {
     netconn_set_recvtimeout(lwipNetconn, timeout / 1000); // timeout in ms
 
     while (1) {
+      // Check if external module requested reconnect (e.g., ethernet takeover)
+      if (reconnect_requested) {
+        reconnect_requested = false;  // Clear flag here since goto skips the normal clear path
+        ESP_LOGI(TAG, "Reconnect requested during receive loop, breaking out");
+        netconn_close(lwipNetconn);
+        netconn_delete(lwipNetconn);
+        lwipNetconn = NULL;
+        if (firstNetBuf != NULL) {
+          netbuf_delete(firstNetBuf);
+          firstNetBuf = NULL;
+        }
+        // Give server time to detect disconnect and clean up old socket state
+        // before we reconnect (helps with servers that don't handle quick
+        // reconnects from the same client ID on a different interface)
+        ESP_LOGI(TAG, "Waiting 2s for server to clean up old connection...");
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        break;
+      }
+
       now = esp_timer_get_time();
       // send time sync message
       if ((received_header && (now - lastTimeSyncSent) >= timeout)) {
         time_sync_msg_cb(NULL);
         lastTimeSyncSent = now;
-        
+
         // ESP_LOGI(TAG, "time sync sent after %lluus", timeout);
       }
       // start receive
@@ -1105,12 +1190,6 @@ static void http_get_task(void *pvParameters) {
                       now - base_message_rx.received.sec * 1000000;
 
                   typedMsgCurrentPos = 0;
-
-                  // ESP_LOGI(TAG, "BM type %d ts %ld.%ld, refers to %u",
-                  //          base_message_rx.type,
-                  //          base_message_rx.received.sec,
-                  //          base_message_rx.received.usec,
-                  //          base_message_rx.refersTo);
 
                   // ESP_LOGI(TAG,"%u, %ld.%ld", base_message_rx.type,
                   //                   base_message_rx.received.sec,
@@ -1464,6 +1543,16 @@ static void http_get_task(void *pvParameters) {
 
                               scSet.chkInFrames = samples_per_frame;
 
+                              // Update player settings BEFORE insert_pcm_chunk
+                              // so start_player() has correct chkInFrames value
+                              if (player_send_snapcast_setting(&scSet) !=
+                                  pdPASS) {
+                                ESP_LOGE(TAG,
+                                         "Failed to notify sync task about "
+                                         "codec. Did you init player?");
+                                return;
+                              }
+
                               // ESP_LOGW(TAG, "%d, %llu, %llu",
                               // samples_per_frame, 1000000ULL *
                               // samples_per_frame / scSet.sr,
@@ -1543,17 +1632,6 @@ static void http_get_task(void *pvParameters) {
                                 insert_pcm_chunk(new_pcmChunk);
                               }
 
-                              if (player_send_snapcast_setting(&scSet) !=
-                                  pdPASS) {
-                                ESP_LOGE(TAG,
-                                         "Failed to notify "
-                                         "sync task about "
-                                         "codec. Did you "
-                                         "init player?");
-
-                                return;
-                              }
-
                               break;
                             }
 
@@ -1605,6 +1683,16 @@ static void http_get_task(void *pvParameters) {
                               // scSet.chkInFrames * scSet.bits / 8 * scSet.ch);
                               // ESP_LOGI(TAG, "new_pcmChunk with size %ld",
                               // new_pcmChunk->totalSize);
+
+                              // Update player settings BEFORE insert_pcm_chunk
+                              // so start_player() has correct chkInFrames value
+                              if (player_send_snapcast_setting(&scSet) !=
+                                  pdPASS) {
+                                ESP_LOGE(TAG,
+                                         "Failed to notify sync task about "
+                                         "codec. Did you init player?");
+                                return;
+                              }
 
                               if (ret == 0) {
                                 pcm_chunk_fragment_t *fragment =
@@ -1665,19 +1753,6 @@ static void http_get_task(void *pvParameters) {
                               free(pcmChunk.outData);
                               pcmChunk.outData = NULL;
                               pcmChunk.bytes = 0;
-
-                              if (player_send_snapcast_setting(&scSet) !=
-                                  pdPASS) {
-                                ESP_LOGE(TAG,
-                                         "Failed to "
-                                         "notify "
-                                         "sync task "
-                                         "about "
-                                         "codec. Did you "
-                                         "init player?");
-
-                                return;
-                              }
 
                               break;
                             }

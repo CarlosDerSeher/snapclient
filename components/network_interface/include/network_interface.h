@@ -28,4 +28,10 @@ bool network_has_ip(esp_netif_t *esp_netif);
 bool network_is_our_netif(const char *prefix, esp_netif_t *netif);
 void network_if_init(void);
 
+/* Called by player code when playback stops so the network layer can
+ * complete any pending Ethernet takeover (stop WiFi) that was delayed
+ * while playback was active.
+ */
+void eth_on_playback_stopped(void);
+
 #endif /* COMPONENTS_NETWORK_INTERFACE_INCLUDE_NETWORK_INTERFACE_H_ */
