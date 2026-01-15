@@ -276,6 +276,33 @@ esp_err_t tas5805m_settings_apply_early(void);
  */
 esp_err_t tas5805m_settings_apply_delayed(void);
 
+/* ============ Bi-Amp Preset Export/Import ============ */
+
+/** Preset version for compatibility checking */
+#define TAS5805M_BIAMP_PRESET_VERSION 1
+
+/**
+ * @brief Export current bi-amp settings to JSON preset format
+ *
+ * Creates a portable JSON preset that can be shared with 3D speaker models.
+ * Includes crossover, per-output gains/PEQ, phase, and loudness settings.
+ *
+ * @param json_out Buffer to write JSON string
+ * @param max_len Maximum buffer size
+ * @return ESP_OK on success, error code otherwise
+ */
+esp_err_t tas5805m_biamp_preset_export(char *json_out, size_t max_len);
+
+/**
+ * @brief Import bi-amp settings from JSON preset
+ *
+ * Parses and validates a preset JSON, then applies and saves the settings.
+ *
+ * @param json_in JSON preset string
+ * @return ESP_OK on success, ESP_ERR_INVALID_ARG if preset is invalid
+ */
+esp_err_t tas5805m_biamp_preset_import(const char *json_in);
+
 #endif /* CONFIG_DAC_TAS5805M */
 
 #ifdef __cplusplus

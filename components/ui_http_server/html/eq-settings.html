@@ -395,6 +395,44 @@
       margin-bottom: 0;
     }
 
+    /* Preset buttons */
+    .preset-buttons {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      margin-top: 20px;
+      padding-top: 15px;
+      border-top: 1px solid #e0e0e0;
+    }
+
+    .preset-btn {
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: bold;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .preset-btn.export-btn {
+      background-color: #28a745;
+      color: white;
+    }
+
+    .preset-btn.export-btn:hover {
+      background-color: #218838;
+    }
+
+    .preset-btn.import-btn {
+      background-color: #007bff;
+      color: white;
+    }
+
+    .preset-btn.import-btn:hover {
+      background-color: #0056b3;
+    }
+
     .info-box {
       background-color: #d1ecf1;
       color: #0c5460;
@@ -752,6 +790,62 @@
             sectionsContainer.appendChild(sectionDiv);
           }
         });
+
+        // Add preset export/import buttons
+        const presetButtonsDiv = document.createElement('div');
+        presetButtonsDiv.className = 'preset-buttons';
+
+        const exportBtn = document.createElement('button');
+        exportBtn.className = 'preset-btn export-btn';
+        exportBtn.textContent = 'Export Preset';
+        exportBtn.onclick = async () => {
+          try {
+            const response = await fetch('/api/biamp/preset');
+            if (!response.ok) throw new Error('Export failed');
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'biamp_preset.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          } catch (err) {
+            alert('Failed to export preset: ' + err.message);
+          }
+        };
+        presetButtonsDiv.appendChild(exportBtn);
+
+        const importBtn = document.createElement('button');
+        importBtn.className = 'preset-btn import-btn';
+        importBtn.textContent = 'Import Preset';
+        importBtn.onclick = () => {
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.accept = '.json';
+          input.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            try {
+              const text = await file.text();
+              const response = await fetch('/api/biamp/preset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: text
+              });
+              if (!response.ok) throw new Error('Import failed');
+              alert('Preset imported successfully! Refreshing...');
+              location.reload();
+            } catch (err) {
+              alert('Failed to import preset: ' + err.message);
+            }
+          };
+          input.click();
+        };
+        presetButtonsDiv.appendChild(importBtn);
+
+        sectionsContainer.appendChild(presetButtonsDiv);
 
         contentWrapper.appendChild(sectionsContainer);
         groupDiv.appendChild(contentWrapper);

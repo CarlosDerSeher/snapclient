@@ -925,6 +925,107 @@ static esp_err_t post_eq_settings_handler(httpd_req_t *req) {
 }
 
 /*
+ * GET /api/biamp/preset handler
+ * Exports current bi-amp settings as a downloadable JSON preset
+ */
+static esp_err_t get_biamp_preset_handler(httpd_req_t *req) {
+  ESP_LOGD(TAG, "%s: uri=%s", __func__, req->uri);
+
+  set_cors_headers(req);
+
+#if CONFIG_DAC_TAS5805M
+  // Allocate buffer for JSON output
+  char *json_buf = (char *)malloc(4096);
+  if (!json_buf) {
+    ESP_LOGE(TAG, "%s: Failed to allocate buffer", __func__);
+    httpd_resp_set_status(req, "500 Internal Server Error");
+    httpd_resp_sendstr(req, "{\"error\": \"Memory allocation failed\"}");
+    return ESP_OK;
+  }
+
+  esp_err_t err = tas5805m_biamp_preset_export(json_buf, 4096);
+  if (err != ESP_OK) {
+    free(json_buf);
+    ESP_LOGE(TAG, "%s: Failed to export preset: %s", __func__, esp_err_to_name(err));
+    httpd_resp_set_status(req, "500 Internal Server Error");
+    httpd_resp_sendstr(req, "{\"error\": \"Failed to export preset\"}");
+    return ESP_OK;
+  }
+
+  httpd_resp_set_status(req, "200 OK");
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=\"biamp_preset.json\"");
+  httpd_resp_sendstr(req, json_buf);
+  free(json_buf);
+
+  return ESP_OK;
+#else
+  httpd_resp_set_status(req, "404 Not Found");
+  httpd_resp_sendstr(req, "{\"error\": \"TAS5805M not configured\"}");
+  return ESP_OK;
+#endif
+}
+
+/*
+ * POST /api/biamp/preset handler
+ * Imports a bi-amp preset from JSON
+ */
+static esp_err_t post_biamp_preset_handler(httpd_req_t *req) {
+  ESP_LOGD(TAG, "%s: uri=%s", __func__, req->uri);
+
+  set_cors_headers(req);
+
+#if CONFIG_DAC_TAS5805M
+  // Allocate buffer for request body
+  char *buf = (char *)malloc(req->content_len + 1);
+  if (!buf) {
+    ESP_LOGE(TAG, "%s: Failed to allocate buffer for request body", __func__);
+    httpd_resp_set_status(req, "500 Internal Server Error");
+    httpd_resp_sendstr(req, "{\"error\": \"Memory allocation failed\"}");
+    return ESP_OK;
+  }
+
+  // Read request body
+  int ret = httpd_req_recv(req, buf, req->content_len);
+  if (ret <= 0) {
+    free(buf);
+    if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+      httpd_resp_set_status(req, "408 Request Timeout");
+      httpd_resp_sendstr(req, "{\"error\": \"Request timeout\"}");
+    } else {
+      httpd_resp_set_status(req, "500 Internal Server Error");
+      httpd_resp_sendstr(req, "{\"error\": \"Failed to read request body\"}");
+    }
+    return ESP_OK;
+  }
+  buf[ret] = '\0';
+
+  ESP_LOGI(TAG, "%s: Received preset JSON (%d bytes)", __func__, ret);
+
+  // Import the preset
+  esp_err_t err = tas5805m_biamp_preset_import(buf);
+  free(buf);
+
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "%s: Failed to import preset: %s", __func__, esp_err_to_name(err));
+    httpd_resp_set_status(req, "400 Bad Request");
+    httpd_resp_sendstr(req, "{\"error\": \"Invalid preset format\"}");
+    return ESP_OK;
+  }
+
+  httpd_resp_set_status(req, "200 OK");
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_sendstr(req, "{\"success\": true}");
+
+  return ESP_OK;
+#else
+  httpd_resp_set_status(req, "404 Not Found");
+  httpd_resp_sendstr(req, "{\"error\": \"TAS5805M not configured\"}");
+  return ESP_OK;
+#endif
+}
+
+/*
  * Static file handler
  * Serves files from embedded flash memory
  */
@@ -1175,6 +1276,29 @@ esp_err_t start_server(const char *base_path, int port) {
 		.handler = options_handler,
 	};
 	httpd_register_uri_handler(server, &_options_eq_schema_handler);
+
+	/* URI handlers for Bi-Amp Preset API */
+	httpd_uri_t _get_biamp_preset_handler = {
+		.uri = "/api/biamp/preset",
+		.method = HTTP_GET,
+		.handler = get_biamp_preset_handler,
+	};
+	httpd_register_uri_handler(server, &_get_biamp_preset_handler);
+
+	httpd_uri_t _post_biamp_preset_handler = {
+		.uri = "/api/biamp/preset",
+		.method = HTTP_POST,
+		.handler = post_biamp_preset_handler,
+	};
+	httpd_register_uri_handler(server, &_post_biamp_preset_handler);
+
+	/* OPTIONS handler for CORS preflight - Bi-Amp preset endpoint */
+	httpd_uri_t _options_biamp_preset_handler = {
+		.uri = "/api/biamp/preset",
+		.method = HTTP_OPTIONS,
+		.handler = options_handler,
+	};
+	httpd_register_uri_handler(server, &_options_biamp_preset_handler);
 #endif /* CONFIG_DAC_TAS5805M */
 
 	/* URI handler for static files (catch-all, must be last) */
