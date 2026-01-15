@@ -279,6 +279,122 @@
       box-sizing: border-box;
     }
 
+    /* Radio button group styles */
+    .radio-group-label {
+      display: block;
+      font-weight: bold;
+      margin-bottom: 8px;
+      color: #333;
+    }
+
+    .radio-group {
+      display: flex;
+      gap: 15px;
+      flex-wrap: wrap;
+    }
+
+    .radio-option {
+      display: inline-flex;
+      align-items: center;
+      cursor: pointer;
+      padding: 8px 16px;
+      border: 2px solid #ddd;
+      border-radius: 20px;
+      background-color: #f8f9fa;
+      transition: all 0.2s ease;
+      font-weight: normal;
+    }
+
+    .radio-option:hover {
+      border-color: #007bff;
+      background-color: #e7f3ff;
+    }
+
+    .radio-option input[type="radio"] {
+      margin-right: 6px;
+      accent-color: #007bff;
+    }
+
+    .radio-option:has(input[type="radio"]:checked) {
+      border-color: #007bff;
+      background-color: #007bff;
+      color: white;
+    }
+
+    .radio-option input[type="radio"]:checked + span {
+      color: white;
+    }
+
+    .radio-option input[type="radio"]:disabled {
+      cursor: not-allowed;
+    }
+
+    .radio-option:has(input[type="radio"]:disabled) {
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+
+    /* PEQ Subgroup styles */
+    .peq-subgroup {
+      background-color: #f8f9fa;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+
+    .peq-subgroup-header {
+      font-weight: bold;
+      font-size: 14px;
+      color: #555;
+      margin-bottom: 8px;
+      padding-bottom: 5px;
+      border-bottom: 1px solid #ddd;
+    }
+
+    .peq-subgroup-params {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .peq-param {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .peq-param label {
+      font-size: 11px;
+      color: #666;
+      margin-bottom: 4px;
+      font-weight: normal;
+    }
+
+    .peq-param input[type="range"] {
+      width: 100%;
+      height: 6px;
+      margin: 0;
+    }
+
+    .peq-param-value {
+      font-size: 12px;
+      color: #007bff;
+      font-weight: bold;
+      margin-top: 4px;
+    }
+
+    /* Output channel section styles */
+    .section-output-channel .section-params {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .section-output-channel .parameter-control {
+      margin-bottom: 0;
+    }
+
     .info-box {
       background-color: #d1ecf1;
       color: #0c5460;
@@ -382,9 +498,100 @@
       gap: 10px;
       margin-top: 20px;
     }
-    
+
     .button-group button {
       flex: 1;
+    }
+
+    /* Bi-Amp Crossover Sections Layout */
+    .biamp-sections-container {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .biamp-columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 768px) {
+      .biamp-columns {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .biamp-section {
+      background-color: #f8f9fa;
+      border-radius: 8px;
+      padding: 15px;
+    }
+
+    .biamp-section .section-title {
+      margin: 0 0 15px 0;
+      font-size: 16px;
+      font-weight: bold;
+      color: #495057;
+      border-bottom: 1px solid #dee2e6;
+      padding-bottom: 8px;
+    }
+
+    .biamp-section.section-vertical-sliders .section-params {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+      justify-content: center;
+    }
+
+    .biamp-section.section-vertical-sliders .eq-band-slider {
+      min-width: 50px;
+    }
+
+    .biamp-section.section-vertical-sliders .eq-band-slider input[type="range"] {
+      height: 150px;
+    }
+
+    .biamp-section.section-loudness .section-params {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .loudness-zones-container {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 10px;
+    }
+
+    @media (max-width: 600px) {
+      .loudness-zones-container {
+        grid-template-columns: repeat(3, 1fr);
+      }
+    }
+
+    .loudness-zone {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background-color: #e9ecef;
+      border-radius: 6px;
+      padding: 10px;
+    }
+
+    .loudness-zone .zone-label {
+      font-size: 12px;
+      font-weight: bold;
+      color: #495057;
+      margin-bottom: 8px;
+    }
+
+    .loudness-zone .eq-band-slider {
+      min-width: 40px;
+    }
+
+    .loudness-zone .eq-band-slider input[type="range"] {
+      height: 100px;
     }
   </style>
 </head>
@@ -504,13 +711,49 @@
       if (group.layout === 'eq-bands' && group.parameters) {
         const bandsContainer = document.createElement('div');
         bandsContainer.className = 'eq-bands-container';
-        
+
         group.parameters.forEach(param => {
           const sliderDiv = settingsUI.renderVerticalSlider(param, currentSettings, async (k, v) => { await updateSetting(k, v); });
           bandsContainer.appendChild(sliderDiv);
         });
-        
+
         contentWrapper.appendChild(bandsContainer);
+        groupDiv.appendChild(contentWrapper);
+        updateGroupVisibility(groupDiv);
+        return groupDiv;
+      }
+
+      // Handle biamp-crossover layout with sections
+      if (group.layout === 'biamp-crossover' && group.sections) {
+        const sectionsContainer = document.createElement('div');
+        sectionsContainer.className = 'biamp-sections-container';
+
+        group.sections.forEach(section => {
+          if (section.columns) {
+            // Handle columned sections (Low/High side by side)
+            const columnsDiv = document.createElement('div');
+            columnsDiv.className = 'biamp-columns';
+            section.columns.forEach(col => {
+              const colSection = settingsUI.renderSection(col, currentSettings, async (k, v) => {
+                await updateSetting(k, v);
+                // Update conditional visibility after setting change
+                settingsUI.updateConditionalVisibility(groupDiv, currentSettings);
+              });
+              columnsDiv.appendChild(colSection);
+            });
+            sectionsContainer.appendChild(columnsDiv);
+          } else {
+            // Regular section
+            const sectionDiv = settingsUI.renderSection(section, currentSettings, async (k, v) => {
+              await updateSetting(k, v);
+              // Update conditional visibility after setting change
+              settingsUI.updateConditionalVisibility(groupDiv, currentSettings);
+            });
+            sectionsContainer.appendChild(sectionDiv);
+          }
+        });
+
+        contentWrapper.appendChild(sectionsContainer);
         groupDiv.appendChild(contentWrapper);
         updateGroupVisibility(groupDiv);
         return groupDiv;
@@ -520,6 +763,12 @@
       if (group.parameters) {
         group.parameters.forEach(param => {
           const controlDiv = settingsUI.renderParameter(param, currentSettings, async (k, v) => { await updateSetting(k, v); });
+          if (param.visibleWhen) {
+            controlDiv.setAttribute('data-visible-when', JSON.stringify(param.visibleWhen));
+            if (!settingsUI.isParameterVisible(param, currentSettings)) {
+              controlDiv.style.display = 'none';
+            }
+          }
           contentWrapper.appendChild(controlDiv);
         });
       }

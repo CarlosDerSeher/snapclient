@@ -31,6 +31,10 @@
 #include "tas5805m_reg_cfg.h"
 #include <math.h>
 
+#if CONFIG_DAC_TAS5805M
+#include "tas5805m_settings.h"
+#endif
+
 static const char *TAG = "TAS5805M";
 
 #define TAS5805M_SET_BOOK_AND_PAGE(BOOK, PAGE) \
@@ -372,6 +376,10 @@ esp_err_t tas5805m_set_volume(int vol) {
   esp_err_t ret = tas5805m_write_byte(TAS5805M_DIG_VOL_CTRL_REGISTER, reg_val);
   if (ret == ESP_OK) {
     tas5805m_state.volume = vol;
+#if CONFIG_DAC_TAS5805M
+    /* Apply loudness compensation based on new volume level */
+    tas5805m_loudness_apply(vol);
+#endif
   } else {
     ESP_LOGW(TAG, "%s: Failed to write volume (reg 0x%02x): %s", __func__, reg_val, esp_err_to_name(ret));
   }
