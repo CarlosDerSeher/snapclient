@@ -644,6 +644,7 @@
 
     let currentSettings = {};
     let schema = {};
+    const debounceTimers = {};
 
     // Get backend URL from query parameter or default to current origin
     function getBackendUrl() {
@@ -892,56 +893,99 @@
       settingsUI.updateAllGroupVisibility(currentSettings);
     }
 
-    // Update a setting
+    // Flush any pending debounced updates (called on page unload)
+    function flushPendingUpdates() {
+      Object.keys(debounceTimers).forEach(key => {
+        if (debounceTimers[key]) {
+          clearTimeout(debounceTimers[key].timerId);
+          // Send the pending update synchronously
+          const { value } = debounceTimers[key];
+          navigator.sendBeacon('/api/eq/settings', JSON.stringify({ [key]: value }));
+          delete debounceTimers[key];
+        }
+      });
+    }
+
+    // Flush pending updates before page unload
+    window.addEventListener('beforeunload', flushPendingUpdates);
+    window.addEventListener('pagehide', flushPendingUpdates);
+
+    // Update a setting with debouncing (300ms delay to match DSP/DAC pages)
     async function updateSetting(key, value) {
-      try {
+      // Update local state immediately for responsive UI
+      currentSettings[key] = value;
+
+      // Check if this is a mode change - these should happen immediately
+      const isModeChange = (key === 'eq_ui_mode');
+
+      if (isModeChange) {
+        // Mode changes happen immediately without debounce
+        try {
           const update = { [key]: value };
-          console.log(`Updating ${key} = ${value}`);
+          console.log(`Updating ${key} = ${value} (immediate)`);
           await postRequest('/api/eq/settings', update);
-          
-          // Check if this is a mode change or gain/preset change BEFORE updating local state
-          const isModeChange = (key === 'eq_ui_mode');
-          const currentMode = currentSettings.eq_ui_mode;
-          const isAutoMode = (currentMode === 1 || currentMode === 2 || currentMode === 3); // 15-band, 15-band biamp, or preset
-          const isGainOrPresetChange = key.startsWith('eq_gain_') || key.startsWith('eq_profile_');
-          
-          // Update local state after checking
-          currentSettings[key] = value;
-          
-          if (isModeChange) {
-            // Mode change - always reload schema and settings
-            console.log('Mode changed, reloading schema and settings...');
-            const backendUrl = getBackendUrl();
-            const [schemaResponse, settingsResponse] = await Promise.all([
-              fetch(`${backendUrl}/api/eq/schema`),
-              fetch(`${backendUrl}/api/eq/settings`)
-            ]);
-            if (schemaResponse.ok && settingsResponse.ok) {
-              schema = await schemaResponse.json();
-              currentSettings = await settingsResponse.json();
-              renderUI();
-            } else {
-              updateAllGroupVisibility();
-            }
-          } else if (isAutoMode && isGainOrPresetChange) {
-            // In auto modes, when gains or presets change, the DAC calculates new BQ coefficients
-            // Reload both schema and settings to get the actual coefficients that were applied to the DAC
-            console.log('Reloading schema and settings to fetch actual DAC coefficients...');
-            const backendUrl = getBackendUrl();
-            const [schemaResponse, settingsResponse] = await Promise.all([
-              fetch(`${backendUrl}/api/eq/schema`),
-              fetch(`${backendUrl}/api/eq/settings`)
-            ]);
-            if (schemaResponse.ok && settingsResponse.ok) {
-              schema = await schemaResponse.json();
-              currentSettings = await settingsResponse.json();
-              renderUI(); // Re-render to show updated coefficients
-            }
+
+          // Mode change - reload schema and settings
+          console.log('Mode changed, reloading schema and settings...');
+          const backendUrl = getBackendUrl();
+          const [schemaResponse, settingsResponse] = await Promise.all([
+            fetch(`${backendUrl}/api/eq/schema`),
+            fetch(`${backendUrl}/api/eq/settings`)
+          ]);
+          if (schemaResponse.ok && settingsResponse.ok) {
+            schema = await schemaResponse.json();
+            currentSettings = await settingsResponse.json();
+            renderUI();
+          } else {
+            updateAllGroupVisibility();
           }
-      } catch (error) {
-        console.error('Error updating setting:', error);
-        alert(`Error updating setting: ${error.message}`);
+        } catch (error) {
+          console.error('Error updating setting:', error);
+          alert(`Error updating setting: ${error.message}`);
+        }
+        return;
       }
+
+      // Debounce: clear any pending update for this parameter
+      if (debounceTimers[key]) {
+        clearTimeout(debounceTimers[key].timerId);
+      }
+
+      // Store the pending value and set a new timer
+      debounceTimers[key] = {
+        value: value,
+        timerId: setTimeout(async () => {
+          try {
+            const update = { [key]: value };
+            console.log(`Updating ${key} = ${value} (debounced)`);
+            await postRequest('/api/eq/settings', update);
+
+            // Check if we need to reload for coefficient updates
+            const currentMode = currentSettings.eq_ui_mode;
+            const isAutoMode = (currentMode === 1 || currentMode === 2 || currentMode === 3);
+            const isGainOrPresetChange = key.startsWith('eq_gain_') || key.startsWith('eq_profile_');
+
+            if (isAutoMode && isGainOrPresetChange) {
+              // In auto modes, reload to get actual DAC coefficients
+              console.log('Reloading schema and settings to fetch actual DAC coefficients...');
+              const backendUrl = getBackendUrl();
+              const [schemaResponse, settingsResponse] = await Promise.all([
+                fetch(`${backendUrl}/api/eq/schema`),
+                fetch(`${backendUrl}/api/eq/settings`)
+              ]);
+              if (schemaResponse.ok && settingsResponse.ok) {
+                schema = await schemaResponse.json();
+                currentSettings = await settingsResponse.json();
+                renderUI();
+              }
+            }
+          } catch (error) {
+            console.error('Error updating setting:', error);
+            alert(`Error updating setting: ${error.message}`);
+          }
+          delete debounceTimers[key];
+        }, 300) // 300ms debounce delay
+      };
     }
 
     // Load settings on page load

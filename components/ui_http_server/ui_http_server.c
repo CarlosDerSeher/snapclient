@@ -1096,6 +1096,7 @@ esp_err_t start_server(const char *base_path, int port) {
 	config.max_open_sockets = 7;
 	config.max_uri_handlers = 64;
 	config.lru_purge_enable = true; // Enable LRU socket purging
+	config.stack_size = 8192;       // Increased for bi-amp schema generation
 
 	/* Enable wildcard URI matching for static file handler */
 	config.uri_match_fn = httpd_uri_match_wildcard;

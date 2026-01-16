@@ -164,7 +164,7 @@ typedef enum {
 /** Per-output PEQ band settings */
 typedef struct {
     uint16_t freq;      // Center frequency (20-20000 Hz), 0 = disabled
-    int8_t gain;        // Gain in dB (-15 to +15)
+    int8_t gain;        // Gain * 2 for 0.5 dB resolution (-30 to +30 representing -15 to +15 dB)
     uint8_t q_x10;      // Q factor * 10 (5-100 representing 0.5-10.0)
 } tas5805m_biamp_peq_band_t;
 
@@ -182,12 +182,12 @@ typedef struct {
     uint16_t subsonic_freq;         // Subsonic HPF frequency (0=off, 20-80 Hz typical)
 
     // Low output (woofer) settings
-    int8_t low_gain;                // -24 to +24 dB
+    int8_t low_gain;                // Gain * 2 for 0.5 dB resolution (-48 to +48 representing -24 to +24 dB)
     uint8_t low_phase_invert;       // 0=normal, 1=invert
     tas5805m_biamp_peq_band_t low_peq[TAS5805M_BIAMP_PEQ_BANDS];
 
     // High output (tweeter) settings
-    int8_t high_gain;               // -24 to +24 dB
+    int8_t high_gain;               // Gain * 2 for 0.5 dB resolution (-48 to +48 representing -24 to +24 dB)
     uint8_t high_phase_invert;      // 0=normal, 1=invert
     tas5805m_biamp_peq_band_t high_peq[TAS5805M_BIAMP_PEQ_BANDS];
 } tas5805m_biamp_settings_t;

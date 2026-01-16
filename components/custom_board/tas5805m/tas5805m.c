@@ -1170,7 +1170,10 @@ esp_err_t tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS channel, int b
   uint8_t page, offset;
   uint32_t raw_value;
   
-  float coeffs[] = {b0, b1, b2, a1, a2};
+  // TAS5805M uses addition convention for feedback: y = b0*x + b1*x1 + b2*x2 + a1*y1 + a2*y2
+  // Standard DSP uses subtraction: y = b0*x + b1*x1 + b2*x2 - a1*y1 - a2*y2
+  // So we negate a1 and a2 to convert from standard DSP convention to TAS5805M convention
+  float coeffs[] = {b0, b1, b2, -a1, -a2};
   const char *names[] = {"B0", "B1", "B2", "A1", "A2"};
   
   for (int i = 0; i < TAS5805M_EQ_KOEF_PER_BAND; i++) {
@@ -1185,9 +1188,7 @@ esp_err_t tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS channel, int b
     }
     
     raw_value = tas5805m_float_to_q5_27(coeffs[i]);
-    ESP_LOGD(TAG, "%s: Writing %s = %f -> 0x%08X to offset 0x%02X", 
-             __func__, names[i], coeffs[i], (unsigned int)raw_value, offset);
-    
+
     ret = tas5805m_write_bytes(&offset, 1, (uint8_t *)&raw_value, sizeof(raw_value));
     if (ret != ESP_OK) {
       ESP_LOGE(TAG, "%s: Failed to write coefficient %s: %s", 

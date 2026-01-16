@@ -269,13 +269,12 @@ int tas5805m_biamp_get_biquad_count(tas5805m_biamp_slope_t slope)
 
 /*
  * Write biquad coefficients to a specific band
+ * Note: No delay needed between writes - the 15-band EQ writes
+ * coefficients consecutively without delays and works reliably
  */
 static esp_err_t write_biquad_band(TAS5805M_EQ_CHANNELS channel, int band,
                                     const tas5805m_biquad_coeffs_t *coeffs)
 {
-    ESP_LOGD(TAG, "Writing biquad ch=%d band=%d: b0=%.6f b1=%.6f b2=%.6f a1=%.6f a2=%.6f",
-             channel, band, coeffs->b0, coeffs->b1, coeffs->b2, coeffs->a1, coeffs->a2);
-
     return tas5805m_write_biquad_coefficients(channel, band,
                                                coeffs->b0, coeffs->b1, coeffs->b2,
                                                coeffs->a1, coeffs->a2);
@@ -308,7 +307,7 @@ esp_err_t tas5805m_biamp_apply(const tas5805m_biamp_settings_t *settings)
         return ESP_ERR_INVALID_ARG;
     }
 
-    esp_err_t ret;
+    esp_err_t ret = ESP_OK;
     tas5805m_biquad_coeffs_t coeffs;
     int num_stages = tas5805m_biamp_get_biquad_count(settings->slope);
     float fc = (float)settings->crossover_freq;
@@ -324,7 +323,8 @@ esp_err_t tas5805m_biamp_apply(const tas5805m_biamp_settings_t *settings)
     /* === LEFT CHANNEL (LOW/WOOFER OUTPUT) === */
 
     /* Band 0: Gain + optional phase invert for low output */
-    float low_total_gain = (float)settings->low_gain;
+    /* Gain is stored as x2 for 0.5 dB resolution, convert back to dB */
+    float low_total_gain = (float)settings->low_gain / 2.0f;
     if (settings->low_phase_invert) {
         low_total_gain = -powf(10.0f, low_total_gain / 20.0f);
         coeffs.b0 = low_total_gain;
@@ -377,7 +377,9 @@ esp_err_t tas5805m_biamp_apply(const tas5805m_biamp_settings_t *settings)
 
         if (peq->freq > 0 && peq->freq < fs / 2 && peq->gain != 0) {
             float q = (float)peq->q_x10 / 10.0f;
-            ret = tas5805m_calc_peq((float)peq->freq, (float)peq->gain, q, fs, &coeffs);
+            /* Gain is stored as x2 for 0.5 dB resolution */
+            float gain_db = (float)peq->gain / 2.0f;
+            ret = tas5805m_calc_peq((float)peq->freq, gain_db, q, fs, &coeffs);
         } else {
             ret = tas5805m_calc_passthrough(&coeffs);
         }
@@ -386,21 +388,22 @@ esp_err_t tas5805m_biamp_apply(const tas5805m_biamp_settings_t *settings)
         if (ret != ESP_OK) return ret;
     }
 
-    /* Fill remaining bands with passthrough (leave band 13 for loudness bass) */
+    /* Fill remaining bands 9-14 with passthrough
+     * Note: Bands 13 (bass) and 14 (treble) may be overwritten by loudness compensation
+     * if enabled, but we must initialize them to passthrough to avoid garbage values
+     * causing DSP instability when loudness is disabled */
     ret = tas5805m_calc_passthrough(&coeffs);
     if (ret != ESP_OK) return ret;
-    for (band = BIAMP_PEQ_START_BAND + BIAMP_PEQ_BANDS; band < TAS5805M_LOUDNESS_BASS_BAND; band++) {
+    for (band = BIAMP_PEQ_START_BAND + BIAMP_PEQ_BANDS; band <= TAS5805M_LOUDNESS_TREBLE_BAND; band++) {
         ret = write_biquad_band(TAS5805M_EQ_CHANNELS_LEFT, band, &coeffs);
         if (ret != ESP_OK) return ret;
     }
-    /* Band 14: passthrough (loudness treble not used on woofer) */
-    ret = write_biquad_band(TAS5805M_EQ_CHANNELS_LEFT, TAS5805M_LOUDNESS_TREBLE_BAND, &coeffs);
-    if (ret != ESP_OK) return ret;
 
     /* === RIGHT CHANNEL (HIGH/TWEETER OUTPUT) === */
 
     /* Band 0: Gain + optional phase invert for high output */
-    float high_total_gain = (float)settings->high_gain;
+    /* Gain is stored as x2 for 0.5 dB resolution, convert back to dB */
+    float high_total_gain = (float)settings->high_gain / 2.0f;
     if (settings->high_phase_invert) {
         high_total_gain = -powf(10.0f, high_total_gain / 20.0f);
         coeffs.b0 = high_total_gain;
@@ -447,7 +450,9 @@ esp_err_t tas5805m_biamp_apply(const tas5805m_biamp_settings_t *settings)
 
         if (peq->freq > 0 && peq->freq < fs / 2 && peq->gain != 0) {
             float q = (float)peq->q_x10 / 10.0f;
-            ret = tas5805m_calc_peq((float)peq->freq, (float)peq->gain, q, fs, &coeffs);
+            /* Gain is stored as x2 for 0.5 dB resolution */
+            float gain_db = (float)peq->gain / 2.0f;
+            ret = tas5805m_calc_peq((float)peq->freq, gain_db, q, fs, &coeffs);
         } else {
             ret = tas5805m_calc_passthrough(&coeffs);
         }
@@ -456,10 +461,13 @@ esp_err_t tas5805m_biamp_apply(const tas5805m_biamp_settings_t *settings)
         if (ret != ESP_OK) return ret;
     }
 
-    /* Fill remaining bands with passthrough (leave band 14 for loudness treble) */
+    /* Fill remaining bands 9-14 with passthrough
+     * Note: Bands 13 (bass) and 14 (treble) may be overwritten by loudness compensation
+     * if enabled, but we must initialize them to passthrough to avoid garbage values
+     * causing DSP instability when loudness is disabled */
     ret = tas5805m_calc_passthrough(&coeffs);
     if (ret != ESP_OK) return ret;
-    for (band = BIAMP_PEQ_START_BAND + BIAMP_PEQ_BANDS; band < TAS5805M_LOUDNESS_TREBLE_BAND; band++) {
+    for (band = BIAMP_PEQ_START_BAND + BIAMP_PEQ_BANDS; band <= TAS5805M_LOUDNESS_TREBLE_BAND; band++) {
         ret = write_biquad_band(TAS5805M_EQ_CHANNELS_RIGHT, band, &coeffs);
         if (ret != ESP_OK) return ret;
     }

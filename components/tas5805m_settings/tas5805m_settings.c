@@ -2958,7 +2958,7 @@ esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
             cJSON_AddStringToObject(xover_freq, "unit", "Hz");
             cJSON_AddNumberToObject(xover_freq, "min", 20);
             cJSON_AddNumberToObject(xover_freq, "max", 20000);
-            cJSON_AddNumberToObject(xover_freq, "step", 10);
+            cJSON_AddNumberToObject(xover_freq, "step", 1);
             cJSON_AddNumberToObject(xover_freq, "current", biamp.crossover_freq);
             cJSON_AddItemToArray(xover_params, xover_freq);
 
@@ -3025,8 +3025,9 @@ esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
             cJSON_AddStringToObject(low_gain, "unit", "dB");
             cJSON_AddNumberToObject(low_gain, "min", -24);
             cJSON_AddNumberToObject(low_gain, "max", 24);
-            cJSON_AddNumberToObject(low_gain, "step", 1);
-            cJSON_AddNumberToObject(low_gain, "current", biamp.low_gain);
+            cJSON_AddNumberToObject(low_gain, "step", 0.5);
+            cJSON_AddNumberToObject(low_gain, "decimals", 1);
+            cJSON_AddNumberToObject(low_gain, "current", biamp.low_gain / 2.0);
             cJSON_AddItemToArray(low_params, low_gain);
 
             /* Subsonic HPF slider (woofer only) */
@@ -3060,11 +3061,11 @@ esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
                 cJSON_AddStringToObject(freq, "unit", "Hz");
                 cJSON_AddNumberToObject(freq, "min", 20);
                 cJSON_AddNumberToObject(freq, "max", 20000);
-                cJSON_AddNumberToObject(freq, "step", 10);
+                cJSON_AddNumberToObject(freq, "step", 1);
                 cJSON_AddNumberToObject(freq, "current", biamp.low_peq[i].freq);
                 cJSON_AddItemToArray(peq_params, freq);
 
-                /* Gain */
+                /* Gain (stored as x2 for 0.5 dB resolution) */
                 snprintf(key, sizeof(key), "biamp_low_peq%d_gain", i);
                 cJSON *gain = cJSON_CreateObject();
                 cJSON_AddStringToObject(gain, "key", key);
@@ -3073,8 +3074,9 @@ esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
                 cJSON_AddStringToObject(gain, "unit", "dB");
                 cJSON_AddNumberToObject(gain, "min", -15);
                 cJSON_AddNumberToObject(gain, "max", 15);
-                cJSON_AddNumberToObject(gain, "step", 1);
-                cJSON_AddNumberToObject(gain, "current", biamp.low_peq[i].gain);
+                cJSON_AddNumberToObject(gain, "step", 0.5);
+                cJSON_AddNumberToObject(gain, "decimals", 1);
+                cJSON_AddNumberToObject(gain, "current", biamp.low_peq[i].gain / 2.0);
                 cJSON_AddItemToArray(peq_params, gain);
 
                 /* Q factor (stored as q_x10, display as float) */
@@ -3125,8 +3127,9 @@ esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
             cJSON_AddStringToObject(high_gain, "unit", "dB");
             cJSON_AddNumberToObject(high_gain, "min", -24);
             cJSON_AddNumberToObject(high_gain, "max", 24);
-            cJSON_AddNumberToObject(high_gain, "step", 1);
-            cJSON_AddNumberToObject(high_gain, "current", biamp.high_gain);
+            cJSON_AddNumberToObject(high_gain, "step", 0.5);
+            cJSON_AddNumberToObject(high_gain, "decimals", 1);
+            cJSON_AddNumberToObject(high_gain, "current", biamp.high_gain / 2.0);
             cJSON_AddItemToArray(high_params, high_gain);
 
             /* PEQ bands as subgroups */
@@ -3147,11 +3150,11 @@ esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
                 cJSON_AddStringToObject(freq, "unit", "Hz");
                 cJSON_AddNumberToObject(freq, "min", 20);
                 cJSON_AddNumberToObject(freq, "max", 20000);
-                cJSON_AddNumberToObject(freq, "step", 10);
+                cJSON_AddNumberToObject(freq, "step", 1);
                 cJSON_AddNumberToObject(freq, "current", biamp.high_peq[i].freq);
                 cJSON_AddItemToArray(peq_params, freq);
 
-                /* Gain */
+                /* Gain (stored as x2 for 0.5 dB resolution) */
                 snprintf(key, sizeof(key), "biamp_high_peq%d_gain", i);
                 cJSON *gain = cJSON_CreateObject();
                 cJSON_AddStringToObject(gain, "key", key);
@@ -3160,8 +3163,9 @@ esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
                 cJSON_AddStringToObject(gain, "unit", "dB");
                 cJSON_AddNumberToObject(gain, "min", -15);
                 cJSON_AddNumberToObject(gain, "max", 15);
-                cJSON_AddNumberToObject(gain, "step", 1);
-                cJSON_AddNumberToObject(gain, "current", biamp.high_peq[i].gain);
+                cJSON_AddNumberToObject(gain, "step", 0.5);
+                cJSON_AddNumberToObject(gain, "decimals", 1);
+                cJSON_AddNumberToObject(gain, "current", biamp.high_peq[i].gain / 2.0);
                 cJSON_AddItemToArray(peq_params, gain);
 
                 /* Q factor (stored as q_x10, display as float) */
@@ -4035,17 +4039,19 @@ esp_err_t tas5805m_settings_set_eq_from_json(const char *json_in) {
                 modified = true;
                 ESP_LOGI(TAG, "%s: Setting bi-amp subsonic filter to %d Hz", __func__, biamp.subsonic_freq);
             } else if (strcmp(key, "biamp_low_gain") == 0) {
-                biamp.low_gain = (int8_t)item->valueint;
+                /* Gain comes as float in dB, store as x2 for 0.5 dB resolution */
+                biamp.low_gain = (int8_t)(item->valuedouble * 2.0 + (item->valuedouble >= 0 ? 0.5 : -0.5));
                 modified = true;
-                ESP_LOGI(TAG, "%s: Setting bi-amp low gain to %d dB", __func__, biamp.low_gain);
+                ESP_LOGI(TAG, "%s: Setting bi-amp low gain to %.1f dB (x2=%d)", __func__, item->valuedouble, biamp.low_gain);
             } else if (strcmp(key, "biamp_low_phase") == 0) {
                 biamp.low_phase_invert = (uint8_t)item->valueint;
                 modified = true;
                 ESP_LOGI(TAG, "%s: Setting bi-amp low phase to %d", __func__, biamp.low_phase_invert);
             } else if (strcmp(key, "biamp_high_gain") == 0) {
-                biamp.high_gain = (int8_t)item->valueint;
+                /* Gain comes as float in dB, store as x2 for 0.5 dB resolution */
+                biamp.high_gain = (int8_t)(item->valuedouble * 2.0 + (item->valuedouble >= 0 ? 0.5 : -0.5));
                 modified = true;
-                ESP_LOGI(TAG, "%s: Setting bi-amp high gain to %d dB", __func__, biamp.high_gain);
+                ESP_LOGI(TAG, "%s: Setting bi-amp high gain to %.1f dB (x2=%d)", __func__, item->valuedouble, biamp.high_gain);
             } else if (strcmp(key, "biamp_high_phase") == 0) {
                 biamp.high_phase_invert = (uint8_t)item->valueint;
                 modified = true;
@@ -4060,9 +4066,10 @@ esp_err_t tas5805m_settings_set_eq_from_json(const char *json_in) {
                         modified = true;
                         ESP_LOGI(TAG, "%s: Setting bi-amp low PEQ %d freq to %d Hz", __func__, peq_idx, biamp.low_peq[peq_idx].freq);
                     } else if (strstr(key, "_gain") != NULL) {
-                        biamp.low_peq[peq_idx].gain = (int8_t)item->valueint;
+                        /* Gain comes as float in dB, store as x2 for 0.5 dB resolution */
+                        biamp.low_peq[peq_idx].gain = (int8_t)(item->valuedouble * 2.0 + (item->valuedouble >= 0 ? 0.5 : -0.5));
                         modified = true;
-                        ESP_LOGI(TAG, "%s: Setting bi-amp low PEQ %d gain to %d dB", __func__, peq_idx, biamp.low_peq[peq_idx].gain);
+                        ESP_LOGI(TAG, "%s: Setting bi-amp low PEQ %d gain to %.1f dB (x2=%d)", __func__, peq_idx, item->valuedouble, biamp.low_peq[peq_idx].gain);
                     } else if (strstr(key, "_q") != NULL) {
                         /* Q value comes as float (0.5-10.0), convert to q_x10 (5-100) */
                         biamp.low_peq[peq_idx].q_x10 = (uint8_t)(item->valuedouble * 10.0 + 0.5);
@@ -4080,9 +4087,10 @@ esp_err_t tas5805m_settings_set_eq_from_json(const char *json_in) {
                         modified = true;
                         ESP_LOGI(TAG, "%s: Setting bi-amp high PEQ %d freq to %d Hz", __func__, peq_idx, biamp.high_peq[peq_idx].freq);
                     } else if (strstr(key, "_gain") != NULL) {
-                        biamp.high_peq[peq_idx].gain = (int8_t)item->valueint;
+                        /* Gain comes as float in dB, store as x2 for 0.5 dB resolution */
+                        biamp.high_peq[peq_idx].gain = (int8_t)(item->valuedouble * 2.0 + (item->valuedouble >= 0 ? 0.5 : -0.5));
                         modified = true;
-                        ESP_LOGI(TAG, "%s: Setting bi-amp high PEQ %d gain to %d dB", __func__, peq_idx, biamp.high_peq[peq_idx].gain);
+                        ESP_LOGI(TAG, "%s: Setting bi-amp high PEQ %d gain to %.1f dB (x2=%d)", __func__, peq_idx, item->valuedouble, biamp.high_peq[peq_idx].gain);
                     } else if (strstr(key, "_q") != NULL) {
                         /* Q value comes as float (0.5-10.0), convert to q_x10 (5-100) */
                         biamp.high_peq[peq_idx].q_x10 = (uint8_t)(item->valuedouble * 10.0 + 0.5);
@@ -4185,30 +4193,30 @@ esp_err_t tas5805m_biamp_preset_export(char *json_out, size_t max_len)
     /* Subsonic filter */
     cJSON_AddNumberToObject(root, "subsonic_freq", biamp.subsonic_freq);
 
-    /* Low output (woofer) */
+    /* Low output (woofer) - gains stored as x2, export as actual dB */
     cJSON *low = cJSON_CreateObject();
-    cJSON_AddNumberToObject(low, "gain", biamp.low_gain);
+    cJSON_AddNumberToObject(low, "gain", biamp.low_gain / 2.0);
     cJSON_AddNumberToObject(low, "phase_invert", biamp.low_phase_invert);
     cJSON *low_peq = cJSON_CreateArray();
     for (int i = 0; i < TAS5805M_BIAMP_PEQ_BANDS; i++) {
         cJSON *band = cJSON_CreateObject();
         cJSON_AddNumberToObject(band, "freq", biamp.low_peq[i].freq);
-        cJSON_AddNumberToObject(band, "gain", biamp.low_peq[i].gain);
+        cJSON_AddNumberToObject(band, "gain", biamp.low_peq[i].gain / 2.0);
         cJSON_AddNumberToObject(band, "q", biamp.low_peq[i].q_x10 / 10.0);
         cJSON_AddItemToArray(low_peq, band);
     }
     cJSON_AddItemToObject(low, "peq", low_peq);
     cJSON_AddItemToObject(root, "low_output", low);
 
-    /* High output (tweeter) */
+    /* High output (tweeter) - gains stored as x2, export as actual dB */
     cJSON *high = cJSON_CreateObject();
-    cJSON_AddNumberToObject(high, "gain", biamp.high_gain);
+    cJSON_AddNumberToObject(high, "gain", biamp.high_gain / 2.0);
     cJSON_AddNumberToObject(high, "phase_invert", biamp.high_phase_invert);
     cJSON *high_peq = cJSON_CreateArray();
     for (int i = 0; i < TAS5805M_BIAMP_PEQ_BANDS; i++) {
         cJSON *band = cJSON_CreateObject();
         cJSON_AddNumberToObject(band, "freq", biamp.high_peq[i].freq);
-        cJSON_AddNumberToObject(band, "gain", biamp.high_peq[i].gain);
+        cJSON_AddNumberToObject(band, "gain", biamp.high_peq[i].gain / 2.0);
         cJSON_AddNumberToObject(band, "q", biamp.high_peq[i].q_x10 / 10.0);
         cJSON_AddItemToArray(high_peq, band);
     }
@@ -4305,11 +4313,13 @@ esp_err_t tas5805m_biamp_preset_import(const char *json_in)
     cJSON *subsonic = cJSON_GetObjectItem(root, "subsonic_freq");
     if (subsonic && cJSON_IsNumber(subsonic)) biamp.subsonic_freq = (uint16_t)subsonic->valueint;
 
-    /* Parse low output */
+    /* Parse low output - gains in preset are actual dB, store as x2 */
     cJSON *low = cJSON_GetObjectItem(root, "low_output");
     if (low) {
         cJSON *gain = cJSON_GetObjectItem(low, "gain");
-        if (gain && cJSON_IsNumber(gain)) biamp.low_gain = (int8_t)gain->valueint;
+        if (gain && cJSON_IsNumber(gain)) {
+            biamp.low_gain = (int8_t)(gain->valuedouble * 2.0 + (gain->valuedouble >= 0 ? 0.5 : -0.5));
+        }
 
         cJSON *phase = cJSON_GetObjectItem(low, "phase_invert");
         if (phase && cJSON_IsNumber(phase)) biamp.low_phase_invert = (uint8_t)phase->valueint;
@@ -4324,18 +4334,22 @@ esp_err_t tas5805m_biamp_preset_import(const char *json_in)
                 cJSON *g = cJSON_GetObjectItem(band, "gain");
                 cJSON *q = cJSON_GetObjectItem(band, "q");
                 if (f && cJSON_IsNumber(f)) biamp.low_peq[idx].freq = (uint16_t)f->valueint;
-                if (g && cJSON_IsNumber(g)) biamp.low_peq[idx].gain = (int8_t)g->valueint;
+                if (g && cJSON_IsNumber(g)) {
+                    biamp.low_peq[idx].gain = (int8_t)(g->valuedouble * 2.0 + (g->valuedouble >= 0 ? 0.5 : -0.5));
+                }
                 if (q && cJSON_IsNumber(q)) biamp.low_peq[idx].q_x10 = (uint8_t)(q->valuedouble * 10.0 + 0.5);
                 idx++;
             }
         }
     }
 
-    /* Parse high output */
+    /* Parse high output - gains in preset are actual dB, store as x2 */
     cJSON *high = cJSON_GetObjectItem(root, "high_output");
     if (high) {
         cJSON *gain = cJSON_GetObjectItem(high, "gain");
-        if (gain && cJSON_IsNumber(gain)) biamp.high_gain = (int8_t)gain->valueint;
+        if (gain && cJSON_IsNumber(gain)) {
+            biamp.high_gain = (int8_t)(gain->valuedouble * 2.0 + (gain->valuedouble >= 0 ? 0.5 : -0.5));
+        }
 
         cJSON *phase = cJSON_GetObjectItem(high, "phase_invert");
         if (phase && cJSON_IsNumber(phase)) biamp.high_phase_invert = (uint8_t)phase->valueint;
@@ -4350,7 +4364,9 @@ esp_err_t tas5805m_biamp_preset_import(const char *json_in)
                 cJSON *g = cJSON_GetObjectItem(band, "gain");
                 cJSON *q = cJSON_GetObjectItem(band, "q");
                 if (f && cJSON_IsNumber(f)) biamp.high_peq[idx].freq = (uint16_t)f->valueint;
-                if (g && cJSON_IsNumber(g)) biamp.high_peq[idx].gain = (int8_t)g->valueint;
+                if (g && cJSON_IsNumber(g)) {
+                    biamp.high_peq[idx].gain = (int8_t)(g->valuedouble * 2.0 + (g->valuedouble >= 0 ? 0.5 : -0.5));
+                }
                 if (q && cJSON_IsNumber(q)) biamp.high_peq[idx].q_x10 = (uint8_t)(q->valuedouble * 10.0 + 0.5);
                 idx++;
             }

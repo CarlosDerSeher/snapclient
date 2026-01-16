@@ -462,12 +462,17 @@ int start_player(snapcastSetting_t *setting) {
   // create message queue to inform task of changed settings
   snapcastSettingQueueHandle = xQueueCreate(1, sizeof(uint8_t));
   
-  if (pcmChkQHdl == NULL) 
+  if (pcmChkQHdl == NULL)
   {
     snapcastSetting_t scSet;
     memset(&scSet, 0, sizeof(snapcastSetting_t));
     player_get_snapcast_settings(&scSet);
-    
+
+    // Validate chkInFrames to prevent division by zero during reconnection
+    if (scSet.chkInFrames == 0) {
+      scSet.chkInFrames = 1152; // Default value
+    }
+
     int entries = ceil(((float)scSet.sr / (float)scSet.chkInFrames) *
                         ((float)scSet.buf_ms / 1000));
 
