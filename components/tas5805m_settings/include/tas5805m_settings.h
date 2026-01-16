@@ -168,7 +168,7 @@ typedef struct {
     uint8_t q_x10;      // Q factor * 10 (5-100 representing 0.5-10.0)
 } tas5805m_biamp_peq_band_t;
 
-#define TAS5805M_BIAMP_PEQ_BANDS 3   // PEQ bands per output
+#define TAS5805M_BIAMP_PEQ_BANDS 6   // PEQ bands per output
 
 /** Advanced bi-amp crossover settings */
 typedef struct {

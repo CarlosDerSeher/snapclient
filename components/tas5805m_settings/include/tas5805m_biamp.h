@@ -60,8 +60,8 @@ typedef enum {
  * - Band 0: Gain/phase              - Band 0: Gain/phase
  * - Band 1: Subsonic HPF            - Band 1: Passthrough
  * - Bands 2-5: Lowpass crossover    - Bands 2-5: Highpass crossover
- * - Bands 6-8: PEQ (3 bands)        - Bands 6-8: PEQ (3 bands)
- * - Bands 9-12: Passthrough         - Bands 9-12: Passthrough
+ * - Bands 6-11: PEQ (6 bands)       - Bands 6-11: PEQ (6 bands)
+ * - Band 12: Passthrough (spare)    - Band 12: Passthrough (spare)
  * - Band 13: Bass shelf (loudness)  - Band 13: Passthrough
  * - Band 14: Passthrough            - Band 14: Treble shelf (loudness)
  */
@@ -70,7 +70,7 @@ typedef enum {
 #define BIAMP_CROSSOVER_START_BAND  2
 #define BIAMP_CROSSOVER_MAX_BANDS   4   /* Max 4 filter stages (48dB slope) */
 #define BIAMP_PEQ_START_BAND        6
-#define BIAMP_PEQ_BANDS             3
+#define BIAMP_PEQ_BANDS             6
 
 /**
  * @brief Calculate 2nd-order Butterworth lowpass filter coefficients

@@ -3229,60 +3229,69 @@ esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
             cJSON *visibleWhen = cJSON_CreateObject();
             cJSON_AddNumberToObject(visibleWhen, "loudness_enabled", 1);
 
-            /* Volume thresholds (hidden when off) */
-            for (int i = 0; i < TAS5805M_LOUDNESS_ZONES - 1; i++) {
-                char lkey[24], lname[32];
-                snprintf(lkey, sizeof(lkey), "loudness_thresh_%d", i);
-                snprintf(lname, sizeof(lname), "Zone %d Thresh", i + 1);
-                cJSON *thresh = cJSON_CreateObject();
-                cJSON_AddStringToObject(thresh, "key", lkey);
-                cJSON_AddStringToObject(thresh, "name", lname);
-                cJSON_AddStringToObject(thresh, "type", "range");
-                cJSON_AddStringToObject(thresh, "unit", "%");
-                cJSON_AddNumberToObject(thresh, "min", 0);
-                cJSON_AddNumberToObject(thresh, "max", 100);
-                cJSON_AddNumberToObject(thresh, "step", 5);
-                cJSON_AddNumberToObject(thresh, "current", loudness.thresholds[i]);
-                cJSON_AddItemToObject(thresh, "visibleWhen", cJSON_Duplicate(visibleWhen, 1));
-                cJSON_AddItemToArray(loud_params, thresh);
-            }
-
-            /* Bass boost per zone (hidden when off) */
+            /* Create grouped zones - each zone has threshold (except last), bass, treble */
             for (int i = 0; i < TAS5805M_LOUDNESS_ZONES; i++) {
-                char lkey[24], lname[32];
-                snprintf(lkey, sizeof(lkey), "loudness_bass_%d", i);
-                snprintf(lname, sizeof(lname), "Z%d Bass", i + 1);
+                cJSON *zone_group = cJSON_CreateObject();
+                char zone_name[48];
+
+                /* Calculate volume range for this zone */
+                int vol_start = (i == 0) ? 0 : loudness.thresholds[i - 1];
+                int vol_end = (i < TAS5805M_LOUDNESS_ZONES - 1) ? loudness.thresholds[i] : 100;
+                snprintf(zone_name, sizeof(zone_name), "Zone %d (%d%% - %d%%)", i + 1, vol_start, vol_end);
+
+                cJSON_AddStringToObject(zone_group, "name", zone_name);
+                cJSON_AddStringToObject(zone_group, "type", "loudness-zone");
+                cJSON_AddNumberToObject(zone_group, "zone_index", i);
+                cJSON_AddItemToObject(zone_group, "visibleWhen", cJSON_Duplicate(visibleWhen, 1));
+
+                cJSON *zone_params = cJSON_CreateArray();
+
+                /* Threshold slider (zones 0-3 have thresholds, zone 4 ends at 100%) */
+                if (i < TAS5805M_LOUDNESS_ZONES - 1) {
+                    char tkey[24];
+                    snprintf(tkey, sizeof(tkey), "loudness_thresh_%d", i);
+                    cJSON *thresh = cJSON_CreateObject();
+                    cJSON_AddStringToObject(thresh, "key", tkey);
+                    cJSON_AddStringToObject(thresh, "name", "Upper Limit");
+                    cJSON_AddStringToObject(thresh, "type", "range");
+                    cJSON_AddStringToObject(thresh, "unit", "%");
+                    cJSON_AddNumberToObject(thresh, "min", 0);
+                    cJSON_AddNumberToObject(thresh, "max", 100);
+                    cJSON_AddNumberToObject(thresh, "step", 5);
+                    cJSON_AddNumberToObject(thresh, "current", loudness.thresholds[i]);
+                    cJSON_AddItemToArray(zone_params, thresh);
+                }
+
+                /* Bass boost */
+                char bkey[24];
+                snprintf(bkey, sizeof(bkey), "loudness_bass_%d", i);
                 cJSON *bass = cJSON_CreateObject();
-                cJSON_AddStringToObject(bass, "key", lkey);
-                cJSON_AddStringToObject(bass, "label", lname);
-                cJSON_AddStringToObject(bass, "name", lname);
+                cJSON_AddStringToObject(bass, "key", bkey);
+                cJSON_AddStringToObject(bass, "name", "Bass");
                 cJSON_AddStringToObject(bass, "type", "range");
                 cJSON_AddStringToObject(bass, "unit", "dB");
                 cJSON_AddNumberToObject(bass, "min", -12);
                 cJSON_AddNumberToObject(bass, "max", 12);
                 cJSON_AddNumberToObject(bass, "step", 1);
                 cJSON_AddNumberToObject(bass, "current", loudness.bass_boost[i]);
-                cJSON_AddItemToObject(bass, "visibleWhen", cJSON_Duplicate(visibleWhen, 1));
-                cJSON_AddItemToArray(loud_params, bass);
-            }
+                cJSON_AddItemToArray(zone_params, bass);
 
-            /* Treble boost per zone (hidden when off) */
-            for (int i = 0; i < TAS5805M_LOUDNESS_ZONES; i++) {
-                char lkey[24], lname[32];
-                snprintf(lkey, sizeof(lkey), "loudness_treble_%d", i);
-                snprintf(lname, sizeof(lname), "Z%d Treble", i + 1);
+                /* Treble boost */
+                char trkey[24];
+                snprintf(trkey, sizeof(trkey), "loudness_treble_%d", i);
                 cJSON *treble = cJSON_CreateObject();
-                cJSON_AddStringToObject(treble, "key", lkey);
-                cJSON_AddStringToObject(treble, "label", lname);
-                cJSON_AddStringToObject(treble, "name", lname);
+                cJSON_AddStringToObject(treble, "key", trkey);
+                cJSON_AddStringToObject(treble, "name", "Treble");
                 cJSON_AddStringToObject(treble, "type", "range");
                 cJSON_AddStringToObject(treble, "unit", "dB");
                 cJSON_AddNumberToObject(treble, "min", -12);
                 cJSON_AddNumberToObject(treble, "max", 12);
                 cJSON_AddNumberToObject(treble, "step", 1);
                 cJSON_AddNumberToObject(treble, "current", loudness.treble_boost[i]);
-                cJSON_AddItemToObject(treble, "visibleWhen", cJSON_Duplicate(visibleWhen, 1));
-                cJSON_AddItemToArray(loud_params, treble);
+                cJSON_AddItemToArray(zone_params, treble);
+
+                cJSON_AddItemToObject(zone_group, "parameters", zone_params);
+                cJSON_AddItemToArray(loud_params, zone_group);
             }
 
             cJSON_Delete(visibleWhen);

@@ -282,6 +282,55 @@
     return groupDiv;
   }
 
+  // Render a loudness zone subgroup (threshold, bass, treble grouped together)
+  function renderLoudnessZone(subgroup, currentSettings, onChange) {
+    const groupDiv = document.createElement('div');
+    groupDiv.className = 'loudness-zone';
+
+    const header = document.createElement('div');
+    header.className = 'loudness-zone-header';
+    header.textContent = subgroup.name;
+    groupDiv.appendChild(header);
+
+    const paramsRow = document.createElement('div');
+    paramsRow.className = 'loudness-zone-params';
+
+    subgroup.parameters.forEach(param => {
+      const controlDiv = document.createElement('div');
+      controlDiv.className = 'loudness-zone-param';
+
+      const label = document.createElement('label');
+      label.textContent = param.name;
+      controlDiv.appendChild(label);
+
+      const input = document.createElement('input');
+      input.type = 'range';
+      input.min = param.min;
+      input.max = param.max;
+      input.step = param.step || 1;
+      input.value = param.current !== undefined ? param.current : param.default || param.min;
+
+      const valueSpan = document.createElement('span');
+      valueSpan.className = 'loudness-zone-value';
+      const decimals = param.decimals !== undefined ? param.decimals : 0;
+      valueSpan.textContent = Number(input.value).toFixed(decimals) + (param.unit || '');
+
+      input.oninput = function () {
+        valueSpan.textContent = Number(this.value).toFixed(decimals) + (param.unit || '');
+      };
+      input.onchange = function () {
+        if (onChange) onChange(param.key, parseFloat(this.value));
+      };
+
+      controlDiv.appendChild(input);
+      controlDiv.appendChild(valueSpan);
+      paramsRow.appendChild(controlDiv);
+    });
+
+    groupDiv.appendChild(paramsRow);
+    return groupDiv;
+  }
+
   // Render a section within a group (for biamp Low/High columns)
   function renderSection(section, currentSettings, onChange) {
     const sectionDiv = document.createElement('div');
@@ -321,6 +370,23 @@
         let controlDiv;
         if (param.type === 'peq-subgroup') {
           controlDiv = renderPeqSubgroup(param, currentSettings, onChange);
+        } else {
+          controlDiv = renderParameter(param, currentSettings, onChange);
+        }
+        if (param.visibleWhen) {
+          controlDiv.setAttribute('data-visible-when', JSON.stringify(param.visibleWhen));
+          if (!isParameterVisible(param, currentSettings)) {
+            controlDiv.style.display = 'none';
+          }
+        }
+        paramsContainer.appendChild(controlDiv);
+      });
+    } else if (section.layout === 'loudness') {
+      // Loudness layout: enable toggle + loudness-zone subgroups
+      section.parameters.forEach(param => {
+        let controlDiv;
+        if (param.type === 'loudness-zone') {
+          controlDiv = renderLoudnessZone(param, currentSettings, onChange);
         } else {
           controlDiv = renderParameter(param, currentSettings, onChange);
         }
@@ -424,6 +490,7 @@
     renderParameter,
     renderVerticalSlider,
     renderPeqSubgroup,
+    renderLoudnessZone,
     renderSection,
     isParameterVisible,
     updateConditionalVisibility,

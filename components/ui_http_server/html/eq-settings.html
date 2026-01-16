@@ -596,40 +596,61 @@
       gap: 10px;
     }
 
-    .loudness-zones-container {
-      display: grid;
-      grid-template-columns: repeat(5, 1fr);
-      gap: 10px;
-    }
-
-    @media (max-width: 600px) {
-      .loudness-zones-container {
-        grid-template-columns: repeat(3, 1fr);
-      }
-    }
-
+    /* Loudness Zone grouped layout */
     .loudness-zone {
+      background-color: #f8f9fa;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+
+    .loudness-zone-header {
+      font-weight: bold;
+      font-size: 14px;
+      color: #495057;
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #dee2e6;
+    }
+
+    .loudness-zone-params {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+      gap: 12px;
+    }
+
+    .loudness-zone-param {
       display: flex;
       flex-direction: column;
       align-items: center;
-      background-color: #e9ecef;
-      border-radius: 6px;
-      padding: 10px;
     }
 
-    .loudness-zone .zone-label {
+    .loudness-zone-param label {
       font-size: 12px;
+      color: #666;
+      margin-bottom: 4px;
+      font-weight: 500;
+    }
+
+    .loudness-zone-param input[type="range"] {
+      width: 100%;
+      height: 6px;
+      margin: 4px 0;
+    }
+
+    .loudness-zone-value {
+      font-size: 13px;
+      color: #007bff;
       font-weight: bold;
-      color: #495057;
-      margin-bottom: 8px;
+      margin-top: 4px;
     }
 
-    .loudness-zone .eq-band-slider {
-      min-width: 40px;
-    }
-
-    .loudness-zone .eq-band-slider input[type="range"] {
-      height: 100px;
+    /* Section-specific layout for loudness */
+    .section-loudness .section-params {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
     }
   </style>
 </head>
