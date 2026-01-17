@@ -857,9 +857,10 @@ static esp_err_t get_eq_settings_handler(httpd_req_t *req) {
   
   httpd_resp_set_status(req, "200 OK");
   httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Connection", "close"); // Free socket after 16KB response
   httpd_resp_sendstr(req, eq_json);
   free(eq_json);
-  
+
   return ESP_OK;
 #else
   httpd_resp_set_status(req, "404 Not Found");

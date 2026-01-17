@@ -812,8 +812,8 @@
         }
         schema = await schemaResponse.json();
 
-        // Small delay between requests to reduce ESP32 memory pressure
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // Delay between requests to allow ESP32 memory recovery after 64KB schema
+        await new Promise(resolve => setTimeout(resolve, 300));
 
         // Fetch current settings
         const settingsResponse = await fetch(`${backendUrl}/api/eq/settings`);
