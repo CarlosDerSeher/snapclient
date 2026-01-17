@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ESP32 Snapclient EQ Control</title>
   <link rel="stylesheet" href="styles.css">
-  <script src="index.js" defer></script>
-  <script src="settings-ui.js" defer></script>
+  <script src="index.js"></script>
+  <script src="settings-ui.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -801,31 +801,43 @@
     }
 
     // Fetch EQ schema and current settings
-    async function loadSettings() {
+    async function loadSettings(retryCount = 0) {
       try {
         const backendUrl = getBackendUrl();
-        
-        // Fetch schema
+
+        // Fetch schema first
         const schemaResponse = await fetch(`${backendUrl}/api/eq/schema`);
         if (!schemaResponse.ok) {
-          throw new Error('Failed to fetch EQ schema');
+          throw new Error(`Schema fetch failed: ${schemaResponse.status}`);
         }
         schema = await schemaResponse.json();
-        
+
+        // Small delay between requests to reduce ESP32 memory pressure
+        await new Promise(resolve => setTimeout(resolve, 100));
+
         // Fetch current settings
         const settingsResponse = await fetch(`${backendUrl}/api/eq/settings`);
         if (!settingsResponse.ok) {
-          throw new Error('Failed to fetch EQ settings');
+          throw new Error(`Settings fetch failed: ${settingsResponse.status}`);
         }
         currentSettings = await settingsResponse.json();
-        
+
         // Render UI
         renderUI();
       } catch (error) {
         console.error('Error loading EQ settings:', error);
+
+        // Retry once after a short delay (helps with mobile timing issues)
+        if (retryCount < 1) {
+          console.log('Retrying EQ settings load...');
+          setTimeout(() => loadSettings(retryCount + 1), 500);
+          return;
+        }
+
         document.getElementById('content').innerHTML = `
           <div class="error">
             Error loading EQ settings: ${error.message}
+            <br><button onclick="loadSettings()">Retry</button>
           </div>
         `;
       }
