@@ -756,9 +756,10 @@ static esp_err_t get_dac_schema_handler(httpd_req_t *req) {
   
   httpd_resp_set_status(req, "200 OK");
   httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Connection", "close"); // Free socket after large response
   httpd_resp_sendstr(req, schema_json);
   free(schema_json);
-  
+
   return ESP_OK;
 #else
   httpd_resp_set_status(req, "404 Not Found");
@@ -873,12 +874,12 @@ static esp_err_t get_eq_settings_handler(httpd_req_t *req) {
  */
 static esp_err_t get_eq_schema_handler(httpd_req_t *req) {
   ESP_LOGD(TAG, "%s: uri=%s", __func__, req->uri);
-  
+
   set_cors_headers(req);
-  
+
 #if CONFIG_DAC_TAS5805M
   const size_t schema_buf_size = 64 * 1024; // 64KB for EQ schema
-  
+
   char *schema_json = (char *)malloc(schema_buf_size);
   if (!schema_json) {
     ESP_LOGE(TAG, "%s: Failed to allocate memory for EQ schema JSON (size=%zu)", __func__, schema_buf_size);
@@ -888,7 +889,7 @@ static esp_err_t get_eq_schema_handler(httpd_req_t *req) {
   }
 
   esp_err_t ret = tas5805m_settings_get_eq_schema_json(schema_json, schema_buf_size);
-  
+
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "%s: Failed to get EQ schema JSON: %s", __func__, esp_err_to_name(ret));
     free(schema_json);
@@ -896,12 +897,13 @@ static esp_err_t get_eq_schema_handler(httpd_req_t *req) {
     httpd_resp_sendstr(req, "{\"error\": \"Failed to retrieve EQ schema\"}");
     return ESP_OK;
   }
-  
+
   httpd_resp_set_status(req, "200 OK");
   httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Connection", "close"); // Free socket after large response
   httpd_resp_sendstr(req, schema_json);
   free(schema_json);
-  
+
   return ESP_OK;
 #else
   httpd_resp_set_status(req, "404 Not Found");
@@ -1170,10 +1172,13 @@ esp_err_t start_server(const char *base_path, int port) {
 	ESP_LOGD(TAG, "%s: base_path=%s port=%d", __func__, base_path, port);
 	httpd_config_t config = HTTPD_DEFAULT_CONFIG();
 	config.server_port = port;
-	config.max_open_sockets = 7;
+	config.max_open_sockets = 7;     // Max allowed by LWIP_MAX_SOCKETS config
 	config.max_uri_handlers = 64;
-	config.lru_purge_enable = true; // Enable LRU socket purging
-	config.stack_size = 8192;       // Increased for bi-amp schema generation
+	config.lru_purge_enable = true;  // Enable LRU socket purging
+	config.stack_size = 8192;        // Increased for bi-amp schema generation
+	config.recv_wait_timeout = 5;    // 5 second receive timeout (faster cleanup of idle connections)
+	config.send_wait_timeout = 5;    // 5 second send timeout
+	config.backlog_conn = 10;        // Increase connection backlog queue
 
 	/* Enable wildcard URI matching for static file handler */
 	config.uri_match_fn = httpd_uri_match_wildcard;
