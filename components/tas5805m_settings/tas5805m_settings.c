@@ -1117,6 +1117,7 @@ int tas5805m_loudness_get_zone(int volume) {
 
 /** Apply loudness compensation based on current volume */
 esp_err_t tas5805m_loudness_apply(int volume) {
+#if CONFIG_DAC_TAS5805M_EQ_SUPPORT
     /* Get current sample rate from bi-amp settings or use default */
     float fs = 48000.0f;  /* Default sample rate */
     tas5805m_biamp_settings_t biamp;
@@ -1192,6 +1193,12 @@ esp_err_t tas5805m_loudness_apply(int volume) {
     }
 
     return ESP_OK;
+#else
+    /* EQ support not enabled - loudness compensation unavailable */
+    (void)volume;
+    ESP_LOGD(TAG, "%s: EQ support disabled, loudness compensation not available", __func__);
+    return ESP_OK;
+#endif /* CONFIG_DAC_TAS5805M_EQ_SUPPORT */
 }
 
 /** Load EQ mode from NVS */
