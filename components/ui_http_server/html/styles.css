@@ -121,10 +121,65 @@ textarea:focus {
 @media (max-width: 768px) {
   body {
     padding: 10px;
+    margin: 10px auto;
   }
-  
+
   .btn {
     padding: 8px 16px;
     font-size: 13px;
+  }
+
+  h1 {
+    font-size: 22px;
+  }
+
+  h2 {
+    font-size: 18px;
+  }
+
+  /* Make button groups stack on mobile */
+  .button-group {
+    flex-direction: column;
+  }
+
+  .button-group .btn {
+    width: 100%;
+  }
+
+  /* Better touch targets */
+  input[type="text"],
+  input[type="number"],
+  select {
+    font-size: 16px; /* Prevents iOS zoom on focus */
+    padding: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  body {
+    padding: 8px;
+    margin: 5px;
+  }
+
+  h1 {
+    font-size: 18px;
+  }
+
+  h2 {
+    font-size: 16px;
+  }
+
+  .btn {
+    padding: 10px 12px;
+    font-size: 14px;
+  }
+
+  .loading,
+  .error,
+  .success,
+  .warning,
+  .info {
+    padding: 10px;
+    font-size: 14px;
   }
 }

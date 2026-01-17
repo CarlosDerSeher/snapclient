@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ESP32 Snapclient EQ Control</title>
   <link rel="stylesheet" href="styles.css">
-  <script src="index.js"></script>
-  <script src="settings-ui.js"></script>
+  <script src="index.js" defer></script>
+  <script src="settings-ui.js" defer></script>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -660,6 +660,123 @@
       display: flex;
       flex-direction: column;
       gap: 8px;
+    }
+
+    /* Mobile responsive styles */
+    @media (max-width: 768px) {
+      body {
+        padding: 10px;
+        margin: 10px auto;
+      }
+
+      h1 {
+        font-size: 22px;
+        margin-bottom: 15px;
+      }
+
+      .group-container,
+      .parameter-group {
+        padding: 12px;
+      }
+
+      .group-title {
+        font-size: 18px;
+      }
+
+      .parameter-group h2 {
+        font-size: 16px;
+      }
+
+      .peq-subgroup-params {
+        grid-template-columns: 1fr;
+        gap: 8px;
+      }
+
+      .peq-param {
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .peq-param label {
+        margin-bottom: 0;
+        min-width: 50px;
+      }
+
+      .peq-param input[type="range"] {
+        flex: 1;
+        margin: 0 10px;
+      }
+
+      .radio-group {
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .radio-option {
+        width: 100%;
+        justify-content: center;
+      }
+
+      .preset-buttons {
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .preset-btn {
+        width: 100%;
+      }
+
+      .current-state {
+        flex-direction: column;
+        gap: 8px;
+        text-align: center;
+      }
+
+      .eq-bands-container {
+        justify-content: flex-start;
+      }
+
+      .eq-band-slider input[type="range"] {
+        height: 150px;
+      }
+    }
+
+    /* Extra small mobile */
+    @media (max-width: 480px) {
+      body {
+        padding: 8px;
+        margin: 5px;
+      }
+
+      h1 {
+        font-size: 18px;
+      }
+
+      .group-container,
+      .parameter-group {
+        padding: 10px;
+      }
+
+      .parameter-control .param-name {
+        font-size: 14px;
+      }
+
+      .parameter-control .param-value {
+        font-size: 16px;
+      }
+
+      .biamp-section {
+        padding: 10px;
+      }
+
+      .biamp-section .section-title {
+        font-size: 14px;
+      }
+
+      .loudness-zone-params {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
 </head>
