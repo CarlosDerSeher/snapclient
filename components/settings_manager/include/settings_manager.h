@@ -41,6 +41,43 @@ esp_err_t settings_get_server_port(int32_t *port);
 esp_err_t settings_set_server_port(int32_t port);
 esp_err_t settings_clear_server_port(void);
 
+/* WiFi Resilience Settings */
+
+/* TCP No Delay - disable Nagle's algorithm for lower latency */
+esp_err_t settings_get_tcp_nodelay(bool *enabled);
+esp_err_t settings_set_tcp_nodelay(bool enabled);
+esp_err_t settings_clear_tcp_nodelay(void);
+
+/* Queue Empty Threshold - consecutive empties before hard resync */
+esp_err_t settings_get_queue_empty_threshold(int32_t *value);
+esp_err_t settings_set_queue_empty_threshold(int32_t value);
+esp_err_t settings_clear_queue_empty_threshold(void);
+
+/* Queue Insert Timeout - ms to wait for queue space */
+esp_err_t settings_get_queue_insert_timeout(int32_t *value);
+esp_err_t settings_set_queue_insert_timeout(int32_t value);
+esp_err_t settings_clear_queue_insert_timeout(void);
+
+/* Fast Sync Latency - tolerance in microseconds */
+esp_err_t settings_get_fast_sync_latency(int32_t *value);
+esp_err_t settings_set_fast_sync_latency(int32_t value);
+esp_err_t settings_clear_fast_sync_latency(void);
+
+/* Reconnect Min Delay - initial delay in ms */
+esp_err_t settings_get_reconnect_min_delay(int32_t *value);
+esp_err_t settings_set_reconnect_min_delay(int32_t value);
+esp_err_t settings_clear_reconnect_min_delay(void);
+
+/* Reconnect Max Delay - max backoff delay in ms */
+esp_err_t settings_get_reconnect_max_delay(int32_t *value);
+esp_err_t settings_set_reconnect_max_delay(int32_t value);
+esp_err_t settings_clear_reconnect_max_delay(void);
+
+/* Buffer Headroom - extra buffer capacity as percentage */
+esp_err_t settings_get_buffer_headroom(int32_t *value);
+esp_err_t settings_set_buffer_headroom(int32_t value);
+esp_err_t settings_clear_buffer_headroom(void);
+
 /**
  * Get all settings as a JSON string
  * @param json_out Buffer to store JSON string (caller must allocate)

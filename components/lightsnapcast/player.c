@@ -1196,8 +1196,7 @@ int32_t insert_pcm_chunk(pcm_chunk_message_t *pcmChunk) {
   //    free_pcm_chunk(element);
   //  }
 
-  // if (xQueueSend(pcmChkQHdl, &pcmChunk, pdMS_TO_TICKS(10)) != pdTRUE) {
-  if (xQueueSend(pcmChkQHdl, &pcmChunk, pdMS_TO_TICKS(1)) != pdTRUE) {
+  if (xQueueSend(pcmChkQHdl, &pcmChunk, pdMS_TO_TICKS(CONFIG_PLAYER_QUEUE_INSERT_TIMEOUT_MS)) != pdTRUE) {
     ESP_LOGV(TAG, "send: pcmChunkQueue full, messages waiting %d",
              uxQueueMessagesWaiting(pcmChkQHdl));
 
@@ -1279,20 +1278,7 @@ static void player_task(void *pvParameters) {
   adjust_apll(0);
 #endif
 
-//  if (pcmChkQHdl == NULL) {
-//    int entries = ceil(((float)scSet.sr / (float)scSet.chkInFrames) *
-//                        ((float)scSet.buf_ms / 1000));
-//
-//    // some chunks are placed in DMA buffer
-//    // so we can save a little RAM here
-//    entries -= (i2sDmaBufMaxLen * i2sDmaBufCnt) / scSet.chkInFrames;
-//
-//    queueCreatedWithChkInFrames = scSet.chkInFrames;
-//
-//    pcmChkQHdl = xQueueCreate(entries, sizeof(pcm_chunk_message_t *));
-//
-//    ESP_LOGI(TAG, "created new queue with %d", entries);
-//  }
+  // Queue is now created in start_player() for proper initialization
   audio_set_mute(scSet.muted);
 
   // wait for early time syncs to be ready
@@ -1367,7 +1353,7 @@ static void player_task(void *pvParameters) {
 
           pcmChkQHdl = xQueueCreate(entries, sizeof(pcm_chunk_message_t *));
 
-          ESP_LOGI(TAG, "created new queue with %d", entries);
+          ESP_LOGI(TAG, "created new queue with %d entries", entries);
         }
 
         if ((scSet.sr != __scSet.sr) || (scSet.bits != __scSet.bits) ||
@@ -1800,9 +1786,19 @@ static void player_task(void *pvParameters) {
 
           int msgWaiting = uxQueueMessagesWaiting(pcmChkQHdl);
 
+          // Track consecutive empty queue reads for hysteresis
+          static int consecutive_empty_count = 0;
+
+          if (msgWaiting == 0) {
+            consecutive_empty_count++;
+          } else {
+            consecutive_empty_count = 0;
+          }
+
           // resync hard if we are getting very late / early.
           // rest gets tuned in through apll speed control or sample insertion
-          if ((msgWaiting == 0) ||
+          // Use hysteresis for queue empty to tolerate brief WiFi dropouts
+          if ((consecutive_empty_count >= CONFIG_PLAYER_QUEUE_EMPTY_THRESHOLD) ||
               (MEDIANFILTER_isFull(&shortMedianFilter, 0) &&
                ((shortMedian > hardResyncThreshold) ||
                 (shortMedian < -hardResyncThreshold)))) 

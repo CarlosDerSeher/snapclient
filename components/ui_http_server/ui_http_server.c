@@ -43,6 +43,8 @@ extern const uint8_t dsp_settings_html_start[] asm("_binary_dsp_settings_html_st
 extern const uint8_t dsp_settings_html_end[] asm("_binary_dsp_settings_html_end");
 extern const uint8_t favicon_ico_start[] asm("_binary_favicon_ico_start");
 extern const uint8_t favicon_ico_end[] asm("_binary_favicon_ico_end");
+extern const uint8_t advanced_settings_html_start[] asm("_binary_advanced_settings_html_start");
+extern const uint8_t advanced_settings_html_end[] asm("_binary_advanced_settings_html_end");
 
 // Structure to map URI paths to embedded files
 typedef struct {
@@ -59,6 +61,7 @@ static const embedded_file_t embedded_files[] = {
 	{"/styles.css", styles_css_start, styles_css_end, "text/css; charset=utf-8"},
 	{"/general-settings.html", general_settings_html_start, general_settings_html_end, "text/html; charset=utf-8"},
 	{"/dsp-settings.html", dsp_settings_html_start, dsp_settings_html_end, "text/html; charset=utf-8"},
+	{"/advanced-settings.html", advanced_settings_html_start, advanced_settings_html_end, "text/html; charset=utf-8"},
 	{"/favicon.ico", favicon_ico_start, favicon_ico_end, "image/x-icon"},
 };
 
@@ -229,6 +232,98 @@ static esp_err_t root_post_handler(httpd_req_t *req) {
 			return ESP_OK;
 		}
 
+		// WiFi Resilience Settings
+		if (strcmp(param, "tcp_nodelay") == 0) {
+			bool v = (strtol(valstr, NULL, 10) != 0);
+			ESP_LOGI(TAG, "%s: Setting tcp_nodelay to: %d", __func__, v ? 1 : 0);
+			if (settings_set_tcp_nodelay(v) == ESP_OK) {
+				httpd_resp_set_status(req, "200 OK");
+				httpd_resp_sendstr(req, "ok");
+			} else {
+				httpd_resp_set_status(req, "500 Internal Server Error");
+				httpd_resp_sendstr(req, "error");
+			}
+			return ESP_OK;
+		}
+
+		if (strcmp(param, "queue_empty_threshold") == 0) {
+			long v = strtol(valstr, NULL, 10);
+			ESP_LOGI(TAG, "%s: Setting queue_empty_threshold to: %ld", __func__, v);
+			if (v >= 1 && v <= 10 && settings_set_queue_empty_threshold((int32_t)v) == ESP_OK) {
+				httpd_resp_set_status(req, "200 OK");
+				httpd_resp_sendstr(req, "ok");
+			} else {
+				httpd_resp_set_status(req, "400 Bad Request");
+				httpd_resp_sendstr(req, "Invalid value (range: 1-10)");
+			}
+			return ESP_OK;
+		}
+
+		if (strcmp(param, "queue_insert_timeout") == 0) {
+			long v = strtol(valstr, NULL, 10);
+			ESP_LOGI(TAG, "%s: Setting queue_insert_timeout to: %ld", __func__, v);
+			if (v >= 1 && v <= 200 && settings_set_queue_insert_timeout((int32_t)v) == ESP_OK) {
+				httpd_resp_set_status(req, "200 OK");
+				httpd_resp_sendstr(req, "ok");
+			} else {
+				httpd_resp_set_status(req, "400 Bad Request");
+				httpd_resp_sendstr(req, "Invalid value (range: 1-200)");
+			}
+			return ESP_OK;
+		}
+
+		if (strcmp(param, "fast_sync_latency") == 0) {
+			long v = strtol(valstr, NULL, 10);
+			ESP_LOGI(TAG, "%s: Setting fast_sync_latency to: %ld", __func__, v);
+			if (v >= 10000 && v <= 100000 && settings_set_fast_sync_latency((int32_t)v) == ESP_OK) {
+				httpd_resp_set_status(req, "200 OK");
+				httpd_resp_sendstr(req, "ok");
+			} else {
+				httpd_resp_set_status(req, "400 Bad Request");
+				httpd_resp_sendstr(req, "Invalid value (range: 10000-100000)");
+			}
+			return ESP_OK;
+		}
+
+		if (strcmp(param, "reconnect_min_delay") == 0) {
+			long v = strtol(valstr, NULL, 10);
+			ESP_LOGI(TAG, "%s: Setting reconnect_min_delay to: %ld", __func__, v);
+			if (v >= 100 && v <= 5000 && settings_set_reconnect_min_delay((int32_t)v) == ESP_OK) {
+				httpd_resp_set_status(req, "200 OK");
+				httpd_resp_sendstr(req, "ok");
+			} else {
+				httpd_resp_set_status(req, "400 Bad Request");
+				httpd_resp_sendstr(req, "Invalid value (range: 100-5000)");
+			}
+			return ESP_OK;
+		}
+
+		if (strcmp(param, "reconnect_max_delay") == 0) {
+			long v = strtol(valstr, NULL, 10);
+			ESP_LOGI(TAG, "%s: Setting reconnect_max_delay to: %ld", __func__, v);
+			if (v >= 5000 && v <= 60000 && settings_set_reconnect_max_delay((int32_t)v) == ESP_OK) {
+				httpd_resp_set_status(req, "200 OK");
+				httpd_resp_sendstr(req, "ok");
+			} else {
+				httpd_resp_set_status(req, "400 Bad Request");
+				httpd_resp_sendstr(req, "Invalid value (range: 5000-60000)");
+			}
+			return ESP_OK;
+		}
+
+		if (strcmp(param, "buffer_headroom") == 0) {
+			long v = strtol(valstr, NULL, 10);
+			ESP_LOGI(TAG, "%s: Setting buffer_headroom to: %ld", __func__, v);
+			if (v >= 0 && v <= 100 && settings_set_buffer_headroom((int32_t)v) == ESP_OK) {
+				httpd_resp_set_status(req, "200 OK");
+				httpd_resp_sendstr(req, "ok");
+			} else {
+				httpd_resp_set_status(req, "400 Bad Request");
+				httpd_resp_sendstr(req, "Invalid value (range: 0-100)");
+			}
+			return ESP_OK;
+		}
+
 		// Parse integer value; strtol skips leading whitespace
 		long v = strtol(valstr, NULL, 10);
 		urlBuf.int_value = (int32_t)v;
@@ -319,6 +414,91 @@ static esp_err_t root_delete_handler(httpd_req_t *req) {
 	if (strcmp(param, "snapserver_port") == 0) {
 		ESP_LOGI(TAG, "%s: Clearing snapserver_port from NVS", __func__);
 		if (settings_clear_server_port() == ESP_OK) {
+			httpd_resp_set_status(req, "200 OK");
+			httpd_resp_sendstr(req, "ok");
+		} else {
+			httpd_resp_set_status(req, "500 Internal Server Error");
+			httpd_resp_sendstr(req, "error");
+		}
+		return ESP_OK;
+	}
+
+	// WiFi Resilience Settings - clear handlers
+	if (strcmp(param, "tcp_nodelay") == 0) {
+		ESP_LOGI(TAG, "%s: Clearing tcp_nodelay from NVS", __func__);
+		if (settings_clear_tcp_nodelay() == ESP_OK) {
+			httpd_resp_set_status(req, "200 OK");
+			httpd_resp_sendstr(req, "ok");
+		} else {
+			httpd_resp_set_status(req, "500 Internal Server Error");
+			httpd_resp_sendstr(req, "error");
+		}
+		return ESP_OK;
+	}
+
+	if (strcmp(param, "queue_empty_threshold") == 0) {
+		ESP_LOGI(TAG, "%s: Clearing queue_empty_threshold from NVS", __func__);
+		if (settings_clear_queue_empty_threshold() == ESP_OK) {
+			httpd_resp_set_status(req, "200 OK");
+			httpd_resp_sendstr(req, "ok");
+		} else {
+			httpd_resp_set_status(req, "500 Internal Server Error");
+			httpd_resp_sendstr(req, "error");
+		}
+		return ESP_OK;
+	}
+
+	if (strcmp(param, "queue_insert_timeout") == 0) {
+		ESP_LOGI(TAG, "%s: Clearing queue_insert_timeout from NVS", __func__);
+		if (settings_clear_queue_insert_timeout() == ESP_OK) {
+			httpd_resp_set_status(req, "200 OK");
+			httpd_resp_sendstr(req, "ok");
+		} else {
+			httpd_resp_set_status(req, "500 Internal Server Error");
+			httpd_resp_sendstr(req, "error");
+		}
+		return ESP_OK;
+	}
+
+	if (strcmp(param, "fast_sync_latency") == 0) {
+		ESP_LOGI(TAG, "%s: Clearing fast_sync_latency from NVS", __func__);
+		if (settings_clear_fast_sync_latency() == ESP_OK) {
+			httpd_resp_set_status(req, "200 OK");
+			httpd_resp_sendstr(req, "ok");
+		} else {
+			httpd_resp_set_status(req, "500 Internal Server Error");
+			httpd_resp_sendstr(req, "error");
+		}
+		return ESP_OK;
+	}
+
+	if (strcmp(param, "reconnect_min_delay") == 0) {
+		ESP_LOGI(TAG, "%s: Clearing reconnect_min_delay from NVS", __func__);
+		if (settings_clear_reconnect_min_delay() == ESP_OK) {
+			httpd_resp_set_status(req, "200 OK");
+			httpd_resp_sendstr(req, "ok");
+		} else {
+			httpd_resp_set_status(req, "500 Internal Server Error");
+			httpd_resp_sendstr(req, "error");
+		}
+		return ESP_OK;
+	}
+
+	if (strcmp(param, "reconnect_max_delay") == 0) {
+		ESP_LOGI(TAG, "%s: Clearing reconnect_max_delay from NVS", __func__);
+		if (settings_clear_reconnect_max_delay() == ESP_OK) {
+			httpd_resp_set_status(req, "200 OK");
+			httpd_resp_sendstr(req, "ok");
+		} else {
+			httpd_resp_set_status(req, "500 Internal Server Error");
+			httpd_resp_sendstr(req, "error");
+		}
+		return ESP_OK;
+	}
+
+	if (strcmp(param, "buffer_headroom") == 0) {
+		ESP_LOGI(TAG, "%s: Clearing buffer_headroom from NVS", __func__);
+		if (settings_clear_buffer_headroom() == ESP_OK) {
 			httpd_resp_set_status(req, "200 OK");
 			httpd_resp_sendstr(req, "ok");
 		} else {
@@ -568,12 +748,61 @@ static esp_err_t get_capabilities_handler(httpd_req_t *req) {
 		httpd_resp_sendstr(req, "{\"dsp_enabled\": false}");
 #endif
 
+	} else if (strcmp(tab, "advanced") == 0) {
+		// Return WiFi Resilience / Advanced settings
+		char json_buf[512];
+		int len = 0;
+
+		// Get all WiFi resilience settings
+		bool tcp_nodelay = true;
+		int32_t queue_empty_threshold = 3;
+		int32_t queue_insert_timeout = 50;
+		int32_t fast_sync_latency = 50000;
+		int32_t reconnect_min_delay = 1000;
+		int32_t reconnect_max_delay = 30000;
+		int32_t buffer_headroom = 50;
+
+		settings_get_tcp_nodelay(&tcp_nodelay);
+		settings_get_queue_empty_threshold(&queue_empty_threshold);
+		settings_get_queue_insert_timeout(&queue_insert_timeout);
+		settings_get_fast_sync_latency(&fast_sync_latency);
+		settings_get_reconnect_min_delay(&reconnect_min_delay);
+		settings_get_reconnect_max_delay(&reconnect_max_delay);
+		settings_get_buffer_headroom(&buffer_headroom);
+
+		len = snprintf(json_buf, sizeof(json_buf),
+			"{\"tcp_nodelay\":%s,"
+			"\"queue_empty_threshold\":%d,"
+			"\"queue_insert_timeout\":%d,"
+			"\"fast_sync_latency\":%d,"
+			"\"reconnect_min_delay\":%d,"
+			"\"reconnect_max_delay\":%d,"
+			"\"buffer_headroom\":%d}",
+			tcp_nodelay ? "true" : "false",
+			(int)queue_empty_threshold,
+			(int)queue_insert_timeout,
+			(int)fast_sync_latency,
+			(int)reconnect_min_delay,
+			(int)reconnect_max_delay,
+			(int)buffer_headroom);
+
+		if (len >= (int)sizeof(json_buf)) {
+			ESP_LOGE(TAG, "%s: JSON buffer overflow", __func__);
+			httpd_resp_set_status(req, "500 Internal Server Error");
+			httpd_resp_sendstr(req, "{\"error\": \"Buffer overflow\"}");
+			return ESP_OK;
+		}
+
+		httpd_resp_set_status(req, "200 OK");
+		httpd_resp_set_type(req, "application/json");
+		httpd_resp_sendstr(req, json_buf);
+
 	} else {
 		// Unknown tab
 		ESP_LOGW(TAG, "%s: Unknown tab: %s", __func__, tab);
 		httpd_resp_set_status(req, "400 Bad Request");
 		httpd_resp_sendstr(
-			req, "{\"error\": \"Unknown tab. Use ?tab=general or ?tab=dsp\"}");
+			req, "{\"error\": \"Unknown tab. Use ?tab=general, ?tab=dsp, or ?tab=advanced\"}");
 	}
 
 	return ESP_OK;

@@ -22,6 +22,15 @@ static const char *NVS_KEY_MDNS = "mdns";        // int32 0/1
 static const char *NVS_KEY_SERVER_HOST = "server_host"; // string
 static const char *NVS_KEY_SERVER_PORT = "server_port"; // int32
 
+// WiFi Resilience settings
+static const char *NVS_KEY_TCP_NODELAY = "tcp_nodelay";         // int32 0/1
+static const char *NVS_KEY_QUEUE_EMPTY_THRESH = "q_empty_thr";  // int32
+static const char *NVS_KEY_QUEUE_INSERT_TO = "q_insert_to";     // int32
+static const char *NVS_KEY_FAST_SYNC_LAT = "fast_sync_lat";     // int32
+static const char *NVS_KEY_RECONNECT_MIN = "reconn_min";        // int32
+static const char *NVS_KEY_RECONNECT_MAX = "reconn_max";        // int32
+static const char *NVS_KEY_BUFFER_HEADROOM = "buf_headroom";    // int32
+
 // Mutex for thread-safe NVS access
 static SemaphoreHandle_t hostname_mutex = NULL;
 
@@ -588,5 +597,465 @@ esp_err_t settings_set_from_json(const char *json_in) {
     }
 
     cJSON_Delete(root);
+    return err;
+}
+
+/* ========== WiFi Resilience Settings ========== */
+
+/* TCP No Delay */
+esp_err_t settings_get_tcp_nodelay(bool *enabled) {
+    if (!enabled) return ESP_ERR_INVALID_ARG;
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &h);
+    if (err == ESP_OK) {
+        int32_t v = 0;
+        err = nvs_get_i32(h, NVS_KEY_TCP_NODELAY, &v);
+        nvs_close(h);
+        if (err == ESP_OK) {
+            *enabled = (v != 0);
+            xSemaphoreGive(hostname_mutex);
+            return ESP_OK;
+        }
+    }
+    // Default from Kconfig
+#ifdef CONFIG_WIFI_TCP_NODELAY
+    *enabled = true;
+#else
+    *enabled = true;  // Default to enabled
+#endif
+    xSemaphoreGive(hostname_mutex);
+    return ESP_OK;
+}
+
+esp_err_t settings_set_tcp_nodelay(bool enabled) {
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        xSemaphoreGive(hostname_mutex);
+        return err;
+    }
+
+    err = nvs_set_i32(h, NVS_KEY_TCP_NODELAY, enabled ? 1 : 0);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    xSemaphoreGive(hostname_mutex);
+    return err;
+}
+
+esp_err_t settings_clear_tcp_nodelay(void) {
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        xSemaphoreGive(hostname_mutex);
+        return (err == ESP_ERR_NVS_NOT_FOUND) ? ESP_OK : err;
+    }
+
+    err = nvs_erase_key(h, NVS_KEY_TCP_NODELAY);
+    if (err == ESP_OK || err == ESP_ERR_NVS_NOT_FOUND) {
+        nvs_commit(h);
+        err = ESP_OK;
+    }
+    nvs_close(h);
+    xSemaphoreGive(hostname_mutex);
+    return err;
+}
+
+/* Queue Empty Threshold */
+esp_err_t settings_get_queue_empty_threshold(int32_t *value) {
+    if (!value) return ESP_ERR_INVALID_ARG;
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &h);
+    if (err == ESP_OK) {
+        err = nvs_get_i32(h, NVS_KEY_QUEUE_EMPTY_THRESH, value);
+        nvs_close(h);
+        if (err == ESP_OK) {
+            xSemaphoreGive(hostname_mutex);
+            return ESP_OK;
+        }
+    }
+#ifdef CONFIG_PLAYER_QUEUE_EMPTY_THRESHOLD
+    *value = CONFIG_PLAYER_QUEUE_EMPTY_THRESHOLD;
+#else
+    *value = 3;
+#endif
+    xSemaphoreGive(hostname_mutex);
+    return ESP_OK;
+}
+
+esp_err_t settings_set_queue_empty_threshold(int32_t value) {
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        xSemaphoreGive(hostname_mutex);
+        return err;
+    }
+
+    err = nvs_set_i32(h, NVS_KEY_QUEUE_EMPTY_THRESH, value);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    xSemaphoreGive(hostname_mutex);
+    return err;
+}
+
+esp_err_t settings_clear_queue_empty_threshold(void) {
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        xSemaphoreGive(hostname_mutex);
+        return (err == ESP_ERR_NVS_NOT_FOUND) ? ESP_OK : err;
+    }
+
+    err = nvs_erase_key(h, NVS_KEY_QUEUE_EMPTY_THRESH);
+    if (err == ESP_OK || err == ESP_ERR_NVS_NOT_FOUND) {
+        nvs_commit(h);
+        err = ESP_OK;
+    }
+    nvs_close(h);
+    xSemaphoreGive(hostname_mutex);
+    return err;
+}
+
+/* Queue Insert Timeout */
+esp_err_t settings_get_queue_insert_timeout(int32_t *value) {
+    if (!value) return ESP_ERR_INVALID_ARG;
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &h);
+    if (err == ESP_OK) {
+        err = nvs_get_i32(h, NVS_KEY_QUEUE_INSERT_TO, value);
+        nvs_close(h);
+        if (err == ESP_OK) {
+            xSemaphoreGive(hostname_mutex);
+            return ESP_OK;
+        }
+    }
+#ifdef CONFIG_PLAYER_QUEUE_INSERT_TIMEOUT_MS
+    *value = CONFIG_PLAYER_QUEUE_INSERT_TIMEOUT_MS;
+#else
+    *value = 50;
+#endif
+    xSemaphoreGive(hostname_mutex);
+    return ESP_OK;
+}
+
+esp_err_t settings_set_queue_insert_timeout(int32_t value) {
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        xSemaphoreGive(hostname_mutex);
+        return err;
+    }
+
+    err = nvs_set_i32(h, NVS_KEY_QUEUE_INSERT_TO, value);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    xSemaphoreGive(hostname_mutex);
+    return err;
+}
+
+esp_err_t settings_clear_queue_insert_timeout(void) {
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        xSemaphoreGive(hostname_mutex);
+        return (err == ESP_ERR_NVS_NOT_FOUND) ? ESP_OK : err;
+    }
+
+    err = nvs_erase_key(h, NVS_KEY_QUEUE_INSERT_TO);
+    if (err == ESP_OK || err == ESP_ERR_NVS_NOT_FOUND) {
+        nvs_commit(h);
+        err = ESP_OK;
+    }
+    nvs_close(h);
+    xSemaphoreGive(hostname_mutex);
+    return err;
+}
+
+/* Fast Sync Latency */
+esp_err_t settings_get_fast_sync_latency(int32_t *value) {
+    if (!value) return ESP_ERR_INVALID_ARG;
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &h);
+    if (err == ESP_OK) {
+        err = nvs_get_i32(h, NVS_KEY_FAST_SYNC_LAT, value);
+        nvs_close(h);
+        if (err == ESP_OK) {
+            xSemaphoreGive(hostname_mutex);
+            return ESP_OK;
+        }
+    }
+#ifdef CONFIG_WIFI_FAST_SYNC_LATENCY_US
+    *value = CONFIG_WIFI_FAST_SYNC_LATENCY_US;
+#else
+    *value = 50000;
+#endif
+    xSemaphoreGive(hostname_mutex);
+    return ESP_OK;
+}
+
+esp_err_t settings_set_fast_sync_latency(int32_t value) {
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        xSemaphoreGive(hostname_mutex);
+        return err;
+    }
+
+    err = nvs_set_i32(h, NVS_KEY_FAST_SYNC_LAT, value);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    xSemaphoreGive(hostname_mutex);
+    return err;
+}
+
+esp_err_t settings_clear_fast_sync_latency(void) {
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        xSemaphoreGive(hostname_mutex);
+        return (err == ESP_ERR_NVS_NOT_FOUND) ? ESP_OK : err;
+    }
+
+    err = nvs_erase_key(h, NVS_KEY_FAST_SYNC_LAT);
+    if (err == ESP_OK || err == ESP_ERR_NVS_NOT_FOUND) {
+        nvs_commit(h);
+        err = ESP_OK;
+    }
+    nvs_close(h);
+    xSemaphoreGive(hostname_mutex);
+    return err;
+}
+
+/* Reconnect Min Delay */
+esp_err_t settings_get_reconnect_min_delay(int32_t *value) {
+    if (!value) return ESP_ERR_INVALID_ARG;
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &h);
+    if (err == ESP_OK) {
+        err = nvs_get_i32(h, NVS_KEY_RECONNECT_MIN, value);
+        nvs_close(h);
+        if (err == ESP_OK) {
+            xSemaphoreGive(hostname_mutex);
+            return ESP_OK;
+        }
+    }
+#ifdef CONFIG_WIFI_RECONNECT_MIN_DELAY_MS
+    *value = CONFIG_WIFI_RECONNECT_MIN_DELAY_MS;
+#else
+    *value = 1000;
+#endif
+    xSemaphoreGive(hostname_mutex);
+    return ESP_OK;
+}
+
+esp_err_t settings_set_reconnect_min_delay(int32_t value) {
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        xSemaphoreGive(hostname_mutex);
+        return err;
+    }
+
+    err = nvs_set_i32(h, NVS_KEY_RECONNECT_MIN, value);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    xSemaphoreGive(hostname_mutex);
+    return err;
+}
+
+esp_err_t settings_clear_reconnect_min_delay(void) {
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        xSemaphoreGive(hostname_mutex);
+        return (err == ESP_ERR_NVS_NOT_FOUND) ? ESP_OK : err;
+    }
+
+    err = nvs_erase_key(h, NVS_KEY_RECONNECT_MIN);
+    if (err == ESP_OK || err == ESP_ERR_NVS_NOT_FOUND) {
+        nvs_commit(h);
+        err = ESP_OK;
+    }
+    nvs_close(h);
+    xSemaphoreGive(hostname_mutex);
+    return err;
+}
+
+/* Reconnect Max Delay */
+esp_err_t settings_get_reconnect_max_delay(int32_t *value) {
+    if (!value) return ESP_ERR_INVALID_ARG;
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &h);
+    if (err == ESP_OK) {
+        err = nvs_get_i32(h, NVS_KEY_RECONNECT_MAX, value);
+        nvs_close(h);
+        if (err == ESP_OK) {
+            xSemaphoreGive(hostname_mutex);
+            return ESP_OK;
+        }
+    }
+#ifdef CONFIG_WIFI_RECONNECT_MAX_DELAY_MS
+    *value = CONFIG_WIFI_RECONNECT_MAX_DELAY_MS;
+#else
+    *value = 30000;
+#endif
+    xSemaphoreGive(hostname_mutex);
+    return ESP_OK;
+}
+
+esp_err_t settings_set_reconnect_max_delay(int32_t value) {
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        xSemaphoreGive(hostname_mutex);
+        return err;
+    }
+
+    err = nvs_set_i32(h, NVS_KEY_RECONNECT_MAX, value);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    xSemaphoreGive(hostname_mutex);
+    return err;
+}
+
+esp_err_t settings_clear_reconnect_max_delay(void) {
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        xSemaphoreGive(hostname_mutex);
+        return (err == ESP_ERR_NVS_NOT_FOUND) ? ESP_OK : err;
+    }
+
+    err = nvs_erase_key(h, NVS_KEY_RECONNECT_MAX);
+    if (err == ESP_OK || err == ESP_ERR_NVS_NOT_FOUND) {
+        nvs_commit(h);
+        err = ESP_OK;
+    }
+    nvs_close(h);
+    xSemaphoreGive(hostname_mutex);
+    return err;
+}
+
+/* Buffer Headroom */
+esp_err_t settings_get_buffer_headroom(int32_t *value) {
+    if (!value) return ESP_ERR_INVALID_ARG;
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &h);
+    if (err == ESP_OK) {
+        err = nvs_get_i32(h, NVS_KEY_BUFFER_HEADROOM, value);
+        nvs_close(h);
+        if (err == ESP_OK) {
+            xSemaphoreGive(hostname_mutex);
+            return ESP_OK;
+        }
+    }
+#ifdef CONFIG_PLAYER_BUFFER_HEADROOM_PCT
+    *value = CONFIG_PLAYER_BUFFER_HEADROOM_PCT;
+#else
+    *value = 50;
+#endif
+    xSemaphoreGive(hostname_mutex);
+    return ESP_OK;
+}
+
+esp_err_t settings_set_buffer_headroom(int32_t value) {
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        xSemaphoreGive(hostname_mutex);
+        return err;
+    }
+
+    err = nvs_set_i32(h, NVS_KEY_BUFFER_HEADROOM, value);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    xSemaphoreGive(hostname_mutex);
+    return err;
+}
+
+esp_err_t settings_clear_buffer_headroom(void) {
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        xSemaphoreGive(hostname_mutex);
+        return (err == ESP_ERR_NVS_NOT_FOUND) ? ESP_OK : err;
+    }
+
+    err = nvs_erase_key(h, NVS_KEY_BUFFER_HEADROOM);
+    if (err == ESP_OK || err == ESP_ERR_NVS_NOT_FOUND) {
+        nvs_commit(h);
+        err = ESP_OK;
+    }
+    nvs_close(h);
+    xSemaphoreGive(hostname_mutex);
     return err;
 }

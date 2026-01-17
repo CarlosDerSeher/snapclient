@@ -6,4 +6,5 @@ idf_component_register(SRCS "ui_http_server.c"
                                       html/styles.css
                                       html/general-settings.html
                                       html/dsp-settings.html
+                                      html/advanced-settings.html
                        EMBED_FILES html/favicon.ico)

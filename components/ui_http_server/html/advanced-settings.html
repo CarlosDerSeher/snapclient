@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Advanced Settings</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="index.js" defer></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 20px auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+
+    h1 { color: #333; text-align: center; margin-bottom: 30px; }
+
+    .settings-container {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .setting-section {
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      border-left: 4px solid #e67e22;
+    }
+
+    .section-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #d35400;
+      margin-bottom: 8px;
+    }
+
+    .section-description {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 20px;
+      font-style: italic;
+    }
+
+    .setting-row {
+      display: flex;
+      align-items: center;
+      margin-bottom: 15px;
+      gap: 15px;
+    }
+
+    .setting-row label {
+      flex: 0 0 200px;
+      font-weight: 500;
+      color: #333;
+    }
+
+    .setting-row input[type="number"],
+    .setting-row select {
+      flex: 0 0 120px;
+      padding: 8px 12px;
+      font-size: 14px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+
+    .setting-row .unit {
+      color: #666;
+      font-size: 13px;
+      min-width: 80px;
+    }
+
+    .setting-row .help {
+      color: #888;
+      font-size: 12px;
+      margin-left: auto;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+      padding-top: 15px;
+      border-top: 1px solid #eee;
+    }
+
+    .btn {
+      padding: 10px 20px;
+      font-size: 14px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+
+    .btn-primary {
+      background-color: #007bff;
+      color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background-color: #0056b3;
+    }
+
+    .btn-primary:disabled {
+      background-color: #6c757d;
+      cursor: not-allowed;
+    }
+
+    .btn-secondary {
+      background-color: #6c757d;
+      color: white;
+    }
+
+    .btn-secondary:hover {
+      background-color: #545b62;
+    }
+
+    .btn-danger {
+      background-color: #e74c3c;
+      color: white;
+    }
+
+    .btn-danger:hover:not(:disabled) {
+      background-color: #c0392b;
+    }
+
+    .btn-danger:disabled {
+      background-color: #6c757d;
+      cursor: not-allowed;
+    }
+
+    .info {
+      background-color: #fff3cd;
+      color: #856404;
+      padding: 15px;
+      border-radius: 4px;
+      margin: 20px 0;
+      font-size: 14px;
+      border: 1px solid #ffeeba;
+    }
+
+    .success {
+      background-color: #d4edda;
+      color: #155724;
+      padding: 15px;
+      border-radius: 4px;
+      margin-bottom: 20px;
+    }
+
+    .error {
+      background-color: #f8d7da;
+      color: #721c24;
+      padding: 15px;
+      border-radius: 4px;
+      margin: 20px 0;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+    }
+
+    /* Responsive */
+    @media (max-width: 600px) {
+      .setting-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+      }
+      .setting-row label { flex: none; }
+      .setting-row input, .setting-row select { width: 100%; }
+      .setting-row .help { margin-left: 0; margin-top: 4px; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Advanced Settings</h1>
+
+  <div id="app">
+    <div class="loading">Loading settings...</div>
+  </div>
+
+  <script>
+    'use strict';
+
+    // Current values (loaded from server)
+    let currentSettings = {};
+    let isDirty = false;
+
+    async function loadSettings() {
+      const app = document.getElementById('app');
+      try {
+        const response = await fetch('/capabilities?tab=advanced');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        currentSettings = await response.json();
+        renderUI();
+      } catch (error) {
+        console.error('Error loading settings:', error);
+        app.innerHTML = '<div class="error">Failed to load settings. Please refresh the page.</div>';
+      }
+    }
+
+    function renderUI() {
+      const app = document.getElementById('app');
+
+      let html = '<div class="settings-container">';
+
+      // WiFi Resilience Section
+      html += '<div class="setting-section">';
+      html += '<div class="section-title">WiFi Resilience</div>';
+      html += '<div class="section-description">Tune parameters to handle poor WiFi conditions and reduce audio dropouts.</div>';
+
+      html += '<div class="setting-row">';
+      html += '<label for="tcp-nodelay">TCP No Delay</label>';
+      html += '<select id="tcp-nodelay" onchange="markDirty()">';
+      html += '<option value="1"' + (currentSettings.tcp_nodelay ? ' selected' : '') + '>Enabled</option>';
+      html += '<option value="0"' + (!currentSettings.tcp_nodelay ? ' selected' : '') + '>Disabled</option>';
+      html += '</select>';
+      html += '<span class="unit"></span>';
+      html += '<span class="help">Disables Nagle\'s algorithm for lower latency</span>';
+      html += '</div>';
+
+      html += '<div class="setting-row">';
+      html += '<label for="queue-empty-thresh">Queue Empty Threshold</label>';
+      html += '<input type="number" id="queue-empty-thresh" min="1" max="10" value="' + (currentSettings.queue_empty_threshold || 3) + '" onchange="markDirty()">';
+      html += '<span class="unit">consecutive</span>';
+      html += '<span class="help">Empty reads before hard resync</span>';
+      html += '</div>';
+
+      html += '<div class="setting-row">';
+      html += '<label for="queue-insert-timeout">Queue Insert Timeout</label>';
+      html += '<input type="number" id="queue-insert-timeout" min="1" max="200" value="' + (currentSettings.queue_insert_timeout || 50) + '" onchange="markDirty()">';
+      html += '<span class="unit">ms</span>';
+      html += '<span class="help">Wait time for queue space</span>';
+      html += '</div>';
+
+      html += '<div class="setting-row">';
+      html += '<label for="fast-sync-latency">Fast Sync Tolerance</label>';
+      html += '<input type="number" id="fast-sync-latency" min="10000" max="100000" step="1000" value="' + (currentSettings.fast_sync_latency || 50000) + '" onchange="markDirty()">';
+      html += '<span class="unit">us</span>';
+      html += '<span class="help">Latency buffer for sync</span>';
+      html += '</div>';
+
+      html += '<div class="setting-row">';
+      html += '<label for="reconnect-min">Reconnect Min Delay</label>';
+      html += '<input type="number" id="reconnect-min" min="100" max="5000" step="100" value="' + (currentSettings.reconnect_min_delay || 1000) + '" onchange="markDirty()">';
+      html += '<span class="unit">ms</span>';
+      html += '<span class="help">Initial retry delay</span>';
+      html += '</div>';
+
+      html += '<div class="setting-row">';
+      html += '<label for="reconnect-max">Reconnect Max Delay</label>';
+      html += '<input type="number" id="reconnect-max" min="5000" max="60000" step="1000" value="' + (currentSettings.reconnect_max_delay || 30000) + '" onchange="markDirty()">';
+      html += '<span class="unit">ms</span>';
+      html += '<span class="help">Max backoff delay</span>';
+      html += '</div>';
+
+      html += '<div class="setting-row">';
+      html += '<label for="buffer-headroom">Buffer Headroom</label>';
+      html += '<input type="number" id="buffer-headroom" min="0" max="100" value="' + (currentSettings.buffer_headroom || 50) + '" onchange="markDirty()">';
+      html += '<span class="unit">%</span>';
+      html += '<span class="help">Extra buffer for jitter</span>';
+      html += '</div>';
+
+      html += '<div class="button-group">';
+      html += '<button class="btn btn-primary" id="save-btn" onclick="saveSettings()" disabled>Save Changes</button>';
+      html += '<button class="btn btn-secondary" onclick="resetSettings()">Reset to Defaults</button>';
+      html += '<button class="btn btn-danger" id="restart-btn" onclick="requestRestart()" disabled>Restart Device</button>';
+      html += '</div>';
+
+      html += '</div>'; // .setting-section
+      html += '</div>'; // .settings-container
+
+      html += '<div class="info">';
+      html += '<strong>Note:</strong> Changes require a device restart to take effect.';
+      html += '</div>';
+
+      app.innerHTML = html;
+    }
+
+    function markDirty() {
+      isDirty = true;
+      document.getElementById('save-btn').disabled = false;
+    }
+
+    async function saveSettings() {
+      const saveBtn = document.getElementById('save-btn');
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving...';
+
+      try {
+        const settings = {
+          tcp_nodelay: document.getElementById('tcp-nodelay').value,
+          queue_empty_threshold: document.getElementById('queue-empty-thresh').value,
+          queue_insert_timeout: document.getElementById('queue-insert-timeout').value,
+          fast_sync_latency: document.getElementById('fast-sync-latency').value,
+          reconnect_min_delay: document.getElementById('reconnect-min').value,
+          reconnect_max_delay: document.getElementById('reconnect-max').value,
+          buffer_headroom: document.getElementById('buffer-headroom').value
+        };
+
+        for (const [key, value] of Object.entries(settings)) {
+          const success = await setParameter(key, value);
+          if (!success) throw new Error('Failed to save ' + key);
+        }
+
+        isDirty = false;
+        saveBtn.textContent = 'Save Changes';
+        document.getElementById('restart-btn').disabled = false;
+
+        // Show success message
+        const app = document.getElementById('app');
+        const msg = document.createElement('div');
+        msg.className = 'success';
+        msg.textContent = 'Settings saved! Restart device for changes to take effect.';
+        app.insertBefore(msg, app.firstChild);
+        setTimeout(function() { msg.remove(); }, 5000);
+      } catch (error) {
+        console.error('Save failed:', error);
+        alert('Failed to save settings: ' + error.message);
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Changes';
+      }
+    }
+
+    async function resetSettings() {
+      if (!confirm('Reset all WiFi resilience settings to defaults?')) return;
+
+      const keys = ['tcp_nodelay', 'queue_empty_threshold', 'queue_insert_timeout',
+                    'fast_sync_latency', 'reconnect_min_delay', 'reconnect_max_delay',
+                    'buffer_headroom'];
+
+      try {
+        for (const key of keys) {
+          await deleteParameter(key);
+        }
+        location.reload();
+      } catch (error) {
+        console.error('Reset failed:', error);
+        alert('Failed to reset settings');
+      }
+    }
+
+    function requestRestart() {
+      if (!confirm('Restart device now?')) return;
+      fetch('/restart', { method: 'POST' })
+        .then(function(r) {
+          if (r.ok) {
+            alert('Device restarting...');
+          } else {
+            alert('Restart failed');
+          }
+        })
+        .catch(function() {
+          alert('Restart failed');
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', loadSettings);
+  </script>
+</body>
+</html>
