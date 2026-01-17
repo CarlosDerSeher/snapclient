@@ -433,6 +433,15 @@
       background-color: #0056b3;
     }
 
+    .preset-btn.reset-btn {
+      background-color: #dc3545;
+      color: white;
+    }
+
+    .preset-btn.reset-btn:hover {
+      background-color: #c82333;
+    }
+
     .info-box {
       background-color: #d1ecf1;
       color: #0c5460;
@@ -866,6 +875,22 @@
           input.click();
         };
         presetButtonsDiv.appendChild(importBtn);
+
+        const resetBtn = document.createElement('button');
+        resetBtn.className = 'preset-btn reset-btn';
+        resetBtn.textContent = 'Reset to Defaults';
+        resetBtn.onclick = async () => {
+          if (!confirm('Reset all Advanced Bi-Amp settings to defaults?\n\nThis will clear all crossover, PEQ, and loudness settings.')) return;
+          try {
+            const response = await fetch('/api/biamp/reset', { method: 'POST' });
+            if (!response.ok) throw new Error('Reset failed');
+            alert('Settings reset to defaults! Refreshing...');
+            location.reload();
+          } catch (err) {
+            alert('Failed to reset settings: ' + err.message);
+          }
+        };
+        presetButtonsDiv.appendChild(resetBtn);
 
         sectionsContainer.appendChild(presetButtonsDiv);
 

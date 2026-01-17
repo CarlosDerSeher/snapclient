@@ -67,6 +67,21 @@ extern "C" {
 #define TAS5805M_NVS_KEY_LOUDNESS_BASS      "loud_bass"   // 5 bytes for bass boost
 #define TAS5805M_NVS_KEY_LOUDNESS_TREBLE    "loud_treb"   // 5 bytes for treble boost
 
+// Baffle step compensation (woofer low shelf)
+#define TAS5805M_NVS_KEY_BAFFLE_WIDTH       "baffle_w"    // Baffle width in cm
+#define TAS5805M_NVS_KEY_BAFFLE_PLACEMENT   "baffle_p"    // Speaker placement type
+
+// Time alignment (tweeter delay)
+#define TAS5805M_NVS_KEY_TWEETER_DELAY      "twt_delay"   // Tweeter delay in mm
+
+// Tweeter breakup notch filter
+#define TAS5805M_NVS_KEY_NOTCH_FREQ         "twt_notch_f" // Notch frequency in Hz
+#define TAS5805M_NVS_KEY_NOTCH_GAIN         "twt_notch_g" // Notch depth (negative dB)
+#define TAS5805M_NVS_KEY_NOTCH_Q            "twt_notch_q" // Notch Q factor x10
+
+// Air/Brilliance shelf (tweeter high shelf)
+#define TAS5805M_NVS_KEY_AIR_GAIN           "twt_air_g"   // Air shelf gain in dB x2
+
 /** EQ UI modes exposed to the settings UI. These control visibility and apply behavior.
  *  Defined here so the settings module owns the UI contract. Values are persisted to NVS.
  */
@@ -161,6 +176,13 @@ typedef enum {
     BIAMP_TYPE_LINKWITZ_RILEY = 1,
 } tas5805m_biamp_type_t;
 
+/** Baffle step speaker placement - affects compensation amount */
+typedef enum {
+    BAFFLE_PLACEMENT_FREESTANDING = 0,  // Full 6dB compensation
+    BAFFLE_PLACEMENT_NEAR_WALL = 1,     // ~3dB compensation (wall reflection helps)
+    BAFFLE_PLACEMENT_CORNER = 2,        // No compensation needed (room gain)
+} tas5805m_baffle_placement_t;
+
 /** Per-output PEQ band settings */
 typedef struct {
     uint16_t freq;      // Center frequency (20-20000 Hz), 0 = disabled
@@ -190,12 +212,31 @@ typedef struct {
     int8_t high_gain;               // Gain * 2 for 0.5 dB resolution (-48 to +48 representing -24 to +24 dB)
     uint8_t high_phase_invert;      // 0=normal, 1=invert
     tas5805m_biamp_peq_band_t high_peq[TAS5805M_BIAMP_PEQ_BANDS];
+
+    // Baffle step compensation (low shelf boost for woofer)
+    uint8_t baffle_width_cm;        // 0=disabled, 5-50cm typical
+    tas5805m_baffle_placement_t baffle_placement;  // Affects compensation amount
+
+    // Time alignment (delays tweeter to align with woofer)
+    uint8_t tweeter_delay_mm;       // 0=disabled, 1-50mm typical
+
+    // Tweeter breakup notch (tames resonance peak at tweeter's upper limit)
+    uint16_t notch_freq;            // 0=disabled, 10000-25000 Hz typical
+    int8_t notch_gain;              // Gain * 2 for 0.5 dB resolution (0 to -24 representing 0 to -12 dB)
+    uint8_t notch_q_x10;            // Q factor * 10 (20-100 representing 2.0-10.0)
+
+    // Air/Brilliance shelf (high shelf for treble sparkle)
+    int8_t air_gain;                // Gain * 2 for 0.5 dB resolution (-12 to +12 representing -6 to +6 dB)
 } tas5805m_biamp_settings_t;
 
 /** Default bi-amp settings */
 #define TAS5805M_BIAMP_DEFAULT_XOVER_FREQ   2000
 #define TAS5805M_BIAMP_DEFAULT_SLOPE        BIAMP_SLOPE_24DB
 #define TAS5805M_BIAMP_DEFAULT_TYPE         BIAMP_TYPE_LINKWITZ_RILEY
+
+/** Baffle step compensation - uses woofer band 12 (spare) */
+#define TAS5805M_BAFFLE_STEP_BAND           12
+#define TAS5805M_BAFFLE_DEFAULT_WIDTH       0   // Disabled by default
 
 /** Save advanced bi-amp settings to NVS */
 esp_err_t tas5805m_settings_save_biamp(const tas5805m_biamp_settings_t *settings);
@@ -302,6 +343,17 @@ esp_err_t tas5805m_biamp_preset_export(char *json_out, size_t max_len);
  * @return ESP_OK on success, ESP_ERR_INVALID_ARG if preset is invalid
  */
 esp_err_t tas5805m_biamp_preset_import(const char *json_in);
+
+/**
+ * @brief Reset bi-amp settings to factory defaults
+ *
+ * Clears all bi-amp related NVS keys and re-initializes settings to defaults.
+ * This includes crossover, gains, PEQ, phase, loudness, and all other bi-amp
+ * parameters.
+ *
+ * @return ESP_OK on success
+ */
+esp_err_t tas5805m_biamp_reset_defaults(void);
 
 #endif /* CONFIG_DAC_TAS5805M */
 

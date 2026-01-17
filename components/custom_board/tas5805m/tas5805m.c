@@ -30,12 +30,19 @@
 #include "i2c_bus.h"
 #include "tas5805m_reg_cfg.h"
 #include <math.h>
+#include "freertos/semphr.h"
+#include "freertos/portmacro.h"
 
 #if CONFIG_DAC_TAS5805M
 #include "tas5805m_settings.h"
 #endif
 
 static const char *TAG = "TAS5805M";
+
+/* Mutex for thread-safe I2C access */
+static SemaphoreHandle_t tas5805m_i2c_mutex = NULL;
+/* Spinlock to protect mutex initialization (prevents TOCTOU race) */
+static portMUX_TYPE tas5805m_init_lock = portMUX_INITIALIZER_UNLOCKED;
 
 #define TAS5805M_SET_BOOK_AND_PAGE(BOOK, PAGE) \
     do { \
@@ -130,6 +137,11 @@ void i2c_master_init() {
 
 // Reading of TAS5805M-Register
 esp_err_t tas5805m_read_byte(uint8_t register_name, uint8_t *data) {
+  if (tas5805m_i2c_mutex && xSemaphoreTakeRecursive(tas5805m_i2c_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+    ESP_LOGE(TAG, "%s: Failed to acquire I2C mutex", __func__);
+    return ESP_ERR_TIMEOUT;
+  }
+
   int ret;
   i2c_cmd_handle_t cmd = i2c_cmd_link_create();
   i2c_master_start(cmd);
@@ -154,11 +166,18 @@ esp_err_t tas5805m_read_byte(uint8_t register_name, uint8_t *data) {
                              1000 / portTICK_PERIOD_MS);
   i2c_cmd_link_delete(cmd);
   ESP_LOGV(TAG, "%s: Read 0x%02x from register 0x%02x", __func__, *data, register_name);
+
+  if (tas5805m_i2c_mutex) xSemaphoreGiveRecursive(tas5805m_i2c_mutex);
   return ret;
 }
 
 // Writing of TAS5805M-Register
 esp_err_t tas5805m_write_byte(uint8_t register_name, uint8_t value) {
+  if (tas5805m_i2c_mutex && xSemaphoreTakeRecursive(tas5805m_i2c_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+    ESP_LOGE(TAG, "%s: Failed to acquire I2C mutex", __func__);
+    return ESP_ERR_TIMEOUT;
+  }
+
   int ret = 0;
   ESP_LOGV(TAG, "%s: Writing 0x%02x to register 0x%02x", __func__, value, register_name);
 
@@ -179,12 +198,18 @@ esp_err_t tas5805m_write_byte(uint8_t register_name, uint8_t value) {
 
   i2c_cmd_link_delete(cmd);
 
+  if (tas5805m_i2c_mutex) xSemaphoreGiveRecursive(tas5805m_i2c_mutex);
   return ret;
 }
 
 esp_err_t tas5805m_write_bytes(uint8_t *reg,
                                int regLen, uint8_t *data, int datalen)
 {
+  if (tas5805m_i2c_mutex && xSemaphoreTakeRecursive(tas5805m_i2c_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+    ESP_LOGE(TAG, "%s: Failed to acquire I2C mutex", __func__);
+    return ESP_ERR_TIMEOUT;
+  }
+
   int ret = ESP_OK;
   ESP_LOGV(TAG, "%s: 0x%02x <- [%d] bytes", __func__, *reg, datalen);
   for (int i = 0; i < datalen; i++)
@@ -208,11 +233,17 @@ esp_err_t tas5805m_write_bytes(uint8_t *reg,
 
   i2c_cmd_link_delete(cmd);
 
+  if (tas5805m_i2c_mutex) xSemaphoreGiveRecursive(tas5805m_i2c_mutex);
   return ret;
 }
 
 esp_err_t tas5805m_read_bytes(uint8_t *reg, int regLen, uint8_t *data, int datalen)
 {
+  if (tas5805m_i2c_mutex && xSemaphoreTakeRecursive(tas5805m_i2c_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+    ESP_LOGE(TAG, "%s: Failed to acquire I2C mutex", __func__);
+    return ESP_ERR_TIMEOUT;
+  }
+
   int ret = ESP_OK;
   ESP_LOGV(TAG, "%s: 0x%02x -> [%d] bytes", __func__, *reg, datalen);
 
@@ -226,11 +257,12 @@ esp_err_t tas5805m_read_bytes(uint8_t *reg, int regLen, uint8_t *data, int datal
 
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "%s: Error during I2C write phase: %s", __func__, esp_err_to_name(ret));
+    if (tas5805m_i2c_mutex) xSemaphoreGiveRecursive(tas5805m_i2c_mutex);
     return ret;
   }
 
   vTaskDelay(1 / portTICK_PERIOD_MS);
-  
+
   cmd = i2c_cmd_link_create();
   ret |= i2c_master_start(cmd);
   ret |= i2c_master_write_byte(cmd, TAS5805M_ADDRESS << 1 | READ_BIT, ACK_CHECK_EN);
@@ -251,6 +283,7 @@ esp_err_t tas5805m_read_bytes(uint8_t *reg, int regLen, uint8_t *data, int datal
 
   i2c_cmd_link_delete(cmd);
 
+  if (tas5805m_i2c_mutex) xSemaphoreGiveRecursive(tas5805m_i2c_mutex);
   return ret;
 }
 
@@ -258,6 +291,20 @@ esp_err_t tas5805m_read_bytes(uint8_t *reg, int regLen, uint8_t *data, int datal
 esp_err_t tas5805m_init() {
   ESP_LOGD(TAG, "%s: Initializing TAS5805M", __func__);
   int ret = 0;
+
+  /* Create I2C mutex if not already created (recursive to allow nested calls) */
+  /* Use spinlock to prevent TOCTOU race if init is called concurrently */
+  portENTER_CRITICAL(&tas5805m_init_lock);
+  if (tas5805m_i2c_mutex == NULL) {
+    tas5805m_i2c_mutex = xSemaphoreCreateRecursiveMutex();
+    if (tas5805m_i2c_mutex == NULL) {
+      portEXIT_CRITICAL(&tas5805m_init_lock);
+      ESP_LOGE(TAG, "%s: Failed to create I2C mutex", __func__);
+      return ESP_ERR_NO_MEM;
+    }
+  }
+  portEXIT_CRITICAL(&tas5805m_init_lock);
+
   // Init the I2C-Driver
   i2c_master_init();
   /* Register the PDN pin as output and write 1 to enable the TAS chip */
@@ -1249,8 +1296,8 @@ uint32_t tas5805m_float_to_q5_27(float value)
     int32_t fixed_val = (int32_t)(value * (1 << 27));
     uint32_t le_val = tas5805m_swap_endian_32((uint32_t)fixed_val);
 
-    // ESP_LOGD(TAG, "%s: value=%f -> fixed_val=%d, le_val=0x%08X",
-    //          __func__, value, fixed_val, (unsigned int)le_val);
+    ESP_LOGD(TAG, "%s: value=%f -> fixed_val=%ld, le_val=0x%08lX",
+             __func__, value, (long)fixed_val, (unsigned long)le_val);
 
     return le_val;
 }

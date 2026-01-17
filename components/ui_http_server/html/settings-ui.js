@@ -254,27 +254,44 @@
       label.textContent = param.name;
       controlDiv.appendChild(label);
 
-      const input = document.createElement('input');
-      input.type = 'range';
-      input.min = param.min;
-      input.max = param.max;
-      input.step = param.step || 1;
-      input.value = param.current !== undefined ? param.current : param.default || param.min;
+      if (param.type === 'enum') {
+        // Render enum as dropdown
+        const select = document.createElement('select');
+        param.values.forEach(option => {
+          const opt = document.createElement('option');
+          opt.value = option.value;
+          opt.textContent = option.name;
+          if (param.current == option.value) opt.selected = true;
+          select.appendChild(opt);
+        });
+        select.onchange = function () {
+          if (onChange) onChange(param.key, parseInt(this.value));
+        };
+        controlDiv.appendChild(select);
+      } else {
+        // Render as range slider (default)
+        const input = document.createElement('input');
+        input.type = 'range';
+        input.min = param.min;
+        input.max = param.max;
+        input.step = param.step || 1;
+        input.value = param.current !== undefined ? param.current : param.default || param.min;
 
-      const valueSpan = document.createElement('span');
-      valueSpan.className = 'peq-param-value';
-      const decimals = param.decimals !== undefined ? param.decimals : 0;
-      valueSpan.textContent = Number(input.value).toFixed(decimals) + (param.unit || '');
+        const valueSpan = document.createElement('span');
+        valueSpan.className = 'peq-param-value';
+        const decimals = param.decimals !== undefined ? param.decimals : 0;
+        valueSpan.textContent = Number(input.value).toFixed(decimals) + (param.unit || '');
 
-      input.oninput = function () {
-        valueSpan.textContent = Number(this.value).toFixed(decimals) + (param.unit || '');
-      };
-      input.onchange = function () {
-        if (onChange) onChange(param.key, parseFloat(this.value));
-      };
+        input.oninput = function () {
+          valueSpan.textContent = Number(this.value).toFixed(decimals) + (param.unit || '');
+        };
+        input.onchange = function () {
+          if (onChange) onChange(param.key, parseFloat(this.value));
+        };
 
-      controlDiv.appendChild(input);
-      controlDiv.appendChild(valueSpan);
+        controlDiv.appendChild(input);
+        controlDiv.appendChild(valueSpan);
+      }
       paramsRow.appendChild(controlDiv);
     });
 
@@ -365,10 +382,10 @@
         paramsContainer.appendChild(controlDiv);
       });
     } else if (section.layout === 'output-channel') {
-      // Output channel layout: regular params + PEQ subgroups + phase radio
+      // Output channel layout: regular params + PEQ subgroups + generic subgroups + phase radio
       section.parameters.forEach(param => {
         let controlDiv;
-        if (param.type === 'peq-subgroup') {
+        if (param.type === 'peq-subgroup' || param.type === 'subgroup') {
           controlDiv = renderPeqSubgroup(param, currentSettings, onChange);
         } else {
           controlDiv = renderParameter(param, currentSettings, onChange);

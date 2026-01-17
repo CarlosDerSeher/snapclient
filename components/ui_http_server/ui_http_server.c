@@ -76,6 +76,13 @@ static const embedded_file_t embedded_files[] = {
 };
 
 /**
+ * Check if a character is a valid hexadecimal digit
+ */
+static inline int is_hex_digit(char c) {
+	return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f');
+}
+
+/**
  * Simple URL decode function
  * Decodes %XX hex sequences and + as space
  */
@@ -85,14 +92,18 @@ static void url_decode(char *dst, const char *src, size_t dst_size) {
 
 	while (src[src_idx] != '\0' && dst_idx < dst_size - 1) {
 		if (src[src_idx] == '%' && src[src_idx + 1] != '\0' &&
-			src[src_idx + 2] != '\0') {
-			// Decode %XX
+			src[src_idx + 2] != '\0' &&
+			is_hex_digit(src[src_idx + 1]) && is_hex_digit(src[src_idx + 2])) {
+			// Decode %XX (only if both chars are valid hex digits)
 			char hex[3] = {src[src_idx + 1], src[src_idx + 2], '\0'};
 			dst[dst_idx++] = (char)strtol(hex, NULL, 16);
 			src_idx += 3;
 		} else if (src[src_idx] == '+') {
 			// Convert + to space
 			dst[dst_idx++] = ' ';
+			src_idx++;
+		} else if (src[src_idx] == '%') {
+			// Invalid %XX sequence - skip the % and continue
 			src_idx++;
 		} else {
 			dst[dst_idx++] = src[src_idx++];
@@ -103,10 +114,17 @@ static void url_decode(char *dst, const char *src, size_t dst_size) {
 
 /**
  * Find key value in parameter string
+ * @param key Key to search for (including '=' suffix)
+ * @param parameter Parameter string to search in
+ * @param value Output buffer for the value
+ * @param value_size Size of the output buffer
+ * @return Length of value found, 0 if not found
  */
-static int find_key_value(char *key, char *parameter, char *value) {
+static int find_key_value(char *key, char *parameter, char *value, size_t value_size) {
+	if (value_size == 0) return 0;
+	value[0] = '\0';
+
 	ESP_LOGD(TAG, "%s: key=%s", __func__, key);
-	// char * addr1;
 	char *addr1 = strstr(parameter, key);
 	if (addr1 == NULL)
 		return 0;
@@ -117,15 +135,24 @@ static int find_key_value(char *key, char *parameter, char *value) {
 
 	char *addr3 = strstr(addr2, "&");
 	ESP_LOGD(TAG, "%s: addr3=%p", __func__, addr3);
+
+	size_t length;
 	if (addr3 == NULL) {
-		strcpy(value, addr2);
+		length = strlen(addr2);
 	} else {
-		int length = addr3 - addr2;
-		ESP_LOGD(TAG, "%s: addr2=%p addr3=%p length=%d", __func__, addr2, addr3,
-				 length);
-		strncpy(value, addr2, length);
-		value[length] = 0;
+		length = addr3 - addr2;
 	}
+
+	/* Bound the copy to the buffer size (leave room for null terminator) */
+	if (length >= value_size) {
+		length = value_size - 1;
+		ESP_LOGW(TAG, "%s: value truncated to %zu chars", __func__, length);
+	}
+
+	ESP_LOGD(TAG, "%s: addr2=%p addr3=%p length=%zu", __func__, addr2, addr3, length);
+	memcpy(value, addr2, length);
+	value[length] = '\0';
+
 	ESP_LOGD(TAG, "%s: key=[%s] value=[%s]", __func__, key, value);
 	return strlen(value);
 }
@@ -133,9 +160,27 @@ static int find_key_value(char *key, char *parameter, char *value) {
 /**
  * Set CORS headers to allow cross-origin requests
  * This enables local development with ?backend parameter
+ *
+ * Security note: Instead of wildcard (*), we reflect the request's Origin header.
+ * This prevents arbitrary websites from making cross-origin requests while still
+ * allowing legitimate local development scenarios (localhost, local IPs).
+ * The device has no authentication, so CORS is the main CSRF protection.
  */
 static void set_cors_headers(httpd_req_t *req) {
-	httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+	/* Get the Origin header from the request */
+	char origin[128] = {0};
+	if (httpd_req_get_hdr_value_str(req, "Origin", origin, sizeof(origin)) == ESP_OK && origin[0] != '\0') {
+		/* Validate origin: only allow http/https from localhost or local IPs */
+		if (strncmp(origin, "http://localhost", 16) == 0 ||
+			strncmp(origin, "https://localhost", 17) == 0 ||
+			strncmp(origin, "http://127.", 11) == 0 ||
+			strncmp(origin, "http://192.168.", 15) == 0 ||
+			strncmp(origin, "http://10.", 10) == 0 ||
+			strncmp(origin, "http://172.", 11) == 0) {
+			httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", origin);
+		}
+		/* If origin doesn't match allowed patterns, don't set CORS header (browser will block) */
+	}
 	httpd_resp_set_hdr(req, "Access-Control-Allow-Methods",
 					   "GET, POST, DELETE, OPTIONS");
 	httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
@@ -174,8 +219,8 @@ static esp_err_t root_post_handler(httpd_req_t *req) {
 
 	memset(&urlBuf, 0, sizeof(URL_t));
 
-	if (find_key_value("param=", (char *)req->uri, param) &&
-		find_key_value("value=", (char *)req->uri, valstr)) {
+	if (find_key_value("param=", (char *)req->uri, param, sizeof(param)) &&
+		find_key_value("value=", (char *)req->uri, valstr, sizeof(valstr))) {
 
 		// Special handling for hostname (string parameter)
 		if (strcmp(param, "hostname") == 0) {
@@ -281,7 +326,7 @@ static esp_err_t root_delete_handler(httpd_req_t *req) {
 
 	set_cors_headers(req);
 
-	if (!find_key_value("param=", (char *)req->uri, param)) {
+	if (!find_key_value("param=", (char *)req->uri, param, sizeof(param))) {
 		ESP_LOGD(TAG, "%s: Invalid delete: expected param=NAME in URI",
 				 __func__);
 		httpd_resp_set_status(req, "400 Bad Request");
@@ -360,7 +405,7 @@ static esp_err_t get_param_handler(httpd_req_t *req) {
 
 	set_cors_headers(req);
 
-	if (find_key_value("param=", (char *)req->uri, param)) {
+	if (find_key_value("param=", (char *)req->uri, param, sizeof(param))) {
 		// Special handling for hostname (string parameter)
 		if (strcmp(param, "hostname") == 0) {
 			char hostname[64] = {0};
@@ -516,7 +561,7 @@ static esp_err_t get_capabilities_handler(httpd_req_t *req) {
 
 	// Parse tab parameter
 	char tab[16] = {0};
-	if (!find_key_value("tab=", (char *)req->uri, tab)) {
+	if (!find_key_value("tab=", (char *)req->uri, tab, sizeof(tab))) {
 		// No tab specified, return error
 		ESP_LOGW(TAG, "%s: Missing 'tab' parameter", __func__);
 		httpd_resp_set_status(req, "400 Bad Request");
@@ -1026,6 +1071,38 @@ static esp_err_t post_biamp_preset_handler(httpd_req_t *req) {
 }
 
 /*
+ * POST /api/biamp/reset handler
+ * Resets bi-amp settings to defaults (clears NVS)
+ */
+static esp_err_t post_biamp_reset_handler(httpd_req_t *req) {
+  set_cors_headers(req);
+
+#if defined(CONFIG_DAC_TAS5805M)
+  ESP_LOGI(TAG, "%s: Resetting bi-amp settings to defaults", __func__);
+
+  esp_err_t err = tas5805m_biamp_reset_defaults();
+
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "%s: Failed to reset settings: %s", __func__, esp_err_to_name(err));
+    httpd_resp_set_status(req, "500 Internal Server Error");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"error\": \"Failed to reset settings\"}");
+    return ESP_OK;
+  }
+
+  httpd_resp_set_status(req, "200 OK");
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_sendstr(req, "{\"success\": true}");
+
+  return ESP_OK;
+#else
+  httpd_resp_set_status(req, "404 Not Found");
+  httpd_resp_sendstr(req, "{\"error\": \"TAS5805M not configured\"}");
+  return ESP_OK;
+#endif
+}
+
+/*
  * Static file handler
  * Serves files from embedded flash memory
  */
@@ -1300,6 +1377,22 @@ esp_err_t start_server(const char *base_path, int port) {
 		.handler = options_handler,
 	};
 	httpd_register_uri_handler(server, &_options_biamp_preset_handler);
+
+	/* URI handler for Bi-Amp Reset to Defaults */
+	httpd_uri_t _post_biamp_reset_handler = {
+		.uri = "/api/biamp/reset",
+		.method = HTTP_POST,
+		.handler = post_biamp_reset_handler,
+	};
+	httpd_register_uri_handler(server, &_post_biamp_reset_handler);
+
+	/* OPTIONS handler for CORS preflight - Bi-Amp reset endpoint */
+	httpd_uri_t _options_biamp_reset_handler = {
+		.uri = "/api/biamp/reset",
+		.method = HTTP_OPTIONS,
+		.handler = options_handler,
+	};
+	httpd_register_uri_handler(server, &_options_biamp_reset_handler);
 #endif /* CONFIG_DAC_TAS5805M */
 
 	/* URI handler for static files (catch-all, must be last) */
