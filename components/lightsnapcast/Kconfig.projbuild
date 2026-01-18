@@ -16,14 +16,4 @@ menu "Lightsnapcast Player Settings"
             Timeout for inserting audio chunks into the playback queue.
             Higher values allow queue to drain during burst arrivals.
             Default: 50ms
-
-    config PLAYER_BUFFER_HEADROOM_PCT
-        int "Buffer headroom percentage"
-        range 0 100
-        default 50 if SPIRAM && SPIRAM_BOOT_INIT
-        default 20
-        help
-            Extra buffer capacity as percentage of base requirement.
-            Provides headroom for WiFi jitter. Use higher values with PSRAM.
-            Default: 50% with PSRAM, 20% without
 endmenu

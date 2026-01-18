@@ -60,15 +60,6 @@ menu "WiFi Resilience Settings"
             Disable Nagle's algorithm for lower latency on TCP connections.
             Recommended for real-time audio streaming.
 
-    config WIFI_FAST_SYNC_LATENCY_US
-        int "Fast sync latency buffer (µs)"
-        range 10000 100000
-        default 50000
-        help
-            Time tolerance for fast sync operations in microseconds.
-            Higher values are more tolerant of WiFi latency jitter.
-            Default: 50000 (50ms)
-
     config WIFI_RECONNECT_MIN_DELAY_MS
         int "Reconnect minimum delay (ms)"
         range 100 5000
