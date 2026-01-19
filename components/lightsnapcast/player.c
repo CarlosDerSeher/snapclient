@@ -32,7 +32,10 @@
 #include "player.h"
 #include "snapcast.h"
 /* avoid header include-path issues; declare the hook we call when playback stops */
+#if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
+    CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
 extern void eth_on_playback_stopped(void);
+#endif
 
 #define USE_SAMPLE_INSERTION CONFIG_USE_SAMPLE_INSERTION
 
@@ -1951,7 +1954,10 @@ static void player_task(void *pvParameters) {
   /* Notify network layer that playback stopped so pending Ethernet takeover
    * can proceed if one was waiting.
    */
+#if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
+    CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
   eth_on_playback_stopped();
+#endif
   ESP_LOGI(TAG, "stop player done");
   playerTaskHandle = NULL;
   vTaskDelete(NULL);

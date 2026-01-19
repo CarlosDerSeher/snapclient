@@ -32,6 +32,9 @@ void network_if_init(void);
  * complete any pending Ethernet takeover (stop WiFi) that was delayed
  * while playback was active.
  */
+#if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
+    CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
 void eth_on_playback_stopped(void);
+#endif
 
 #endif /* COMPONENTS_NETWORK_INTERFACE_INCLUDE_NETWORK_INTERFACE_H_ */
