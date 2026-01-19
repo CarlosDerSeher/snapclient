@@ -36,6 +36,7 @@ list. Also there is a lot of code clean up needed, as there is quite some dead c
 Components
  - audio-board : taken from ADF, stripped down to strictly necessary parts for playback
  - audio-hal : taken from ADF, stripped down to strictly necessary parts for playback
+   * additional modification: es8388 driver was changed to remove a noise bug introduced by ADF upstream.
  - audio-sal : taken from ADF, stripped down to strictly necessary parts for playback
  - custom_board : generic board component to support easy integration of DACs
  - dsp_processor : Audio Processor, low pass filters, effects, etc.
@@ -165,14 +166,14 @@ Configure to match your setup
     - Use asm version of Biquad_f32 : Optimized version of the DSP algorithm only for ESP32. Don't work on ESP32-S2
     - Use software volume : Handle snapcast volume in the ESP. Activate this if your DAC do not provide a volume control (no I2C like PCM5102A or MAX98357)
   - <b>WiFi Configuration :</b>
-    - WiFi Provisioning : Use the Espressif "ESP SoftAP Prov" APP to configure your wifi network.
+    - WiFi Provisioning : Use Improv WiFi (e.g. via [this link](https://web.esphome.io/) on a supported browser)
     - SSID : The SSID to connect to or the provisioning SSID.
     - Password : The password of your WiFi network or the provisioning network.
     - Maximum retry: Use 0 for no limit.
   - <b>Snapclient configuration :</b>
     - Use mDNS : The client will search on the network for the snapserver automatically. Your network must support mDNS.
-    - Snapserver host : IP or URL of the server if mDNS is disabled or the mDNS resolution fail.
-    - Snapserver port : Port of your snapserver, default is 1704.
+    - Snapserver host : IP address of the server if mDNS is disabled or the mDNS resolution fails.
+    - Snapserver port :  Port of your snapserver, default is 1704.
     - Snapclient name : The name under which your ESP will appear on the Snapserver.
     - HTTP Server Setting : The ESP creates a basic webpage. You can configure the port to view this page and configure the DSP.
 
@@ -250,3 +251,7 @@ Then on every `git commit`, a few sanity/formatting checks will be performed.
 
 ## Minor task
 - [ ] fill in missing component descriptions in Readme.md
+
+## Known issues
+- The ADF introduced a bug in `components/audio_hal/driver/es8388/es8388.c` which results in loud noise between i2s channel initialization and i2s enabling. The issue was caused by three lines setting undocumented registers. This was fixed by a simple hack in this repo: we modified the file to comment out these lines.
+- There is a hacky `ensure_noiseless` function in `player.c`, that streams silence for a short period of time, once. It was originally added to fix the aforementioned noise issue. It remains in the codebase (although the es8388 driver is fixed now) because it prevents random clicks and pops during playback, especially when `PLAYER: pcm chunk queue not created` messages occur. The root cause of the clicks and the reason why this hack works are currently unknown.
