@@ -1573,6 +1573,8 @@ static void player_task(void *pvParameters) {
 
           my_i2s_channel_disable(tx_chan);
 
+          initialSync = 0;
+
           continue;
         }
       }
