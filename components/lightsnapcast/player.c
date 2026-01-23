@@ -288,7 +288,7 @@ static esp_err_t player_setup_i2s(snapcastSetting_t *setting) {
       .role = I2S_ROLE_MASTER,
       .dma_desc_num = i2sDmaBufCnt,
       .dma_frame_num = i2sDmaBufMaxLen,
-      .auto_clear = false,
+      .auto_clear = true,
   };
   ESP_ERROR_CHECK(i2s_new_channel(&tx_chan_cfg, &tx_chan, NULL));
 
