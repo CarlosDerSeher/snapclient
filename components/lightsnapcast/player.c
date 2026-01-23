@@ -468,9 +468,12 @@ int start_player(snapcastSetting_t *setting) {
     memset(&scSet, 0, sizeof(snapcastSetting_t));
     player_get_snapcast_settings(&scSet);
 
-    // Validate chkInFrames to prevent division by zero during reconnection
+    // Guard against divide-by-zero when chkInFrames hasn't been set yet
+    // (can happen during reconnection before first wire chunk is received)
     if (scSet.chkInFrames == 0) {
-      scSet.chkInFrames = 1152; // Default value
+      ESP_LOGW(TAG, "chkInFrames is 0, cannot create queue yet");
+      playerstarted = false;
+      return -1;
     }
 
     int entries = ceil(((float)scSet.sr / (float)scSet.chkInFrames) *
