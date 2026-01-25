@@ -517,7 +517,7 @@ esp_err_t settings_get_eth_mode(int32_t *mode) {
     nvs_handle_t h;
     esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &h);
     if (err == ESP_OK) {
-        int32_t v = 1;  // Default to DHCP
+        int32_t v = 0;  // Default to Disabled
         err = nvs_get_i32(h, NVS_KEY_ETH_MODE, &v);
         nvs_close(h);
         if (err == ESP_OK) {
@@ -531,8 +531,8 @@ esp_err_t settings_get_eth_mode(int32_t *mode) {
         }
     }
 
-    // Default: DHCP (1)
-    *mode = 1;
+    // Default: Disabled (0)
+    *mode = 0;
     ESP_LOGD(TAG, "%s: eth_mode default: %ld", __func__, (long)*mode);
     xSemaphoreGive(hostname_mutex);
     return ESP_OK;
@@ -898,7 +898,7 @@ esp_err_t settings_get_json(char *json_out, size_t max_len) {
 #endif
 
     // Get Ethernet mode
-    int32_t eth_mode = 1;
+    int32_t eth_mode = 0;
     if (settings_get_eth_mode(&eth_mode) == ESP_OK) {
         cJSON_AddNumberToObject(root, "eth_mode", eth_mode);
     }

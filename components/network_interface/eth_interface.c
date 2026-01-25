@@ -35,9 +35,40 @@ static esp_netif_ip_info_t ip_info = {{0}, {0}, {0}};
 static bool connected = false;
 static SemaphoreHandle_t connIpSemaphoreHandle = NULL;
 
-// Ethernet mode: 0=Disabled, 1=DHCP, 2=Static
-static int32_t current_eth_mode = 1;
-static esp_netif_t *primary_eth_netif = NULL;
+// Ethernet mode: 0=Disabled (default), 1=DHCP, 2=Static
+static int32_t current_eth_mode = 0;
+
+/**
+ * @brief Cleanup Ethernet drivers and free handles on initialization failure
+ */
+static void eth_cleanup_drivers(esp_eth_handle_t *handles, uint8_t count) {
+    if (!handles) return;
+
+    for (int i = 0; i < count; i++) {
+        if (handles[i]) {
+            esp_eth_stop(handles[i]);
+            esp_eth_driver_uninstall(handles[i]);
+        }
+    }
+    free(handles);
+}
+
+/**
+ * @brief Auto-disable Ethernet and persist to NVS on initialization failure
+ * This allows the device to boot with WiFi fallback instead of reboot-looping
+ */
+static void eth_auto_disable_and_persist(void) {
+    ESP_LOGW(TAG, "Ethernet init failed - auto-disabling to allow boot");
+    current_eth_mode = 0;
+
+    esp_err_t err = settings_set_eth_mode(0);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to persist eth_mode=0 to NVS: %s", esp_err_to_name(err));
+        ESP_LOGW(TAG, "Ethernet disabled for this boot only - may retry on reboot");
+    } else {
+        ESP_LOGI(TAG, "Ethernet disabled and saved to NVS. Re-enable via web UI when hardware is ready.");
+    }
+}
 
 // Gateway ping state
 static SemaphoreHandle_t ping_done_sem = NULL;
@@ -354,7 +385,16 @@ static esp_err_t eth_init(esp_eth_handle_t *eth_handles_out[],
 #if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
     CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
 err:
-  free(eth_handles);
+  // Clean up any successfully created drivers before freeing handles
+  if (eth_handles) {
+    for (int i = 0; i < eth_cnt; i++) {
+      if (eth_handles[i]) {
+        esp_eth_stop(eth_handles[i]);
+        esp_eth_driver_uninstall(eth_handles[i]);
+      }
+    }
+    free(eth_handles);
+  }
   return ret;
 #endif
 }
@@ -531,7 +571,10 @@ static void eth_event_handler(void *arg, esp_event_base_t event_base,
                mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4],
                mac_addr[5]);
 
-      ESP_ERROR_CHECK(esp_netif_create_ip6_linklocal(netif));
+      esp_err_t ipv6_err = esp_netif_create_ip6_linklocal(netif);
+      if (ipv6_err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to create IPv6 link-local: %s (continuing)", esp_err_to_name(ipv6_err));
+      }
 
       // Handle static IP mode
       if (current_eth_mode == 2) {  // Static
@@ -689,12 +732,15 @@ void eth_start(void) {
 
   // Initialize Ethernet driver
   esp_eth_handle_t *eth_handles;
+  esp_err_t ret = eth_init(&eth_handles, &eth_port_cnt);
+  if (ret != ESP_OK || eth_port_cnt == 0) {
+    ESP_LOGE(TAG, "Ethernet driver init failed: %s", esp_err_to_name(ret));
+    eth_auto_disable_and_persist();
+    return;
+  }
 
-  ESP_ERROR_CHECK(eth_init(&eth_handles, &eth_port_cnt));
-
-#if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
-    CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
-  esp_netif_t *eth_netif;
+#if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
+  esp_netif_t *eth_netif = NULL;
 
   // Create instance(s) of esp-netif for Ethernet(s)
   if (eth_port_cnt == 1) {
@@ -702,9 +748,31 @@ void eth_start(void) {
     // you don't need to modify default esp-netif configuration parameters.
     esp_netif_config_t cfg = ESP_NETIF_DEFAULT_ETH();
     eth_netif = esp_netif_new(&cfg);
-    // Attach Ethernet driver to TCP/IP stack
-    ESP_ERROR_CHECK(
-        esp_netif_attach(eth_netif, esp_eth_new_netif_glue(eth_handles[0])));
+    if (!eth_netif) {
+      ESP_LOGE(TAG, "Failed to create Ethernet netif");
+      eth_cleanup_drivers(eth_handles, eth_port_cnt);
+      eth_auto_disable_and_persist();
+      return;
+    }
+
+    esp_eth_netif_glue_handle_t glue = esp_eth_new_netif_glue(eth_handles[0]);
+    if (!glue) {
+      ESP_LOGE(TAG, "Failed to create netif glue");
+      esp_netif_destroy(eth_netif);
+      eth_cleanup_drivers(eth_handles, eth_port_cnt);
+      eth_auto_disable_and_persist();
+      return;
+    }
+
+    ret = esp_netif_attach(eth_netif, glue);
+    if (ret != ESP_OK) {
+      ESP_LOGE(TAG, "Failed to attach Ethernet to TCP/IP stack: %s", esp_err_to_name(ret));
+      esp_eth_del_netif_glue(glue);
+      esp_netif_destroy(eth_netif);
+      eth_cleanup_drivers(eth_handles, eth_port_cnt);
+      eth_auto_disable_and_persist();
+      return;
+    }
   } else {
     // Use ESP_NETIF_INHERENT_DEFAULT_ETH when multiple Ethernet interfaces are
     // used and so you need to modify esp-netif configuration parameters for
@@ -716,6 +784,11 @@ void eth_start(void) {
     char if_key_str[10];
     char if_desc_str[10];
     char num_str[3];
+
+    // Track created netifs for cleanup on partial failure
+    esp_netif_t *created_netifs[SPI_ETHERNETS_NUM + INTERNAL_ETHERNETS_NUM];
+    memset(created_netifs, 0, sizeof(created_netifs));
+
     for (int i = 0; i < eth_port_cnt; i++) {
       itoa(i, num_str, 10);
       strcat(strcpy(if_key_str, "ETH_"), num_str);
@@ -725,25 +798,79 @@ void eth_start(void) {
       esp_netif_config.route_prio -= i * 5;
       eth_netif = esp_netif_new(&cfg_spi);
 
-      // Attach Ethernet driver to TCP/IP stack
-      ESP_ERROR_CHECK(
-          esp_netif_attach(eth_netif, esp_eth_new_netif_glue(eth_handles[i])));
+      if (!eth_netif) {
+        ESP_LOGE(TAG, "Failed to create Ethernet netif %d", i);
+        // Cleanup previously created netifs
+        for (int j = 0; j < i; j++) {
+          if (created_netifs[j]) esp_netif_destroy(created_netifs[j]);
+        }
+        eth_cleanup_drivers(eth_handles, eth_port_cnt);
+        eth_auto_disable_and_persist();
+        return;
+      }
+      created_netifs[i] = eth_netif;
+
+      esp_eth_netif_glue_handle_t glue = esp_eth_new_netif_glue(eth_handles[i]);
+      if (!glue) {
+        ESP_LOGE(TAG, "Failed to create netif glue %d", i);
+        // Cleanup all created netifs including current
+        for (int j = 0; j <= i; j++) {
+          if (created_netifs[j]) esp_netif_destroy(created_netifs[j]);
+        }
+        eth_cleanup_drivers(eth_handles, eth_port_cnt);
+        eth_auto_disable_and_persist();
+        return;
+      }
+
+      ret = esp_netif_attach(eth_netif, glue);
+      if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to attach Ethernet %d: %s", i, esp_err_to_name(ret));
+        esp_eth_del_netif_glue(glue);
+        // Cleanup all created netifs including current
+        for (int j = 0; j <= i; j++) {
+          if (created_netifs[j]) esp_netif_destroy(created_netifs[j]);
+        }
+        eth_cleanup_drivers(eth_handles, eth_port_cnt);
+        eth_auto_disable_and_persist();
+        return;
+      }
     }
   }
 
-  // Register user defined event handers
-  ESP_ERROR_CHECK(esp_event_handler_register(ETH_EVENT, ESP_EVENT_ANY_ID,
-                                             &eth_event_handler, eth_netif));
-  ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_ETH_GOT_IP,
-                                             &got_ip_event_handler, NULL));
-  ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_ETH_LOST_IP,
-                                             &lost_ip_event_handler, NULL));
-  ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_GOT_IP6,
-                                             &eth_on_got_ipv6, NULL));
-
-  // Start Ethernet driver state machine
-  for (int i = 0; i < eth_port_cnt; i++) {
-    ESP_ERROR_CHECK(esp_eth_start(eth_handles[i]));
+  // Register event handlers - non-fatal if these fail
+  ret = esp_event_handler_register(ETH_EVENT, ESP_EVENT_ANY_ID,
+                                   &eth_event_handler, eth_netif);
+  if (ret != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to register ETH event handler: %s (continuing)", esp_err_to_name(ret));
   }
+
+  ret = esp_event_handler_register(IP_EVENT, IP_EVENT_ETH_GOT_IP,
+                                   &got_ip_event_handler, NULL);
+  if (ret != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to register got_ip handler: %s (continuing)", esp_err_to_name(ret));
+  }
+
+  ret = esp_event_handler_register(IP_EVENT, IP_EVENT_ETH_LOST_IP,
+                                   &lost_ip_event_handler, NULL);
+  if (ret != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to register lost_ip handler: %s (continuing)", esp_err_to_name(ret));
+  }
+
+  ret = esp_event_handler_register(IP_EVENT, IP_EVENT_GOT_IP6,
+                                   &eth_on_got_ipv6, NULL);
+  if (ret != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to register IPv6 handler: %s (continuing)", esp_err_to_name(ret));
+  }
+
+  // Start Ethernet driver state machine - non-fatal, may recover when cable plugged in
+  for (int i = 0; i < eth_port_cnt; i++) {
+    ret = esp_eth_start(eth_handles[i]);
+    if (ret != ESP_OK) {
+      ESP_LOGW(TAG, "Failed to start Ethernet %d: %s (may recover on cable connect)",
+               i, esp_err_to_name(ret));
+    }
+  }
+
+  ESP_LOGI(TAG, "Ethernet initialization complete");
 #endif
 }

@@ -82,6 +82,28 @@
       border: none;
       background-color: white;
     }
+
+    .nav-restart {
+      margin-left: auto;
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+    }
+
+    .nav-restart button {
+      background-color: #e74c3c;
+      color: white;
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background-color 0.3s;
+    }
+
+    .nav-restart button:hover {
+      background-color: #c0392b;
+    }
   </style>
 </head>
 <body>
@@ -91,6 +113,9 @@
       <li><a href="#" class="nav-link active" data-page="general-settings.html">General Settings</a></li>
       <li id="dsp-tab" style="display: none;"><a href="#" class="nav-link" data-page="dsp-settings.html">DSP Settings</a></li>
     </ul>
+    <div class="nav-restart">
+      <button onclick="restartDevice()">Restart Device</button>
+    </div>
   </nav>
 
   <div class="content-container">
@@ -99,6 +124,24 @@
 
   <script>
     'use strict';
+
+    function restartDevice() {
+      if (!confirm('Restart device now?')) return;
+
+      fetch('/restart', { method: 'POST' })
+        .then(resp => {
+          if (resp.ok) {
+            alert('Device will restart now. Page will reload in 10 seconds.');
+            setTimeout(() => location.reload(), 10000);
+          } else {
+            alert('Restart request failed');
+          }
+        })
+        .catch(err => {
+          console.error('Restart failed', err);
+          alert('Restart request failed');
+        });
+    }
 
     // Check DSP capabilities and show/hide DSP tab
     async function checkDSPAvailability() {

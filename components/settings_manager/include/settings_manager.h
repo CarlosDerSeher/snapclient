@@ -42,7 +42,7 @@ esp_err_t settings_set_server_port(int32_t port);
 esp_err_t settings_clear_server_port(void);
 
 /* Ethernet mode and static IP settings
- * Mode values: 0=Disabled, 1=DHCP (default), 2=Static
+ * Mode values: 0=Disabled (default), 1=DHCP, 2=Static
  */
 esp_err_t settings_get_eth_mode(int32_t *mode);
 esp_err_t settings_set_eth_mode(int32_t mode);

@@ -188,7 +188,6 @@
     let currentEthGateway = '';
     let currentEthDns = '';
     let ethAvailable = true; // whether Ethernet settings should be shown
-    let needsRestart = false; // Track if device needs restart
     let isDirty = false;
 
     // Load current settings
@@ -239,7 +238,6 @@
       html += '<div class="button-group">';
       html += '<button class="btn btn-primary" id="save-btn" onclick="saveHostname()" disabled>Save Changes</button>';
       html += '<button class="btn btn-secondary" onclick="resetHostname()">Reset</button>';
-      html += '<button class="btn btn-danger" id="restart-btn-hostname" onclick="requestRestart()" style="background-color:#e74c3c;" disabled>Restart</button>';
       html += '</div>';
       html += '</div>';
 
@@ -263,7 +261,6 @@
       html += '<div class="button-group">';
       html += '<button class="btn btn-primary" id="save-snap-btn" onclick="saveSnapserverSettings()" disabled>Save Changes</button>';
       html += '<button class="btn btn-secondary" onclick="resetSnapserverSettings()">Reset</button>';
-      html += '<button class="btn btn-danger" id="restart-btn-snap" onclick="requestRestart()" style="background-color:#e74c3c;" disabled>Restart</button>';
       html += '</div>';
       html += '</div>'; // .setting-control.setting-section (snapserver)
 
@@ -303,7 +300,6 @@
         html += '<div class="button-group">';
         html += '<button class="btn btn-primary" id="save-eth-btn" onclick="saveEthernetSettings()" disabled>Save Changes</button>';
         html += '<button class="btn btn-secondary" onclick="resetEthernetSettings()">Reset</button>';
-        html += '<button class="btn btn-danger" id="restart-btn-eth" onclick="requestRestart()" style="background-color:#e74c3c;" disabled>Restart</button>';
         html += '</div>';
         html += '</div>'; // .setting-control.setting-section (ethernet)
       } else {
@@ -321,7 +317,6 @@
       html += '</div>';
       
       app.innerHTML = html;
-      updateRestartButton();
     }
 
     // Handle snapserver mDNS selection change
@@ -412,43 +407,6 @@
       }
     }
 
-    function updateRestartButton() {
-      // Enable/disable restart buttons based on needsRestart flag
-      // This flag is only set by successful save operations
-      const restartBtnHostname = document.getElementById('restart-btn-hostname');
-      if (restartBtnHostname) {
-        restartBtnHostname.disabled = !needsRestart;
-      }
-      const restartBtnSnap = document.getElementById('restart-btn-snap');
-      if (restartBtnSnap) {
-        restartBtnSnap.disabled = !needsRestart;
-      }
-      const restartBtnEth = document.getElementById('restart-btn-eth');
-      if (restartBtnEth) {
-        restartBtnEth.disabled = !needsRestart;
-      }
-    }
-
-    function requestRestart() {
-      if (!confirm('Restart device now?')) return;
-      try {
-        // POST request to restart endpoint
-        fetch('/restart', { method: 'POST' }).then(resp => {
-          if (resp.ok) {
-            alert('Device will restart now');
-          } else {
-            alert('Restart request failed');
-          }
-        }).catch(err => {
-          console.error('Restart failed', err);
-          alert('Restart request failed');
-        });
-      } catch (err) {
-        console.error('Restart failed', err);
-        alert('Restart request failed');
-      }
-    }
-
     function resetSnapserverSettings() {
       if (!confirm('Clear Snapserver settings from NVS and reset to defaults?')) {
         return;
@@ -484,6 +442,32 @@
       return null;
     }
 
+    // Validate netmask format (must be valid subnet mask with contiguous bits)
+    function validateNetmask(mask) {
+      if (!mask || mask.length === 0) return null; // Empty checked separately for required fields
+
+      // First check basic IPv4 format
+      const ipError = validateIPv4(mask);
+      if (ipError) return ipError;
+
+      // Valid subnet masks (contiguous 1-bits followed by 0-bits)
+      const validMasks = [
+        '255.255.255.255', '255.255.255.254', '255.255.255.252', '255.255.255.248',
+        '255.255.255.240', '255.255.255.224', '255.255.255.192', '255.255.255.128',
+        '255.255.255.0', '255.255.254.0', '255.255.252.0', '255.255.248.0',
+        '255.255.240.0', '255.255.224.0', '255.255.192.0', '255.255.128.0',
+        '255.255.0.0', '255.254.0.0', '255.252.0.0', '255.248.0.0',
+        '255.240.0.0', '255.224.0.0', '255.192.0.0', '255.128.0.0',
+        '255.0.0.0', '254.0.0.0', '252.0.0.0', '248.0.0.0',
+        '240.0.0.0', '224.0.0.0', '192.0.0.0', '128.0.0.0', '0.0.0.0'
+      ];
+
+      if (!validMasks.includes(mask)) {
+        return 'Invalid subnet mask';
+      }
+      return null;
+    }
+
     // Handle Ethernet mode dropdown change
     function handleEthModeChange(value) {
       const mode = parseInt(value, 10);
@@ -505,17 +489,30 @@
       if (gwEl) gwEl.disabled = !staticEnabled;
       if (dnsEl) dnsEl.disabled = !staticEnabled;
 
-      // Update save button state
-      updateEthSaveButton();
+      // Trigger field validation to show required field errors if switching to static
+      handleEthFieldChange();
     }
 
     // Handle changes to any Ethernet field
     function handleEthFieldChange() {
+      const mode = parseInt(document.getElementById('eth-mode').value, 10);
+      const ip = document.getElementById('eth-ip').value.trim();
+      const netmask = document.getElementById('eth-netmask').value.trim();
+      const gateway = document.getElementById('eth-gateway').value.trim();
+      const dns = document.getElementById('eth-dns').value.trim();
+
       // Validate IP fields
-      const ipError = validateIPv4(document.getElementById('eth-ip').value);
-      const netmaskError = validateIPv4(document.getElementById('eth-netmask').value);
-      const gatewayError = validateIPv4(document.getElementById('eth-gateway').value);
-      const dnsError = validateIPv4(document.getElementById('eth-dns').value);
+      let ipError = validateIPv4(ip);
+      let netmaskError = validateNetmask(netmask);
+      let gatewayError = validateIPv4(gateway);
+      const dnsError = validateIPv4(dns);
+
+      // Check required fields for static mode
+      if (mode === 2) {
+        if (!ip) ipError = 'Required for static IP';
+        if (!netmask) netmaskError = 'Required for static IP';
+        if (!gateway) gatewayError = 'Required for static IP';
+      }
 
       document.getElementById('eth-ip-validation').textContent = ipError || '';
       document.getElementById('eth-netmask-validation').textContent = netmaskError || '';
@@ -536,13 +533,16 @@
       const gateway = document.getElementById('eth-gateway').value.trim();
       const dns = document.getElementById('eth-dns').value.trim();
 
-      // Check for validation errors
-      const hasIpError = mode === 2 && ip && validateIPv4(ip);
-      const hasNetmaskError = mode === 2 && netmask && validateIPv4(netmask);
-      const hasGatewayError = mode === 2 && gateway && validateIPv4(gateway);
-      const hasDnsError = mode === 2 && dns && validateIPv4(dns);
+      // Check for validation errors (format issues)
+      const hasIpError = ip && validateIPv4(ip);
+      const hasNetmaskError = netmask && validateNetmask(netmask);
+      const hasGatewayError = gateway && validateIPv4(gateway);
+      const hasDnsError = dns && validateIPv4(dns);
 
-      if (hasIpError || hasNetmaskError || hasGatewayError || hasDnsError) {
+      // Check required fields for static mode
+      const missingRequired = mode === 2 && (!ip || !netmask || !gateway);
+
+      if (hasIpError || hasNetmaskError || hasGatewayError || hasDnsError || missingRequired) {
         saveBtn.disabled = true;
         return;
       }
@@ -561,8 +561,6 @@
     // Save Ethernet settings
     async function saveEthernetSettings() {
       const saveBtn = document.getElementById('save-eth-btn');
-      saveBtn.disabled = true;
-      saveBtn.textContent = 'Saving...';
 
       const mode = parseInt(document.getElementById('eth-mode').value, 10);
       const ip = document.getElementById('eth-ip').value.trim();
@@ -570,25 +568,44 @@
       const gateway = document.getElementById('eth-gateway').value.trim();
       const dns = document.getElementById('eth-dns').value.trim();
 
+      // Validate required fields for static mode
+      if (mode === 2) {
+        if (!ip || !netmask || !gateway) {
+          alert('Static IP mode requires IP address, netmask, and gateway.');
+          return;
+        }
+        // Confirm static IP change (risk of losing connectivity)
+        const confirmed = confirm(
+          'Warning: Incorrect static IP settings may make the device unreachable via Ethernet.\n\n' +
+          'Please verify:\n' +
+          '  - IP: ' + ip + '\n' +
+          '  - Netmask: ' + netmask + '\n' +
+          '  - Gateway: ' + gateway + '\n\n' +
+          'If settings are wrong, you can still access the device via WiFi to correct them.\n\n' +
+          'Continue with these settings?'
+        );
+        if (!confirmed) return;
+      }
+
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving...';
+
       try {
         // Save all Ethernet settings
         const modeSuccess = await setParameter('eth_mode', String(mode));
         if (!modeSuccess) throw new Error('Failed to save Ethernet mode');
 
         if (mode === 2) {
-          // Static mode - save IP settings
-          if (ip) {
-            const ipSuccess = await setParameter('eth_static_ip', ip);
-            if (!ipSuccess) throw new Error('Failed to save static IP');
-          }
-          if (netmask) {
-            const netmaskSuccess = await setParameter('eth_netmask', netmask);
-            if (!netmaskSuccess) throw new Error('Failed to save netmask');
-          }
-          if (gateway) {
-            const gatewaySuccess = await setParameter('eth_gateway', gateway);
-            if (!gatewaySuccess) throw new Error('Failed to save gateway');
-          }
+          // Static mode - save IP settings (already validated as required)
+          const ipSuccess = await setParameter('eth_static_ip', ip);
+          if (!ipSuccess) throw new Error('Failed to save static IP');
+
+          const netmaskSuccess = await setParameter('eth_netmask', netmask);
+          if (!netmaskSuccess) throw new Error('Failed to save netmask');
+
+          const gatewaySuccess = await setParameter('eth_gateway', gateway);
+          if (!gatewaySuccess) throw new Error('Failed to save gateway');
+
           if (dns) {
             const dnsSuccess = await setParameter('eth_dns', dns);
             if (!dnsSuccess) throw new Error('Failed to save DNS');
@@ -601,8 +618,6 @@
         currentEthNetmask = netmask;
         currentEthGateway = gateway;
         currentEthDns = dns;
-        needsRestart = true;
-        updateRestartButton();
 
         // Show success message
         const app = document.getElementById('app');
@@ -714,8 +729,6 @@
         if (success) {
           currentHostname = newHostname;
           isDirty = false;
-          needsRestart = true;
-          updateRestartButton();
           
           // Show success message
           const app = document.getElementById('app');
