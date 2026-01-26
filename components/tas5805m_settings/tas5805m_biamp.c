@@ -1239,6 +1239,7 @@ void tas5805m_biamp_init_defaults(tas5805m_biamp_settings_t *settings)
 /* Stub functions when TAS5805M is enabled but EQ support is not */
 #if CONFIG_DAC_TAS5805M && !CONFIG_DAC_TAS5805M_EQ_SUPPORT
 
+#include <string.h>
 #include "esp_log.h"
 static const char *TAG = "tas5805m_biamp";
 
