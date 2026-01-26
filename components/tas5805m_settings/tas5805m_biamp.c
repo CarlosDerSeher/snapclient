@@ -32,7 +32,8 @@
 
 #include "tas5805m_biamp.h"
 
-#if CONFIG_DAC_TAS5805M
+/* Biamp requires both TAS5805M DAC and EQ support for biquad coefficient writing */
+#if CONFIG_DAC_TAS5805M && CONFIG_DAC_TAS5805M_EQ_SUPPORT
 
 #include <math.h>
 #include <string.h>
@@ -1233,4 +1234,4 @@ void tas5805m_biamp_init_defaults(tas5805m_biamp_settings_t *settings)
     settings->air_gain = 0;  /* Disabled */
 }
 
-#endif /* CONFIG_DAC_TAS5805M */
+#endif /* CONFIG_DAC_TAS5805M && CONFIG_DAC_TAS5805M_EQ_SUPPORT */
