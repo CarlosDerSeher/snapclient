@@ -1235,3 +1235,23 @@ void tas5805m_biamp_init_defaults(tas5805m_biamp_settings_t *settings)
 }
 
 #endif /* CONFIG_DAC_TAS5805M && CONFIG_DAC_TAS5805M_EQ_SUPPORT */
+
+/* Stub functions when TAS5805M is enabled but EQ support is not */
+#if CONFIG_DAC_TAS5805M && !CONFIG_DAC_TAS5805M_EQ_SUPPORT
+
+#include "esp_log.h"
+static const char *TAG = "tas5805m_biamp";
+
+esp_err_t tas5805m_biamp_apply(const tas5805m_biamp_settings_t *settings) {
+    (void)settings;
+    ESP_LOGW(TAG, "Biamp not available - EQ support disabled in menuconfig");
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+void tas5805m_biamp_init_defaults(tas5805m_biamp_settings_t *settings) {
+    if (settings) {
+        memset(settings, 0, sizeof(*settings));
+    }
+}
+
+#endif /* CONFIG_DAC_TAS5805M && !CONFIG_DAC_TAS5805M_EQ_SUPPORT */
