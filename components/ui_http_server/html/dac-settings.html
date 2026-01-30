@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP32 Snapclient DAC Control</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="index.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 20px auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+
+    h1 {
+      color: #333;
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    .parameters-container {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .parameter-control {
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .parameter-control label {
+      display: block;
+      font-weight: bold;
+      margin-bottom: 10px;
+      color: #333;
+    }
+
+    .parameter-control .param-info {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .parameter-control .param-name {
+      font-size: 16px;
+    }
+
+    .parameter-control .param-value {
+      font-size: 18px;
+      color: #007bff;
+      font-weight: bold;
+    }
+
+    .parameter-control select {
+      width: 100%;
+      padding: 10px;
+      font-size: 16px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      background-color: white;
+      cursor: pointer;
+    }
+
+    .parameter-control select:hover {
+      border-color: #007bff;
+    }
+
+    .parameter-control select:focus {
+      outline: none;
+      border-color: #007bff;
+      box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+    }
+
+    .parameter-control input[type="range"] {
+      width: 100%;
+      height: 8px;
+      border-radius: 4px;
+      background: #ddd;
+      outline: none;
+      -webkit-appearance: none;
+      margin: 10px 0;
+    }
+
+    .parameter-control input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #007bff;
+      cursor: pointer;
+    }
+
+    .parameter-control input[type="range"]::-moz-range-thumb {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #007bff;
+      cursor: pointer;
+      border: none;
+    }
+
+    /* Read-only parameter styles */
+    .parameter-control.readonly {
+      background-color: #f9f9f9;
+      border-left: 3px solid #999;
+    }
+
+    .parameter-control.readonly label {
+      color: #666;
+    }
+
+    .parameter-control.readonly select {
+      background-color: #f0f0f0;
+      color: #666;
+      cursor: not-allowed;
+      border-color: #ddd;
+    }
+
+    .parameter-control.readonly input[type="range"] {
+      background: #e8e8e8;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    .parameter-control.readonly input[type="range"]::-webkit-slider-thumb {
+      background: #999;
+      cursor: not-allowed;
+    }
+
+    .parameter-control.readonly input[type="range"]::-moz-range-thumb {
+      background: #999;
+      cursor: not-allowed;
+    }
+
+    .readonly-indicator {
+      display: inline-block;
+      margin-left: 8px;
+      padding: 2px 8px;
+      background-color: #e0e0e0;
+      color: #666;
+      font-size: 11px;
+      font-weight: normal;
+      border-radius: 3px;
+      text-transform: uppercase;
+    }
+
+    .range-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #666;
+      margin-top: 5px;
+    }
+
+    .group-container {
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+
+    .group-title {
+      font-size: 20px;
+      font-weight: bold;
+      color: #333;
+      margin-bottom: 5px;
+    }
+
+    .group-description {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 15px;
+      font-style: italic;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+    }
+
+    .error {
+      background-color: #f8d7da;
+      color: #721c24;
+      padding: 15px;
+      border-radius: 4px;
+      margin: 20px 0;
+    }
+
+    .info-box {
+      background-color: #d1ecf1;
+      color: #0c5460;
+      padding: 15px;
+      border-radius: 4px;
+      margin: 20px 0;
+    }
+
+    .current-state {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background-color: #e7f3ff;
+      padding: 15px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+
+    .current-state .label {
+      font-weight: bold;
+      color: #333;
+    }
+
+    .current-state .value {
+      font-size: 18px;
+      color: #007bff;
+      font-weight: bold;
+    }
+
+    .polling-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: #666;
+      padding: 8px 12px;
+      background-color: #f8f9fa;
+      border-radius: 4px;
+      margin-bottom: 10px;
+    }
+
+    .polling-indicator .pulse {
+      width: 8px;
+      height: 8px;
+      background-color: #28a745;
+      border-radius: 50%;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+      }
+      50% {
+        opacity: 0.5;
+        transform: scale(0.8);
+      }
+    }
+
+    /* Faults list styles */
+    .faults-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .fault-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 15px;
+      border-radius: 6px;
+      background-color: #f8f9fa;
+      border-left: 3px solid #6c757d;
+      transition: all 0.2s ease;
+    }
+
+    .fault-item.active {
+      background-color: #fff3cd;
+      border-left-color: #ff9800;
+    }
+
+    .fault-item.critical {
+      background-color: #f8d7da;
+      border-left-color: #dc3545;
+    }
+
+    .fault-indicator {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background-color: #6c757d;
+      flex-shrink: 0;
+    }
+
+    .fault-item.active .fault-indicator {
+      background-color: #ff9800;
+      box-shadow: 0 0 8px rgba(255, 152, 0, 0.5);
+      animation: fault-pulse 1.5s ease-in-out infinite;
+    }
+
+    .fault-item.critical .fault-indicator {
+      background-color: #dc3545;
+      box-shadow: 0 0 8px rgba(220, 53, 69, 0.5);
+      animation: fault-pulse 1s ease-in-out infinite;
+    }
+
+    @keyframes fault-pulse {
+      0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+      }
+      50% {
+        opacity: 0.7;
+        transform: scale(1.1);
+      }
+    }
+
+    .fault-name {
+      flex-grow: 1;
+      font-size: 14px;
+      color: #333;
+    }
+
+    .fault-status {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      color: #6c757d;
+    }
+
+    .fault-item.active .fault-status {
+      color: #ff9800;
+    }
+
+    .fault-item.critical .fault-status {
+      color: #dc3545;
+    }
+
+    /* EQ Bands Layout - Vertical Sliders */
+    .eq-bands-container {
+      display: flex;
+      flex-direction: row;
+      gap: 8px;
+      padding: 20px;
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      overflow-x: auto;
+      margin-bottom: 20px;
+    }
+
+    .eq-band-slider {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-width: 43px;
+      gap: 8px;
+    }
+
+    .eq-band-slider .slider-label {
+      font-size: 11px;
+      color: #666;
+      font-weight: 500;
+      text-align: center;
+      white-space: nowrap;
+      writing-mode: horizontal-tb;
+    }
+
+    .eq-band-slider .slider-value {
+      font-size: 13px;
+      color: #007bff;
+      font-weight: bold;
+      min-height: 20px;
+      text-align: center;
+    }
+
+    .eq-band-slider input[type="range"] {
+      -webkit-appearance: slider-vertical;
+      writing-mode: bt-lr;
+      width: 8px;
+      height: 200px;
+      background: #ddd;
+      border-radius: 4px;
+      outline: none;
+      margin: 10px 0;
+    }
+
+    .eq-band-slider input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #007bff;
+      cursor: pointer;
+    }
+
+    .eq-band-slider input[type="range"]::-moz-range-thumb {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #007bff;
+      cursor: pointer;
+      border: none;
+    }
+
+    .eq-bands-header {
+      font-size: 18px;
+      font-weight: bold;
+      color: #333;
+      margin-bottom: 10px;
+      padding: 0 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>TAS5805M DAC Settings</h1>
+  
+  <div class="polling-indicator" id="polling-indicator">
+    <span class="pulse"></span>
+    <span id="polling-text">Auto-refreshing every 2 seconds</span>
+    <div style="margin-left:16px; display:flex; align-items:center; gap:10px;">
+      <label for="poll-interval" style="font-size:12px; color:#666;">Refresh (0=off):</label>
+      <input id="poll-interval" type="range" min="0" max="10" step="1" value="2" aria-label="Polling interval seconds">
+      <span id="poll-interval-value" style="font-size:12px; color:#666; width:36px; text-align:right;">2s</span>
+    </div>
+    <!-- EQ controls moved to EQ tab -->
+  </div>
+  
+  <div id="app">
+    <div class="loading">Loading DAC settings...</div>
+  </div>
+
+  <script>
+    'use strict';
+
+    let schema = null;
+    let currentSettings = null;
+    let pollingInterval = null;
+    // Poll interval in seconds (0 = off). Persisted to localStorage.
+    let pollIntervalSec = (function(){
+      const v = parseInt(localStorage.getItem('dac_poll_interval_sec'));
+      return Number.isInteger(v) ? v : 2;
+    })();
+
+    // Helper function to determine if a fault is critical
+    function isCriticalFault(faultName) {
+      const criticalFaults = [
+        'Over temperature shutdown'
+      ];
+      return criticalFaults.some(cf => faultName.includes(cf));
+    }
+
+    // Fetch DAC schema from the device
+    async function loadSchema() {
+      try {
+        const response = await getRequest('/api/dac/schema');
+        if (!response.ok) {
+          throw new Error('Failed to fetch DAC schema');
+        }
+        schema = await response.json();
+        
+        // Load current settings
+        await loadCurrentSettings();
+        
+        renderUI();
+        
+        // Initialize polling UI and start periodic polling if enabled
+        initPollingControls();
+        startPolling();
+      } catch (error) {
+        console.error('Error loading DAC schema:', error);
+        document.getElementById('app').innerHTML = 
+          '<div class="error">Error loading DAC settings. Please refresh the page.</div>';
+      }
+    }
+
+    // Fetch current DAC settings
+    async function loadCurrentSettings() {
+      try {
+        const response = await getRequest('/api/dac/settings');
+        if (!response.ok) {
+          throw new Error('Failed to fetch DAC settings');
+        }
+        const newSettings = await response.json();
+        
+        // Check if settings actually changed before updating UI
+        if (JSON.stringify(newSettings) !== JSON.stringify(currentSettings)) {
+          currentSettings = newSettings;
+          return true; // Settings changed
+        }
+        return false; // No change
+      } catch (error) {
+        console.error('Error loading current DAC settings:', error);
+        // Don't clear currentSettings on error, keep showing last known state
+        return false;
+      }
+    }
+
+    // Start periodic polling of DAC settings using pollIntervalSec
+    function startPolling() {
+      // Clear any existing interval
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+      }
+
+      if (!pollIntervalSec || pollIntervalSec <= 0) {
+        // Polling disabled
+        updatePollingIndicator(false);
+        console.log('Polling disabled (pollIntervalSec=0)');
+        return;
+      }
+
+      // Poll for changes every pollIntervalSec seconds
+      pollingInterval = setInterval(async () => {
+        const changed = await loadCurrentSettings();
+        if (changed && schema) {
+          renderUI();
+          console.log('DAC settings updated from polling');
+        }
+      }, pollIntervalSec * 1000);
+
+      updatePollingIndicator(true);
+      console.log(`Started polling DAC settings every ${pollIntervalSec}s`);
+    }
+
+    // Stop polling (useful for cleanup)
+    function stopPolling() {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+        console.log('Stopped polling DAC settings');
+      }
+    }
+
+    // Initialize polling controls (slider and label) and wire events
+    function initPollingControls() {
+      const slider = document.getElementById('poll-interval');
+      const valSpan = document.getElementById('poll-interval-value');
+      const textSpan = document.getElementById('polling-text');
+
+      if (!slider || !valSpan || !textSpan) return;
+
+      // Set slider initial value
+      slider.value = String(pollIntervalSec);
+      valSpan.textContent = pollIntervalSec === 0 ? 'Off' : (pollIntervalSec + 's');
+      textSpan.textContent = pollIntervalSec === 0 ? 'Auto-refresh OFF' : `Auto-refreshing every ${pollIntervalSec} second${pollIntervalSec===1? '' : 's'}`;
+
+      // Update function
+      const update = (sec) => {
+        pollIntervalSec = sec;
+        localStorage.setItem('dac_poll_interval_sec', String(pollIntervalSec));
+        valSpan.textContent = pollIntervalSec === 0 ? 'Off' : (pollIntervalSec + 's');
+        textSpan.textContent = pollIntervalSec === 0 ? 'Auto-refresh OFF' : `Auto-refreshing every ${pollIntervalSec} second${pollIntervalSec===1? '' : 's'}`;
+        // Restart polling with new interval
+        startPolling();
+      };
+
+      slider.addEventListener('input', (e) => {
+        const v = parseInt(e.target.value, 10) || 0;
+        valSpan.textContent = v === 0 ? 'Off' : (v + 's');
+      });
+
+      slider.addEventListener('change', (e) => {
+        const v = parseInt(e.target.value, 10) || 0;
+        update(v);
+      });
+    }
+
+    function updatePollingIndicator(active) {
+      const indicator = document.getElementById('polling-indicator');
+      const pulse = indicator ? indicator.querySelector('.pulse') : null;
+      if (!indicator || !pulse) return;
+      if (active) {
+        pulse.style.backgroundColor = '#28a745';
+        pulse.style.animationPlayState = 'running';
+      } else {
+        pulse.style.backgroundColor = '#999';
+        pulse.style.animationPlayState = 'paused';
+      }
+    }
+
+    // Render the complete UI based on schema
+    function renderUI() {
+      const app = document.getElementById('app');
+      
+      let html = '';
+
+      // Create parameters container
+      html += '<div class="parameters-container" id="parameters"></div>';
+      
+      app.innerHTML = html;
+
+      // Render parameters
+      renderParameters();
+    }
+
+    // Render parameters based on schema
+    function renderParameters() {
+      const container = document.getElementById('parameters');
+      
+      if (!schema || !schema.groups || schema.groups.length === 0) {
+        container.innerHTML = '<div class="loading">No configurable parameters available.</div>';
+        return;
+      }
+
+      // Update schema with current values from currentSettings before rendering
+      if (currentSettings && schema.groups) {
+        for (const group of schema.groups) {
+          if (group.parameters) {
+            for (const param of group.parameters) {
+              // Update param.current with the value from currentSettings if available
+              if (currentSettings.hasOwnProperty(param.key)) {
+                param.current = currentSettings[param.key];
+              }
+            }
+          }
+        }
+      }
+
+      container.innerHTML = '';
+
+      // Render each group (skip EQ-specific groups)
+      for (const group of schema.groups) {
+        // Skip groups that belong to EQ UI (they are moved to the dedicated EQ tab)
+        if (group.layout === 'eq-bands' || group.layout === 'biquad-manual' || (group.name && group.name.toLowerCase().includes('eq'))) {
+          continue;
+        }
+        
+        const groupDiv = document.createElement('div');
+        groupDiv.className = 'group-container';
+        
+        let groupHtml = `<div class="group-title">${group.name}</div>`;
+        if (group.description) {
+          groupHtml += `<div class="group-description">${group.description}</div>`;
+        }
+        
+        groupDiv.innerHTML = groupHtml;
+        
+        // Render parameters in this group
+        for (const param of group.parameters) {
+          // Skip parameters that are now handled by eq-bands layout
+          if (param && param.layout === 'vertical') continue;
+          
+          // Skip any EQ-specific parameters (moved to EQ tab)
+          if (param && typeof param.key === 'string') {
+            if (param.key.startsWith('eq_') || param.key.startsWith('bq_')) {
+              continue;
+            }
+          }
+          const controlDiv = document.createElement('div');
+          controlDiv.className = 'parameter-control';
+          
+          // Add readonly class if parameter is readonly
+          if (param.readonly) {
+            controlDiv.className += ' readonly';
+          }
+          
+          let html = '<div class="param-info">';
+          html += `<label class="param-name">${param.name}`;
+          
+          // Add readonly indicator badge
+          if (param.readonly) {
+            html += '<span class="readonly-indicator">Read-Only</span>';
+          }
+          
+          html += '</label>';
+          
+          if (param.type === 'range') {
+            // Display current value with scaling. If the schema's step is an integer
+            // then show integer formatting; otherwise preserve fractional digits
+            const scale = param.scale || 1;
+            const step = (param.step !== undefined) ? Number(param.step) : 1;
+            const getDecimals = (s) => {
+              if (s === undefined || s === null) return 1;
+              if (Number.isInteger(s)) return 0;
+              const ss = String(s);
+              if (ss.indexOf('.') === -1) return 0;
+              return ss.split('.')[1].length;
+            };
+            const decimals = (param.decimals !== undefined) ? param.decimals : getDecimals(step);
+            const displayValue = (param.current * scale).toFixed(decimals);
+            html += `<span class="param-value" id="${param.key}-value">${displayValue} ${param.unit}</span>`;
+          }
+          
+          html += '</div>';
+
+          if (param.type === 'enum') {
+            // Create dropdown for enum types
+            const disabledAttr = param.readonly ? 'disabled' : '';
+            const onchangeAttr = param.readonly ? '' : `onchange="handleParameterChange('${param.key}', this.value)"`;
+            html += `<select id="${param.key}" ${disabledAttr} ${onchangeAttr}>`;
+            
+            for (const enumValue of param.values) {
+              const selected = (param.current === enumValue.value) ? 'selected' : '';
+              html += `<option value="${enumValue.value}" ${selected}>${enumValue.name}</option>`;
+            }
+            
+            html += '</select>';
+          } else if (param.type === 'range') {
+            // Create slider for range types
+            const scale = param.scale || 1;
+            const displayMin = (param.min * scale).toFixed(1);
+            const displayMax = (param.max * scale).toFixed(1);
+            
+            const disabledAttr = param.readonly ? 'disabled' : '';
+            const oninputAttr = param.readonly ? '' : `oninput="handleRangeChange('${param.key}', this.value, ${scale}, '${param.unit}')"`;
+            
+            html += `<input type="range" 
+                      id="${param.key}" 
+                      min="${param.min}" 
+                      max="${param.max}" 
+                      step="${param.step}" 
+                      value="${param.current}"
+                      data-scale="${scale}"
+                      data-unit="${param.unit}"
+                      ${disabledAttr}
+                      ${oninputAttr}
+                      aria-label="${param.name}">`;
+            html += '<div class="range-labels">';
+            html += `<span>${displayMin} ${param.unit}</span>`;
+            html += `<span>${displayMax} ${param.unit}</span>`;
+            html += '</div>';
+          } else if (param.type === 'faults-list') {
+            // Create list of faults with status indicators
+            html += '<div class="faults-list">';
+            
+            if (param.current && Array.isArray(param.current)) {
+              for (const fault of param.current) {
+                const isActive = fault.active;
+                const isCritical = isCriticalFault(fault.name);
+                let itemClass = 'fault-item';
+                if (isActive) {
+                  itemClass += isCritical ? ' critical' : ' active';
+                }
+                
+                html += `<div class="${itemClass}">`;
+                html += '<span class="fault-indicator"></span>';
+                html += `<span class="fault-name">${fault.name}</span>`;
+                html += `<span class="fault-status">${isActive ? 'ACTIVE' : 'OK'}</span>`;
+                html += '</div>';
+              }
+            } else {
+              html += '<div class="fault-item"><span class="fault-name">No fault data available</span></div>';
+            }
+            
+            html += '</div>';
+          } else {
+            html += `<p>Parameter type '${param.type}' not yet implemented</p>`;
+          }
+          
+          controlDiv.innerHTML = html;
+          groupDiv.appendChild(controlDiv);
+        }
+        
+        container.appendChild(groupDiv);
+      }
+    }
+
+    // Handle range slider changes
+    function handleRangeChange(paramKey, value, scale, unit) {
+      const valueSpan = document.getElementById(`${paramKey}-value`);
+      const slider = document.getElementById(paramKey);
+      // Determine decimals from the slider's step attribute (fallback to 1 decimal)
+      let decimals = 1;
+      if (slider) {
+        const stepAttr = slider.getAttribute('step');
+        const step = stepAttr !== null ? Number(stepAttr) : 1;
+        if (!Number.isNaN(step)) {
+          if (Number.isInteger(step)) {
+            decimals = 0;
+          } else {
+            const s = String(step);
+            decimals = s.indexOf('.') === -1 ? 0 : s.split('.')[1].length;
+          }
+        }
+      }
+
+      if (valueSpan) {
+        const numeric = parseFloat(value);
+        const displayValue = (numeric * (scale || 1)).toFixed(decimals);
+        valueSpan.textContent = `${displayValue} ${unit}`;
+      }
+      
+      // Debounce updates to avoid flooding the device
+      clearTimeout(window[`${paramKey}_timeout`]);
+      window[`${paramKey}_timeout`] = setTimeout(() => {
+        handleParameterChange(paramKey, parseInt(value));
+      }, 300);
+    }
+
+    // Handle parameter value changes
+    async function handleParameterChange(paramKey, value) {
+      console.log(`Parameter ${paramKey} changed to ${value}`);
+      
+      try {
+        // Send update to device
+        const data = {};
+        data[paramKey] = parseInt(value);
+        
+        const response = await postRequest('/api/dac/settings', data);
+        
+        if (!response.ok) {
+          throw new Error('Failed to update DAC setting');
+        }
+        
+        console.log(`Successfully updated ${paramKey} to ${value}`);
+        
+        // Update local currentSettings immediately to prevent race condition
+        // where device hasn't committed to NVS yet or driver hasn't updated
+        if (currentSettings) {
+          currentSettings[paramKey] = parseInt(value);
+        }
+        
+        // Re-render immediately with optimistic update
+        renderUI();
+        
+        // For modulation parameters, add a delay before fetching to allow
+        // the driver to update (modulation mode is read from hardware, not cached)
+        if (paramKey === 'modulation_mode' || paramKey === 'sw_freq' || paramKey === 'bd_freq') {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        
+        // Reload current settings from device to sync any merged updates
+        // (e.g., modulation mode updates all three related parameters)
+        await loadCurrentSettings();
+        renderUI();
+        
+      } catch (error) {
+        console.error('Error updating DAC setting:', error);
+        alert('Failed to update DAC setting. Please try again.');
+      }
+    }
+
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', () => {
+      loadSchema();
+    });
+    
+    // Stop polling when page is unloaded
+    window.addEventListener('beforeunload', stopPolling);
+  </script>
+</body>
+</html>

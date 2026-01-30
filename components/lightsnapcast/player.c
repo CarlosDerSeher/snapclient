@@ -1505,6 +1505,11 @@ static void player_task(void *pvParameters) {
               // chnk->fragment->size);
             }
 
+            // If we still don't have a chunk, wait and retry
+            if (chnk == NULL) {
+              continue;
+            }
+
             fragment = chnk->fragment;
             p_payload = fragment->payload;
             size = fragment->size;

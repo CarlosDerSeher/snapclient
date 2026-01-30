@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP32 Snapclient EQ Control</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="index.js"></script>
+  <script src="settings-ui.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 1200px;
+      margin: 20px auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+
+    h1 {
+      color: #333;
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      font-size: 18px;
+      color: #666;
+    }
+
+    .error {
+      background-color: #ffebee;
+      color: #c62828;
+      padding: 20px;
+      border-radius: 8px;
+      margin: 20px 0;
+      text-align: center;
+    }
+
+    .parameters-container {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .group-container {
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+
+    .group-title {
+      font-size: 20px;
+      font-weight: bold;
+      color: #333;
+      margin-bottom: 5px;
+    }
+
+    .group-description {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 15px;
+      font-style: italic;
+    }
+
+    .parameter-group {
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .parameter-group h2 {
+      margin-top: 0;
+      margin-bottom: 15px;
+      color: #333;
+      font-size: 18px;
+      border-bottom: 2px solid #007bff;
+      padding-bottom: 10px;
+    }
+
+    .parameter-group p {
+      margin: 0 0 15px 0;
+      color: #666;
+      font-size: 14px;
+    }
+
+    /* Collapsible group styles */
+    .parameter-group.collapsible h2 {
+      cursor: pointer;
+      user-select: none;
+      position: relative;
+      padding-right: 30px;
+    }
+
+    .parameter-group.collapsible h2::after {
+      content: '▼';
+      position: absolute;
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      transition: transform 0.3s ease;
+      font-size: 14px;
+    }
+
+    .parameter-group.collapsible.collapsed h2::after {
+      transform: translateY(-50%) rotate(-90deg);
+    }
+
+    .parameter-group.collapsible .group-content {
+      overflow: hidden;
+      transition: max-height 0.3s ease, opacity 0.3s ease;
+    }
+
+    .parameter-group.collapsible.collapsed .group-content {
+      max-height: 0;
+      opacity: 0;
+    }
+
+    .parameter-group.collapsible:not(.collapsed) .group-content {
+      max-height: 10000px; /* Large enough for content */
+      opacity: 1;
+    }
+
+    .parameter-control {
+      margin-bottom: 20px;
+    }
+
+    .parameter-control:last-child {
+      margin-bottom: 0;
+    }
+
+    .parameter-control label {
+      display: block;
+      font-weight: bold;
+      margin-bottom: 10px;
+      color: #333;
+    }
+
+    .parameter-control .param-info {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .parameter-control .param-name {
+      font-size: 16px;
+    }
+
+    .parameter-control .param-value {
+      font-size: 18px;
+      color: #007bff;
+      font-weight: bold;
+    }
+
+    .parameter-control select {
+      width: 100%;
+      padding: 10px;
+      font-size: 16px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      background-color: white;
+      cursor: pointer;
+    }
+
+    .parameter-control select:hover {
+      border-color: #007bff;
+    }
+
+    .parameter-control select:focus {
+      outline: none;
+      border-color: #007bff;
+      box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+    }
+
+    .parameter-control input[type="range"] {
+      width: 100%;
+      height: 8px;
+      border-radius: 4px;
+      background: #ddd;
+      outline: none;
+      -webkit-appearance: none;
+      appearance: none;
+      margin: 10px 0;
+    }
+
+    .parameter-control input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #007bff;
+      cursor: pointer;
+    }
+
+    .parameter-control input[type="range"]::-moz-range-thumb {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #007bff;
+      cursor: pointer;
+      border: none;
+    }
+
+    /* Read-only parameter styles */
+    .parameter-control.readonly {
+      background-color: #f9f9f9;
+      border-left: 3px solid #999;
+    }
+
+    .parameter-control.readonly label {
+      color: #666;
+    }
+
+    .parameter-control.readonly select {
+      background-color: #f0f0f0;
+      color: #666;
+      cursor: not-allowed;
+      border-color: #ddd;
+    }
+
+    .parameter-control.readonly input[type="range"] {
+      background: #e8e8e8;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    .parameter-control.readonly input[type="range"]::-webkit-slider-thumb {
+      background: #999;
+      cursor: not-allowed;
+    }
+
+    .parameter-control.readonly input[type="range"]::-moz-range-thumb {
+      background: #999;
+      cursor: not-allowed;
+    }
+
+    .readonly-indicator {
+      display: inline-block;
+      margin-left: 8px;
+      padding: 2px 8px;
+      background-color: #e0e0e0;
+      color: #666;
+      font-size: 11px;
+      font-weight: normal;
+      border-radius: 3px;
+      text-transform: uppercase;
+    }
+
+    .range-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #666;
+      margin-top: 5px;
+    }
+
+    .parameter-control input[type="range"]::-moz-range-thumb {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #007bff;
+      cursor: pointer;
+      border: none;
+    }
+
+    .parameter-control input[type="number"],
+    .parameter-control input[type="text"] {
+      width: 100%;
+      padding: 10px;
+      font-size: 16px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      box-sizing: border-box;
+    }
+
+    .info-box {
+      background-color: #d1ecf1;
+      color: #0c5460;
+      padding: 15px;
+      border-radius: 4px;
+      margin: 20px 0;
+    }
+
+    .current-state {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background-color: #e7f3ff;
+      padding: 15px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+
+    .current-state .label {
+      font-weight: bold;
+      color: #333;
+    }
+
+    .current-state .value {
+      font-size: 18px;
+      color: #007bff;
+      font-weight: bold;
+    }
+
+    .polling-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: #666;
+      padding: 8px 12px;
+      background-color: #f8f9fa;
+      border-radius: 4px;
+      margin-bottom: 10px;
+    }
+
+    .polling-indicator .pulse {
+      width: 8px;
+      height: 8px;
+      background-color: #28a745;
+      border-radius: 50%;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+      }
+      50% {
+        opacity: 0.5;
+        transform: scale(0.8);
+      }
+    }
+
+    /* EQ Bands Layout */
+    .eq-bands-container {
+      display: flex;
+      gap: 10px;
+      overflow-x: auto;
+      padding: 10px 0;
+    }
+
+    .eq-band-slider {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-width: 60px;
+    }
+
+    .eq-band-slider input[type="range"] {
+      writing-mode: bt-lr;
+      -webkit-appearance: slider-vertical;
+      appearance: slider-vertical;
+      width: 8px;
+      height: 200px;
+      padding: 0;
+      margin: 10px 0;
+    }
+
+    .eq-band-slider label {
+      font-size: 12px;
+      text-align: center;
+      margin-top: 5px;
+    }
+
+    .eq-band-slider .value-display {
+      font-size: 14px;
+      font-weight: bold;
+      color: #007bff;
+      margin-bottom: 5px;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+    }
+    
+    .button-group button {
+      flex: 1;
+    }
+  </style>
+</head>
+<body>
+  <h1>EQ Settings</h1>
+  <div id="content">
+    <div class="loading">Loading EQ settings...</div>
+  </div>
+
+  <script>
+    'use strict';
+
+    let currentSettings = {};
+    let schema = {};
+
+    // Get backend URL from query parameter or default to current origin
+    function getBackendUrl() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const backend = urlParams.get('backend');
+      return backend || window.location.origin;
+    }
+
+    // Fetch EQ schema and current settings
+    async function loadSettings() {
+      try {
+        const backendUrl = getBackendUrl();
+        
+        // Fetch schema
+        const schemaResponse = await fetch(`${backendUrl}/api/eq/schema`);
+        if (!schemaResponse.ok) {
+          throw new Error('Failed to fetch EQ schema');
+        }
+        schema = await schemaResponse.json();
+        
+        // Fetch current settings
+        const settingsResponse = await fetch(`${backendUrl}/api/eq/settings`);
+        if (!settingsResponse.ok) {
+          throw new Error('Failed to fetch EQ settings');
+        }
+        currentSettings = await settingsResponse.json();
+        
+        // Render UI
+        renderUI();
+      } catch (error) {
+        console.error('Error loading EQ settings:', error);
+        document.getElementById('content').innerHTML = `
+          <div class="error">
+            Error loading EQ settings: ${error.message}
+          </div>
+        `;
+      }
+    }
+
+    // Render the UI based on schema
+    function renderUI() {
+      const content = document.getElementById('content');
+      content.innerHTML = '';
+
+      const container = document.createElement('div');
+      container.className = 'parameters-container';
+
+      // Render each group
+      if (schema.groups) {
+        schema.groups.forEach(group => {
+          const groupDiv = renderGroup(group);
+          container.appendChild(groupDiv);
+        });
+      }
+
+      content.appendChild(container);
+    }
+
+    // Render a parameter group
+    function renderGroup(group) {
+      const groupDiv = document.createElement('div');
+      groupDiv.className = 'parameter-group';
+      
+      // Add conditional visibility based on EQ UI mode
+      if (group.layout) {
+        groupDiv.setAttribute('data-layout', group.layout);
+        if (group.channel) {
+          groupDiv.setAttribute('data-channel', group.channel);
+        }
+      }
+
+      // Handle collapsible groups
+      if (group.collapsible) {
+        groupDiv.classList.add('collapsible');
+        if (group.collapsed) {
+          groupDiv.classList.add('collapsed');
+        }
+      }
+
+      const title = document.createElement('h2');
+      title.textContent = group.name;
+      
+      // Add click handler for collapsible groups
+      if (group.collapsible) {
+        title.addEventListener('click', () => {
+          groupDiv.classList.toggle('collapsed');
+        });
+      }
+      
+      groupDiv.appendChild(title);
+
+      if (group.description) {
+        const desc = document.createElement('p');
+        desc.textContent = group.description;
+        groupDiv.appendChild(desc);
+      }
+
+      // Create content wrapper for collapsible content
+      const contentWrapper = document.createElement('div');
+      contentWrapper.className = 'group-content';
+
+      // Handle EQ bands layout (vertical sliders)
+      if (group.layout === 'eq-bands' && group.parameters) {
+        const bandsContainer = document.createElement('div');
+        bandsContainer.className = 'eq-bands-container';
+        
+        group.parameters.forEach(param => {
+          const sliderDiv = settingsUI.renderVerticalSlider(param, currentSettings, async (k, v) => { await updateSetting(k, v); });
+          bandsContainer.appendChild(sliderDiv);
+        });
+        
+        contentWrapper.appendChild(bandsContainer);
+        groupDiv.appendChild(contentWrapper);
+        updateGroupVisibility(groupDiv);
+        return groupDiv;
+      }
+
+      // Normal parameters
+      if (group.parameters) {
+        group.parameters.forEach(param => {
+          const controlDiv = settingsUI.renderParameter(param, currentSettings, async (k, v) => { await updateSetting(k, v); });
+          contentWrapper.appendChild(controlDiv);
+        });
+      }
+
+      groupDiv.appendChild(contentWrapper);
+      updateGroupVisibility(groupDiv);
+      return groupDiv;
+    }
+
+    // Render vertical slider for EQ bands
+    function renderVerticalSlider(param) {
+      return settingsUI.renderVerticalSlider(param, currentSettings, async (k, v) => { await updateSetting(k, v); });
+    }
+
+    // Render a parameter control
+    function renderParameter(param) {
+      return settingsUI.renderParameter(param, currentSettings, async (k, v) => { await updateSetting(k, v); });
+    }
+
+    // Update visibility of groups based on EQ UI mode
+    function updateGroupVisibility(groupDiv) {
+      settingsUI.updateGroupVisibility(groupDiv, currentSettings);
+    }
+
+    // Update all group visibility
+    function updateAllGroupVisibility() {
+      settingsUI.updateAllGroupVisibility(currentSettings);
+    }
+
+    // Update a setting
+    async function updateSetting(key, value) {
+      try {
+          const update = { [key]: value };
+          console.log(`Updating ${key} = ${value}`);
+          await postRequest('/api/eq/settings', update);
+          
+          // Check if this is a mode change or gain/preset change BEFORE updating local state
+          const isModeChange = (key === 'eq_ui_mode');
+          const currentMode = currentSettings.eq_ui_mode;
+          const isAutoMode = (currentMode === 1 || currentMode === 2 || currentMode === 3); // 15-band, 15-band biamp, or preset
+          const isGainOrPresetChange = key.startsWith('eq_gain_') || key.startsWith('eq_profile_');
+          
+          // Update local state after checking
+          currentSettings[key] = value;
+          
+          if (isModeChange) {
+            // Mode change - always reload schema and settings
+            console.log('Mode changed, reloading schema and settings...');
+            const backendUrl = getBackendUrl();
+            const [schemaResponse, settingsResponse] = await Promise.all([
+              fetch(`${backendUrl}/api/eq/schema`),
+              fetch(`${backendUrl}/api/eq/settings`)
+            ]);
+            if (schemaResponse.ok && settingsResponse.ok) {
+              schema = await schemaResponse.json();
+              currentSettings = await settingsResponse.json();
+              renderUI();
+            } else {
+              updateAllGroupVisibility();
+            }
+          } else if (isAutoMode && isGainOrPresetChange) {
+            // In auto modes, when gains or presets change, the DAC calculates new BQ coefficients
+            // Reload both schema and settings to get the actual coefficients that were applied to the DAC
+            console.log('Reloading schema and settings to fetch actual DAC coefficients...');
+            const backendUrl = getBackendUrl();
+            const [schemaResponse, settingsResponse] = await Promise.all([
+              fetch(`${backendUrl}/api/eq/schema`),
+              fetch(`${backendUrl}/api/eq/settings`)
+            ]);
+            if (schemaResponse.ok && settingsResponse.ok) {
+              schema = await schemaResponse.json();
+              currentSettings = await settingsResponse.json();
+              renderUI(); // Re-render to show updated coefficients
+            }
+          }
+      } catch (error) {
+        console.error('Error updating setting:', error);
+        alert(`Error updating setting: ${error.message}`);
+      }
+    }
+
+    // Load settings on page load
+    document.addEventListener('DOMContentLoaded', loadSettings);
+  </script>
+</body>
+</html>
