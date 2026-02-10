@@ -21,7 +21,7 @@ idf_component_register(SRCS "${srcs}"
 #set_source_files_properties(opus/silk/quant_LTP_gains.c PROPERTIES COMPILE_FLAGS -Wno-maybe-uninitialized)
 #target_compile_definitions(${COMPONENT_TARGET} PRIVATE "-DHAVE_CONFIG_H")
 
-set_source_files_properties(flac/src/libFLAC/bitwriter.c PROPERTIES COMPILE_FLAGS -Wno-error=format)
-set_source_files_properties(flac/src/libFLAC/bitreader.c PROPERTIES COMPILE_FLAGS -Wno-error=format)
+set_source_files_properties(flac/src/libFLAC/bitwriter.c PROPERTIES COMPILE_FLAGS -Wno-format)
+set_source_files_properties(flac/src/libFLAC/bitreader.c PROPERTIES COMPILE_FLAGS -Wno-format)
 set_source_files_properties(flac/src/libFLAC/stream_decoder.c PROPERTIES COMPILE_FLAGS -Wno-incompatible-pointer-types)
 target_compile_definitions(${COMPONENT_TARGET} PRIVATE "-DHAVE_CONFIG_H")

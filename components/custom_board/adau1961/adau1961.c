@@ -609,9 +609,55 @@ esp_err_t adau1961_deinit(void) {
 }
 
 esp_err_t adau1961_ctrl(audio_hal_codec_mode_t mode,
-                        audio_hal_ctrl_t ctrl_state) {
-  // TODO
-  return ESP_OK;
+                        audio_hal_ctrl_t ctrl_state) 
+{
+  esp_err_t ret = ESP_OK;
+  
+  switch (mode) {
+    case AUDIO_HAL_CODEC_MODE_ENCODE:
+      break;
+    case AUDIO_HAL_CODEC_MODE_LINE_IN:
+      break;
+    case AUDIO_HAL_CODEC_MODE_DECODE:
+      break;
+    case AUDIO_HAL_CODEC_MODE_BOTH:
+      break;
+    default:
+      break;
+  }
+  
+  if (AUDIO_HAL_CTRL_STOP == ctrl_state) {
+    uint8_t data[3];
+    
+//    // first disable ADC
+//    data[0] = (uint8_t)(R19_ADC_CTRL0 >> 8);
+//    data[1] = (uint8_t)R19_ADC_CTRL0;
+//    ret = i2c_bus_read_bytes(i2c_handler, adau1961_addr, data, 2, &data[2], 1);
+//    data[2] &= ~0x03;
+//    ret = i2c_bus_write_data(i2c_handler, adau1961_addr, data, 3);
+
+    // turn off DACs
+    data[0] = (uint8_t)(R36_DAC_CTRL0 >> 8);
+    data[1] = (uint8_t)R36_DAC_CTRL0;
+    ret = i2c_bus_read_bytes(i2c_handler, adau1961_addr, data, 2, &data[2], 1);
+    data[2] &= ~0x03;
+    ret = i2c_bus_write_data(i2c_handler, adau1961_addr, data, 3);
+    
+    ESP_LOGI(TAG, "disable DAC");
+  } else {
+    uint8_t data[3];
+    
+    // turn on DACs
+    data[0] = (uint8_t)(R36_DAC_CTRL0 >> 8);
+    data[1] = (uint8_t)R36_DAC_CTRL0;
+    ret = i2c_bus_read_bytes(i2c_handler, adau1961_addr, data, 2, &data[2], 1);
+    data[2] |= 0x03;
+    ret = i2c_bus_write_data(i2c_handler, adau1961_addr, data, 3);
+    
+    ESP_LOGI(TAG, "enable DAC");
+  }
+  
+  return ret;
 }
 
 esp_err_t adau1961_config_iface(audio_hal_codec_mode_t mode,

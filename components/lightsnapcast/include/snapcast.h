@@ -16,10 +16,11 @@ enum message_type {
   SNAPCAST_MESSAGE_SERVER_SETTINGS = 3,
   SNAPCAST_MESSAGE_TIME = 4,
   SNAPCAST_MESSAGE_HELLO = 5,
-  SNAPCAST_MESSAGE_STREAM_TAGS = 6,
+  // SNAPCAST_MESSAGE_STREAM_TAGS = 6,
+  SNAPCAST_MESSAGE_CLIENT_INFO = 7,
 
   SNAPCAST_MESSAGE_FIRST = SNAPCAST_MESSAGE_BASE,
-  SNAPCAST_MESSAGE_LAST = SNAPCAST_MESSAGE_STREAM_TAGS,
+  SNAPCAST_MESSAGE_LAST = SNAPCAST_MESSAGE_CLIENT_INFO,
   SNAPCAST_MESSAGE_INVALID
 };
 
@@ -111,6 +112,7 @@ typedef struct time_message {
 int time_message_serialize(time_message_t *msg, char *data, uint32_t size);
 int time_message_deserialize(time_message_t *msg, const char *data,
                              uint32_t size);
+
 #ifdef __cplusplus
 }
 #endif

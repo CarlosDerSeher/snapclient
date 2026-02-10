@@ -6,6 +6,8 @@
  */
 #include "improvWifi.h"
 
+#include <stdio.h>
+
 #include <string>
 
 void ImprovWiFi::handleSerial(const uint8_t *data, size_t length) {
@@ -274,7 +276,9 @@ bool ImprovWiFi::parseImprovSerial(size_t position, uint8_t byte,
 
   if (position == 8 + data_len + 1) {
     uint8_t checksum = 0x00;
-    for (size_t i = 0; i < position; i++) checksum += buffer[i];
+    for (size_t i = 0; i < position; i++) {
+      checksum += buffer[i];
+    }
 
     if (checksum != byte) {
       _position = 0;
