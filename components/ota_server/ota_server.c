@@ -7,6 +7,7 @@
 #include "esp_event.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
+#include "freertos/projdefs.h"
 #include "freertos/task.h"
 
 #define FIRMWARE_REV " Rev: 0.1"
@@ -156,6 +157,13 @@ void ota_server_start_my(void) {
   uint8_t old_percent_loaded;
 
   ESP_ERROR_CHECK(create_tcp_server());
+  
+  // We don't want any other thread running during this update.
+  // SuspendAllThreads();
+  // KillAllThreads();
+  // dsp_i2s_task_deinit();
+  vTaskDelete(t_http_get_task);
+  deinit_player();  // ensure this is called after http_task was killed
 
   const esp_partition_t *update_partition =
       esp_ota_get_next_update_partition(NULL);
@@ -168,14 +176,7 @@ void ota_server_start_my(void) {
   esp_log_level_set(
       "esp_image",
       ESP_LOG_ERROR);  // set all components to ERROR level  ESP_LOG_NONE
-
-  // We don't want any other thread running during this update.
-  // SuspendAllThreads();
-  // KillAllThreads();
-  // dsp_i2s_task_deinit();
-  vTaskDelete(t_http_get_task);
-  deinit_player();  // ensure this is called after http_task was killed
-
+      
   int recv_len;
   char ota_buff[OTA_BUFF_SIZE] = {0};
   bool is_req_body_started = false;
@@ -198,7 +199,7 @@ void ota_server_start_my(void) {
         sscanf(content_length_start_p, "%d", &content_length);
         ESP_LOGI(TAG, "Detected content length: %d", content_length);
         ESP_ERROR_CHECK(
-            esp_ota_begin(update_partition, OTA_SIZE_UNKNOWN, &ota_handle));
+            esp_ota_begin(update_partition, content_length, &ota_handle));
         const char *header_end = "\r\n\r\n";
         char *body_start_p = strstr(ota_buff, header_end) + strlen(header_end);
         int body_part_len = recv_len - (body_start_p - ota_buff);
@@ -226,7 +227,7 @@ void ota_server_start_my(void) {
 
   char res_buff[128];
   int send_len;
-  send_len = sprintf(res_buff, "200 OK\n\n");
+  send_len = sprintf(res_buff, "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
   send(connect_socket, res_buff, send_len, 0);
   vTaskDelay(2000 / portTICK_PERIOD_MS);
   close(connect_socket);
@@ -249,11 +250,7 @@ void ota_server_start_my(void) {
     ESP_LOGI(TAG, "!!! OTA Failed !!!");
   }
 
-  // for (int x = 2; x >= 1; x--)
-  //{
-  ESP_LOGI(TAG, "Prepare to restart system..");
-  vTaskDelay(1000 / portTICK_PERIOD_MS);
-  //}
-
+  ESP_LOGI(TAG, "restart system..");
+  
   esp_restart();
 }

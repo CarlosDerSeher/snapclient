@@ -11,7 +11,9 @@ menu "Audio Board"
 
 	choice AUDIO_BOARD
 	    prompt "Audio board"
-	    default ESP_LYRAT_V4_3_BOARD
+		default ESP32_S2_KALUGA_1_V1_2_BOARD if IDF_TARGET_ESP32S2
+	    default ESP_LYRAT_V4_3_BOARD if IDF_TARGET_ESP32
+		default AUDIO_BOARD_CUSTOM
 	    help
 	        Select an audio board to use with the ESP-ADF
 	config AUDIO_BOARD_CUSTOM
@@ -171,7 +173,7 @@ menu "Audio Board"
 
 	    endmenu
 
-	    menu "TAS5805M interface Configuration"
+	    menu "TAS5805M interface configuration"
 	        depends on DAC_TAS5805M
 
 	        config PIN_DAC_PWDN
@@ -180,29 +182,20 @@ menu "Audio Board"
 	            default 33
 	            help
 	                GPIO number to power down the DAC
-	    endmenu
-
-	    menu "DAC-Operation-Mode"
-			depends on DAC_TAS5805M
-
-	        choice DAC_BRIDGE_MODE
-	            prompt "Bridge-Mode selection"
-	            default DAC_BRIDGE_MODE_DISABLED
-
-				config DAC_BRIDGE_MODE_DISABLED
-					bool "Stereo (bridge mode disabled)"
-
-				config DAC_BRIDGE_MODE_MONO
-					bool "Mono mode (Left + Right / 2)"
-				
-				config DAC_BRIDGE_MODE_LEFT
-					bool "Output left input channel"
-
-				config DAC_BRIDGE_MODE_RIGHT
-					bool "Output right input channel"
-	        
-			endchoice
+        
 		endmenu
+
+	    menu "TAS5805M DSP Support"
+	        depends on DAC_TAS5805M
+
+			config DAC_TAS5805M_EQ_SUPPORT
+				bool "Enable TAS5805M equalizer support"
+				default false
+				help
+					When enabled, build includes optional TAS5805M equalizer support.
+					Equalizer configuration and runtime control remain available via
+					the device UI. Default: disabled.
+	    endmenu
 
 		menu "Merus MA120x0 interface Configuration"
 			 depends on DAC_MA120X0
@@ -269,6 +262,19 @@ menu "Audio Board"
 	            help
 	                GPIO number to control mute/unmute.
 	                This is labeled "X(S)MT" on chip/boards
+	    endmenu
+
+	     menu "TI PCM51XX interface Configuration"
+	        depends on DAC_PCM51XX
+
+	        config PCM51XX_MUTE_PIN
+	            int "Master mute/unmute GPIO for PCM51XX"
+	            default 255
+	            help
+	                GPIO number to control mute/unmute pin (hardware mute).
+	                Set to 255 to disable hardware mute pin control.
+	                When enabled, this pin will be set HIGH on unmute and LOW on mute.
+	                This is in addition to the I2C register-based mute control.
 	    endmenu
 
 	    menu "MAX98357 interface Configuration"

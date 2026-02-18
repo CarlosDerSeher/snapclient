@@ -3,8 +3,6 @@
  *
  * SPDX-License-Identifier: Unlicense OR CC0-1.0
  */
-#include "eth_interface.h"
-
 #include <stdio.h>
 #include <string.h>
 
@@ -23,16 +21,15 @@
 #include "driver/spi_master.h"
 #endif
 
-static const char *TAG = "snapclient_eth_init";
+#include "network_interface.h"
 
-/* The event group allows multiple bits for each event, but we only care about
- * two events:
- * - we are connected to the AP with an IP
- * - we failed to connect after the maximum amount of retries */
-#define ETH_CONNECTED_BIT BIT0
-#define ETH_FAIL_BIT BIT1
+static const char *TAG = "ETH_IF";
 
-static EventGroupHandle_t s_eth_event_group;
+static uint8_t eth_port_cnt = 0;
+
+static esp_netif_ip_info_t ip_info = {{0}, {0}, {0}};
+static bool connected = false;
+static SemaphoreHandle_t connIpSemaphoreHandle = NULL;
 
 #if CONFIG_SNAPCLIENT_SPI_ETHERNETS_NUM
 #define SPI_ETHERNETS_NUM CONFIG_SNAPCLIENT_SPI_ETHERNETS_NUM
@@ -104,7 +101,6 @@ static esp_eth_handle_t eth_init_internal(esp_eth_mac_t **mac_out,
   esp32_emac_config.clock_config.rmii.clock_mode = EMAC_CLK_DEFAULT;
   esp32_emac_config.clock_config.rmii.clock_gpio = EMAC_CLK_OUT_GPIO;
 #endif
-  
 
   // Create new ESP32 Ethernet MAC instance
   esp_eth_mac_t *mac = esp_eth_mac_new_esp32(&esp32_emac_config, &mac_config);
@@ -275,9 +271,10 @@ err:
 }
 #endif  // CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
 
-/** Original init function in the example */
-esp_err_t original_eth_init(esp_eth_handle_t *eth_handles_out[],
-                            uint8_t *eth_cnt_out) {
+/**
+ */
+static esp_err_t eth_init(esp_eth_handle_t *eth_handles_out[],
+                          uint8_t *eth_cnt_out) {
   esp_err_t ret = ESP_OK;
   esp_eth_handle_t *eth_handles = NULL;
   uint8_t eth_cnt = 0;
@@ -356,6 +353,7 @@ static void eth_event_handler(void *arg, esp_event_base_t event_base,
   uint8_t mac_addr[6] = {0};
   /* we can get the ethernet driver handle from event data */
   esp_eth_handle_t eth_handle = *(esp_eth_handle_t *)event_data;
+  esp_netif_t *netif = (esp_netif_t *)arg;
 
   switch (event_id) {
     case ETHERNET_EVENT_CONNECTED:
@@ -364,10 +362,16 @@ static void eth_event_handler(void *arg, esp_event_base_t event_base,
       ESP_LOGI(TAG, "Ethernet HW Addr %02x:%02x:%02x:%02x:%02x:%02x",
                mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4],
                mac_addr[5]);
+
+      ESP_ERROR_CHECK(esp_netif_create_ip6_linklocal(netif));
+
       break;
     case ETHERNET_EVENT_DISCONNECTED:
+      xSemaphoreTake(connIpSemaphoreHandle, portMAX_DELAY);
+      connected = false;
+      xSemaphoreGive(connIpSemaphoreHandle);
+
       ESP_LOGI(TAG, "Ethernet Link Down");
-      xEventGroupSetBits(s_eth_event_group, ETH_FAIL_BIT);
       break;
     case ETHERNET_EVENT_START:
       ESP_LOGI(TAG, "Ethernet Started");
@@ -381,40 +385,116 @@ static void eth_event_handler(void *arg, esp_event_base_t event_base,
 }
 
 /** Event handler for IP_EVENT_ETH_GOT_IP */
+static void lost_ip_event_handler(void *arg, esp_event_base_t event_base,
+                                  int32_t event_id, void *event_data) {
+  ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
+
+  for (int i = 0; i < eth_port_cnt; i++) {
+    char if_desc_str[10];
+    char num_str[3];
+
+    itoa(i, num_str, 10);
+    strcat(strcpy(if_desc_str, NETWORK_INTERFACE_DESC_ETH), num_str);
+
+    if (network_is_our_netif(if_desc_str, event->esp_netif)) {
+      // const esp_netif_ip_info_t *ip_info = &event->ip_info;
+
+      ESP_LOGI(TAG, "Ethernet Lost IP Address");
+
+      xSemaphoreTake(connIpSemaphoreHandle, portMAX_DELAY);
+      memcpy((void *)&ip_info, (const void *)&event->ip_info,
+             sizeof(esp_netif_ip_info_t));
+      connected = false;
+      xSemaphoreGive(connIpSemaphoreHandle);
+
+      break;
+    }
+  }
+}
+
+/** Event handler for IP_EVENT_ETH_GOT_IP */
 static void got_ip_event_handler(void *arg, esp_event_base_t event_base,
                                  int32_t event_id, void *event_data) {
   ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
-  const esp_netif_ip_info_t *ip_info = &event->ip_info;
 
-  ESP_LOGI(TAG, "Ethernet Got IP Address");
-  ESP_LOGI(TAG, "~~~~~~~~~~~");
-  ESP_LOGI(TAG, "ETHIP:" IPSTR, IP2STR(&ip_info->ip));
-  ESP_LOGI(TAG, "ETHMASK:" IPSTR, IP2STR(&ip_info->netmask));
-  ESP_LOGI(TAG, "ETHGW:" IPSTR, IP2STR(&ip_info->gw));
-  ESP_LOGI(TAG, "~~~~~~~~~~~");
+  for (int i = 0; i < eth_port_cnt; i++) {
+    char if_desc_str[10];
+    char num_str[3];
 
-  xEventGroupSetBits(s_eth_event_group, ETH_CONNECTED_BIT);
+    itoa(i, num_str, 10);
+    strcat(strcpy(if_desc_str, NETWORK_INTERFACE_DESC_ETH), num_str);
+
+    if (network_is_our_netif(if_desc_str, event->esp_netif)) {
+      xSemaphoreTake(connIpSemaphoreHandle, portMAX_DELAY);
+
+      memcpy((void *)&ip_info, (const void *)&event->ip_info,
+             sizeof(esp_netif_ip_info_t));
+      connected = true;
+
+      xSemaphoreGive(connIpSemaphoreHandle);
+
+      ESP_LOGI(TAG, "Ethernet Got IP Address");
+      ESP_LOGI(TAG, "~~~~~~~~~~~");
+      ESP_LOGI(TAG, "ETHIP:" IPSTR, IP2STR(&ip_info.ip));
+      ESP_LOGI(TAG, "ETHMASK:" IPSTR, IP2STR(&ip_info.netmask));
+      ESP_LOGI(TAG, "ETHGW:" IPSTR, IP2STR(&ip_info.gw));
+      ESP_LOGI(TAG, "~~~~~~~~~~~");
+
+      break;
+    }
+  }
+}
+
+/**
+ */
+bool eth_get_ip(esp_netif_ip_info_t *ip) {
+  xSemaphoreTake(connIpSemaphoreHandle, portMAX_DELAY);
+
+  if (ip) {
+    memcpy((void *)ip, (const void *)&ip_info, sizeof(esp_netif_ip_info_t));
+  }
+  bool _connected = connected;
+
+  xSemaphoreGive(connIpSemaphoreHandle);
+
+  return _connected;
+}
+
+static void eth_on_got_ipv6(void *arg, esp_event_base_t event_base,
+                            int32_t event_id, void *event_data) {
+  ip_event_got_ip6_t *event = (ip_event_got_ip6_t *)event_data;
+  if (!network_is_our_netif(NETWORK_INTERFACE_DESC_ETH, event->esp_netif)) {
+    return;
+  }
+  esp_ip6_addr_type_t ipv6_type =
+      esp_netif_ip6_get_addr_type(&event->ip6_info.ip);
+  ESP_LOGI(TAG,
+           "Got IPv6 event: Interface \"%s\" address: " IPV6STR ", type: %s",
+           esp_netif_get_desc(event->esp_netif), IPV62STR(event->ip6_info.ip),
+           ipv6_addr_types_to_str[ipv6_type]);
 }
 
 /** Init function that exposes to the main application */
-void eth_init(void) {
+void eth_start(void) {
   // Initialize Ethernet driver
-  uint8_t eth_port_cnt = 0;
   esp_eth_handle_t *eth_handles;
-  ESP_ERROR_CHECK(original_eth_init(&eth_handles, &eth_port_cnt));
 
-  // Initialize TCP/IP network interface aka the esp-netif (should be called
-  // only once in application)
-  ESP_ERROR_CHECK(esp_netif_init());
-  // Create default event loop that running in background
-  ESP_ERROR_CHECK(esp_event_loop_create_default());
+  if (!connIpSemaphoreHandle) {
+    connIpSemaphoreHandle = xSemaphoreCreateMutex();
+  }
+
+  ESP_ERROR_CHECK(eth_init(&eth_handles, &eth_port_cnt));
+
+#if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
+    CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
+  esp_netif_t *eth_netif;
 
   // Create instance(s) of esp-netif for Ethernet(s)
   if (eth_port_cnt == 1) {
     // Use ESP_NETIF_DEFAULT_ETH when just one Ethernet interface is used and
     // you don't need to modify default esp-netif configuration parameters.
     esp_netif_config_t cfg = ESP_NETIF_DEFAULT_ETH();
-    esp_netif_t *eth_netif = esp_netif_new(&cfg);
+    eth_netif = esp_netif_new(&cfg);
     // Attach Ethernet driver to TCP/IP stack
     ESP_ERROR_CHECK(
         esp_netif_attach(eth_netif, esp_eth_new_netif_glue(eth_handles[0])));
@@ -432,11 +512,11 @@ void eth_init(void) {
     for (int i = 0; i < eth_port_cnt; i++) {
       itoa(i, num_str, 10);
       strcat(strcpy(if_key_str, "ETH_"), num_str);
-      strcat(strcpy(if_desc_str, "eth"), num_str);
+      strcat(strcpy(if_desc_str, NETWORK_INTERFACE_DESC_ETH), num_str);
       esp_netif_config.if_key = if_key_str;
       esp_netif_config.if_desc = if_desc_str;
       esp_netif_config.route_prio -= i * 5;
-      esp_netif_t *eth_netif = esp_netif_new(&cfg_spi);
+      eth_netif = esp_netif_new(&cfg_spi);
 
       // Attach Ethernet driver to TCP/IP stack
       ESP_ERROR_CHECK(
@@ -446,20 +526,17 @@ void eth_init(void) {
 
   // Register user defined event handers
   ESP_ERROR_CHECK(esp_event_handler_register(ETH_EVENT, ESP_EVENT_ANY_ID,
-                                             &eth_event_handler, NULL));
+                                             &eth_event_handler, eth_netif));
   ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_ETH_GOT_IP,
                                              &got_ip_event_handler, NULL));
+  ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_ETH_LOST_IP,
+                                             &lost_ip_event_handler, NULL));
+  ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_GOT_IP6,
+                                             &eth_on_got_ipv6, NULL));
 
   // Start Ethernet driver state machine
   for (int i = 0; i < eth_port_cnt; i++) {
     ESP_ERROR_CHECK(esp_eth_start(eth_handles[i]));
   }
-
-  /* Waiting until either the connection is established (ETH_CONNECTED_BIT) or
-   * connection failed for the maximum number of re-tries (ETH_FAIL_BIT). The
-   * bits are set by event_handler() (see above) */
-  s_eth_event_group = xEventGroupCreate();
-  //    EventBits_t bits =
-  xEventGroupWaitBits(s_eth_event_group, ETH_CONNECTED_BIT, pdFALSE, pdFALSE,
-                      portMAX_DELAY);
+#endif
 }
