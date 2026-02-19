@@ -32,6 +32,7 @@
 #include "lwip/sockets.h"
 #include "lwip/sys.h"
 #include "lwip/tcp.h"
+#include "esp_random.h"
 #include "mdns.h"
 #include "net_functions.h"
 #include "network_interface.h"
@@ -481,7 +482,8 @@ static void http_get_task(void *pvParameters) {
   int rc1 = ERR_OK, rc2 = ERR_OK;
   struct netbuf *firstNetBuf = NULL;
   uint16_t len;
-  uint64_t timeout;
+  uint64_t timeout = FAST_SYNC_LATENCY_BUF;
+  static uint32_t reconnect_attempts = 0;  // For exponential backoff
   char *codecString = NULL;
   char *codecPayload = NULL;
   char *serverSettingsString = NULL;
@@ -713,9 +715,18 @@ static void http_get_task(void *pvParameters) {
 
       continue;
     }
-    
-//    netconn_set_flags(lwipNetconn, TF_NODELAY);
-    
+
+#if CONFIG_WIFI_TCP_NODELAY
+    // Disable Nagle's algorithm for lower latency
+    {
+      struct tcp_pcb *pcb = (struct tcp_pcb *)lwipNetconn->pcb.tcp;
+      if (pcb != NULL) {
+        tcp_nagle_disable(pcb);
+        ESP_LOGI(TAG, "TCP_NODELAY enabled for lower latency");
+      }
+    }
+#endif
+
 #define USE_INTERFACE_BIND
 
 #ifdef USE_INTERFACE_BIND  // use interface to bind connection
@@ -742,10 +753,6 @@ static void http_get_task(void *pvParameters) {
     if (rc2 != ERR_OK) {
       ESP_LOGE(TAG, "can't connect to remote %s:%d, err %d",
                ipaddr_ntoa(&remote_ip), remotePort, rc2);
-
-#if !SNAPCAST_SERVER_USE_MDNS
-      vTaskDelay(pdMS_TO_TICKS(1000));
-#endif
     }
 
     if (rc1 != ERR_OK || rc2 != ERR_OK) {
@@ -753,9 +760,26 @@ static void http_get_task(void *pvParameters) {
       netconn_delete(lwipNetconn);
       lwipNetconn = NULL;
 
+      // Exponential backoff with jitter for reconnection
+      uint32_t delay_ms = (uint32_t)CONFIG_WIFI_RECONNECT_MIN_DELAY_MS << reconnect_attempts;
+      if (delay_ms > (uint32_t)CONFIG_WIFI_RECONNECT_MAX_DELAY_MS) {
+        delay_ms = (uint32_t)CONFIG_WIFI_RECONNECT_MAX_DELAY_MS;
+      }
+      delay_ms += (esp_random() % 500);  // Add jitter
+
+      ESP_LOGW(TAG, "Reconnect attempt %lu, waiting %lums",
+               (unsigned long)reconnect_attempts, (unsigned long)delay_ms);
+      vTaskDelay(pdMS_TO_TICKS(delay_ms));
+
+      if (reconnect_attempts < 10) {  // Cap attempts counter
+        reconnect_attempts++;
+      }
+
       continue;
     }
 
+    // Reset backoff on successful connection
+    reconnect_attempts = 0;
     ESP_LOGI(TAG, "netconn connected using %s", network_get_ifkey(netif));
 
     //if (reset_latency_buffer() < 0) {

@@ -1,0 +1,19 @@
+menu "Lightsnapcast Player Settings"
+    config PLAYER_QUEUE_EMPTY_THRESHOLD
+        int "Queue empty threshold for hard resync"
+        range 1 10
+        default 3
+        help
+            Number of consecutive empty queue reads before triggering hard resync.
+            Higher values tolerate brief WiFi dropouts better.
+            Default: 3 (covers ~78ms of delay)
+
+    config PLAYER_QUEUE_INSERT_TIMEOUT_MS
+        int "Queue insert timeout (ms)"
+        range 1 200
+        default 50
+        help
+            Timeout for inserting audio chunks into the playback queue.
+            Higher values allow queue to drain during burst arrivals.
+            Default: 50ms
+endmenu
