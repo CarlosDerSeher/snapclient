@@ -14,14 +14,6 @@ menu "ESP32 DSP processor config"
         help
             mix stereo audio (left and right channel) to mono and play it on the left AND the right channel
 
-    config USE_BIQUAD_ASM
-        bool "Use optimized asm version of Biquad_f32"
-        default y if IDF_TARGET_ESP32
-        default n
-        depends on USE_DSP_PROCESSOR
-        help
-            Asm version 2 x speed on ESP32 - not working on ESP32-S2
-
     config SNAPCLIENT_USE_SOFT_VOL
         bool "Use software volume"
         default false
