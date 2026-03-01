@@ -58,6 +58,7 @@ Components
  - improv_wifi : WiFi provisioning via [ImprovWifi via Serial](https://www.improv-wifi.com/)
  - network_interface : init code for wifi module and AP connection and ethernet init code
  - ui_http_server : work in progress control interface for DSP functions
+ - udp_logger: Logging submodule through UPD. Just open a terminal and `nc -klu 9999` to see the logs. Many thanks to [AchimPieters](https://github.com/AchimPieters/esp32-udp-logger) 
 
 The snapclient functionality are implemented in a task included in main - but
 should be refactored to a component at some point.
