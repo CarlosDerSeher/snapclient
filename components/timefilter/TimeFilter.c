@@ -22,12 +22,13 @@
 
 
 int TIMEFILTER_Init(sTimeFilter_t *timeFilter, double process_std_dev, double drift_process_std_dev, double forget_factor, 
-  double adaptive_cutoff, uint8_t min_samples) {
+  double adaptive_cutoff, uint8_t min_samples, double drift_significance_threshold) {
   if (timeFilter) {
     timeFilter->process_variance_ = process_std_dev * process_std_dev;
     timeFilter->drift_process_variance_ = drift_process_std_dev * drift_process_std_dev;
     timeFilter->forget_variance_factor_ = forget_factor * forget_factor;
     timeFilter->adaptive_forgetting_cutoff_ = adaptive_cutoff;
+    timeFilter->drift_significance_threshold_squared_ = drift_significance_threshold * drift_significance_threshold;
     timeFilter->min_samples_for_forgetting_ = min_samples;
     TIMEFILTER_Reset(timeFilter);
     return 0;
@@ -127,6 +128,11 @@ void TIMEFILTER_Insert(sTimeFilter_t *timeFilter, int64_t measurement, int64_t m
   timeFilter->drift_covariance_ = new_drift_covariance - drift_gain * new_offset_drift_covariance;
   timeFilter->offset_drift_covariance_ = new_offset_drift_covariance - drift_gain * new_offset_covariance;
   timeFilter->offset_covariance_ = new_offset_covariance - offset_gain * new_offset_covariance;
+
+  // Update drift significance flag for time conversion methods
+  // Only apply drift compensation if statistically significant (SNR check)
+  const double drift_squared = timeFilter->drift_ * timeFilter->drift_;
+  timeFilter->use_drift_ = drift_squared > timeFilter->drift_significance_threshold_squared_ * timeFilter->drift_covariance_;
 }
 
 int64_t TIMEFILTER_get_offset(sTimeFilter_t *timeFilter, int64_t client_time) {
@@ -135,7 +141,9 @@ int64_t TIMEFILTER_get_offset(sTimeFilter_t *timeFilter, int64_t client_time) {
   // offset(t) = offset_base + drift * (t - t_last_update)
 
   double dt = client_time - timeFilter->last_update_;
-  int64_t offset = round(timeFilter->offset_ + timeFilter->drift_ * dt);
+  const double effective_drift = timeFilter->use_drift_ ? timeFilter->drift_ : 0.0;
+
+  const int64_t offset = round(timeFilter->offset_ + effective_drift * dt);
   return offset;
 }
 
@@ -147,6 +155,7 @@ void TIMEFILTER_Reset(sTimeFilter_t *timeFilter) {
   timeFilter->offset_drift_covariance_ = 0.0;
   timeFilter->drift_covariance_ = 0.0;
   timeFilter->last_update_ = 0;
+  timeFilter->use_drift_ = false;
 }
 
 uint32_t TIMEFILTER_isFull(sTimeFilter_t *timeFilter, uint32_t n) {
