@@ -32,6 +32,7 @@
 #include "net_functions.h"
 #include "network_interface.h"
 #include "nvs_flash.h"
+#include "volume_buttons.h"
 
 // Web socket server
 // #include "websocket_if.h"
@@ -96,6 +97,9 @@ TaskHandle_t t_http_get_task = NULL;
 
 /* snapast parameters; configurable in menuconfig */
 #define SNAPCAST_USE_SOFT_VOL CONFIG_SNAPCLIENT_USE_SOFT_VOL
+
+/* snapcast host ip, to be used for volume control etc */
+static char g_snapserver_host[64] = {0};
 
 /* Logging tag */
 static const char *TAG = "SC";
@@ -1543,6 +1547,12 @@ void app_main(void) {
   xTaskCreatePinnedToCore(&http_get_task, "http", 15 * 1024, NULL,
                           HTTP_TASK_PRIORITY, &t_http_get_task,
                           HTTP_TASK_CORE_ID);
+
+// wait for http_get_task to resolve the snapserver IP
+while (g_snapserver_host[0] == '\0') {
+    vTaskDelay(pdMS_TO_TICKS(100));
+}
+volume_buttons_init(g_snapserver_host);
 
   //  while (1) {
   //    // audio_event_iface_msg_t msg;
