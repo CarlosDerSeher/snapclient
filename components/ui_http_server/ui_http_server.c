@@ -11,22 +11,18 @@
 #include "ui_http_server.h"
 
 #include <inttypes.h>
-#include <math.h>
-#include <mbedtls/base64.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/stat.h>
 
 #include "dsp_processor.h"
 #include "esp_err.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
-#include "esp_spiffs.h"
-#include "esp_vfs.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "mbedtls/base64.h"
 
 static const char *TAG = "HTTP";
 
@@ -34,60 +30,139 @@ static QueueHandle_t xQueueHttp;
 
 static esp_netif_t *netInterface = NULL;
 
-/**
- *
- */
-static void SPIFFS_Directory(char *path) {
-  DIR *dir = opendir(path);
-  assert(dir != NULL);
-  while (true) {
-    struct dirent *pe = readdir(dir);
-    if (!pe) break;
-    ESP_LOGI(TAG, "d_name=%s/%s d_ino=%d d_type=%x", path, pe->d_name,
-             pe->d_ino, pe->d_type);
+extern const char html_index_html_start[] asm("_binary_index_html_start");
+extern const char html_index_html_end[] asm("_binary_index_html_end");
+
+#if CONFIG_HTTP_AUTH_ENABLE
+static esp_err_t build_expected_auth_header(char *encoded,
+                                            size_t encoded_size) {
+  char credentials[128];
+  size_t output_len = 0;
+  int credentials_len =
+      snprintf(credentials, sizeof(credentials), "%s:%s",
+               CONFIG_HTTP_AUTH_USERNAME, CONFIG_HTTP_AUTH_PASSWORD);
+
+  if ((credentials_len < 0) || (credentials_len >= sizeof(credentials))) {
+    ESP_LOGE(TAG, "HTTP auth credentials are too long");
+    return ESP_FAIL;
   }
-  closedir(dir);
+
+  if (mbedtls_base64_encode((unsigned char *)encoded, encoded_size, &output_len,
+                            (const unsigned char *)credentials,
+                            credentials_len) != 0) {
+    ESP_LOGE(TAG, "failed to encode HTTP auth credentials");
+    return ESP_FAIL;
+  }
+
+  if (output_len >= encoded_size) {
+    return ESP_FAIL;
+  }
+
+  encoded[output_len] = '\0';
+  return ESP_OK;
 }
 
-/**
- *
- */
-static esp_err_t SPIFFS_Mount(char *path, char *label, int max_files) {
-  esp_vfs_spiffs_conf_t conf = {.base_path = path,
-                                .partition_label = label,
-                                .max_files = max_files,
-                                .format_if_mount_failed = true};
+static esp_err_t require_http_auth(httpd_req_t *req) {
+  char header_value[192];
+  char expected_value[192];
+  int header_len = httpd_req_get_hdr_value_len(req, "Authorization");
 
-  // Use settings defined above to initialize and mount SPIFFS file system.
-  // Note: esp_vfs_spiffs_register is an all-in-one convenience function.
-  esp_err_t ret = esp_vfs_spiffs_register(&conf);
+  if (build_expected_auth_header(expected_value, sizeof(expected_value)) !=
+      ESP_OK) {
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                        "Auth setup failed");
+    return ESP_FAIL;
+  }
 
-  if (ret != ESP_OK) {
-    if (ret == ESP_FAIL) {
-      ESP_LOGE(TAG, "Failed to mount or format filesystem");
-    } else if (ret == ESP_ERR_NOT_FOUND) {
-      ESP_LOGE(TAG, "Failed to find SPIFFS partition");
-    } else {
-      ESP_LOGE(TAG, "Failed to initialize SPIFFS (%s)", esp_err_to_name(ret));
+  if ((header_len <= 0) || (header_len >= sizeof(header_value))) {
+    httpd_resp_set_status(req, "401 Unauthorized");
+    httpd_resp_set_hdr(req, "WWW-Authenticate",
+                       "Basic realm=\"snapclient\"");
+    httpd_resp_sendstr(req, "Unauthorized");
+    return ESP_ERR_INVALID_STATE;
+  }
+
+  if (httpd_req_get_hdr_value_str(req, "Authorization", header_value,
+                                  sizeof(header_value)) != ESP_OK) {
+    httpd_resp_set_status(req, "401 Unauthorized");
+    httpd_resp_set_hdr(req, "WWW-Authenticate",
+                       "Basic realm=\"snapclient\"");
+    httpd_resp_sendstr(req, "Unauthorized");
+    return ESP_ERR_INVALID_STATE;
+  }
+
+  if (strncmp(header_value, "Basic ", strlen("Basic ")) != 0) {
+    httpd_resp_set_status(req, "401 Unauthorized");
+    httpd_resp_set_hdr(req, "WWW-Authenticate",
+                       "Basic realm=\"snapclient\"");
+    httpd_resp_sendstr(req, "Unauthorized");
+    return ESP_ERR_INVALID_STATE;
+  }
+
+  if (strcmp(header_value + strlen("Basic "), expected_value) != 0) {
+    httpd_resp_set_status(req, "401 Unauthorized");
+    httpd_resp_set_hdr(req, "WWW-Authenticate",
+                       "Basic realm=\"snapclient\"");
+    httpd_resp_sendstr(req, "Unauthorized");
+    return ESP_ERR_INVALID_STATE;
+  }
+
+  return ESP_OK;
+}
+#else
+static esp_err_t require_http_auth(httpd_req_t *req) {
+  (void)req;
+  return ESP_OK;
+}
+#endif
+
+static float clamp_gain_db(float gain) {
+  if (gain < -6.0f) {
+    return -6.0f;
+  }
+
+  if (gain > 6.0f) {
+    return 6.0f;
+  }
+
+  return gain;
+}
+
+static void get_current_filter_params(filterParams_t *params) {
+  memset(params, 0, sizeof(*params));
+  params->dspFlow = dspfEQBassTreble;
+
+#if CONFIG_USE_DSP_PROCESSOR
+  if (dsp_processor_get_filter_params(params) != ESP_OK) {
+    ESP_LOGW(TAG, "using default DSP filter values for UI rendering");
+    memset(params, 0, sizeof(*params));
+    params->dspFlow = dspfEQBassTreble;
+  }
+#endif
+}
+
+static void replace_template_token(char *line, size_t line_size,
+                                   const char *token, const char *value) {
+  char buffer[512];
+  char *pos = NULL;
+
+  while ((pos = strstr(line, token)) != NULL) {
+    size_t prefix_len = pos - line;
+    const char *suffix = pos + strlen(token);
+
+    if ((prefix_len + strlen(value) + strlen(suffix) + 1) > sizeof(buffer)) {
+      ESP_LOGW(TAG, "template substitution truncated for token %s", token);
+      return;
     }
-    return ret;
-  }
 
-  size_t total = 0, used = 0;
-  ret = esp_spiffs_info(conf.partition_label, &total, &used);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to get SPIFFS partition information (%s)",
-             esp_err_to_name(ret));
-  } else {
-    ESP_LOGI(TAG, "Partition size: total: %d, used: %d", total, used);
-  }
+    memcpy(buffer, line, prefix_len);
+    buffer[prefix_len] = '\0';
+    strcat(buffer, value);
+    strcat(buffer, suffix);
 
-  if (ret == ESP_OK) {
-    ESP_LOGI(TAG, "Mount %s to %s success", path, label);
-    SPIFFS_Directory(path);
+    strncpy(line, buffer, line_size - 1);
+    line[line_size - 1] = '\0';
   }
-
-  return ret;
 }
 
 /**
@@ -119,71 +194,60 @@ static int find_key_value(char *key, char *parameter, char *value) {
 /**
  *
  */
-static esp_err_t Text2Html(httpd_req_t *req, char *filename) {
-  //	ESP_LOGI(TAG, "Reading %s", filename);
-  FILE *fhtml = fopen(filename, "r");
-  if (fhtml == NULL) {
-    ESP_LOGE(TAG, "fopen fail. [%s]", filename);
-    return ESP_FAIL;
-  } else {
-    char line[128];
-    while (fgets(line, sizeof(line), fhtml) != NULL) {
-      size_t linelen = strlen(line);
-      // remove EOL (CR or LF)
-      for (int i = linelen; i > 0; i--) {
-        if (line[i - 1] == 0x0a) {
-          line[i - 1] = 0;
-        } else if (line[i - 1] == 0x0d) {
-          line[i - 1] = 0;
-        } else {
-          break;
-        }
-      }
-      ESP_LOGD(TAG, "line=[%s]", line);
-      if (strlen(line) == 0) continue;
-      esp_err_t ret = httpd_resp_sendstr_chunk(req, line);
+static esp_err_t Text2Html(httpd_req_t *req) {
+  filterParams_t filterParams;
+  char gain_1[16];
+  char gain_2[16];
+  char gain_3[16];
+  char line[512];
+  size_t line_len = 0;
+  const char *cursor = html_index_html_start;
+
+  get_current_filter_params(&filterParams);
+  snprintf(gain_1, sizeof(gain_1), "%.2f", filterParams.gain_1);
+  snprintf(gain_2, sizeof(gain_2), "%.2f", filterParams.gain_2);
+  snprintf(gain_3, sizeof(gain_3), "%.2f", filterParams.gain_3);
+
+  while (cursor < html_index_html_end) {
+    char ch = *cursor++;
+
+    if (ch == '\0') {
+      break;
+    }
+
+    line[line_len++] = ch;
+
+    if ((ch == '\n') || (line_len == (sizeof(line) - 1))) {
+      line[line_len] = '\0';
+
+      replace_template_token(line, sizeof(line), "__GAIN_1__", gain_1);
+      replace_template_token(line, sizeof(line), "__GAIN_2__", gain_2);
+      replace_template_token(line, sizeof(line), "__GAIN_3__", gain_3);
+
+      esp_err_t ret = httpd_resp_send_chunk(req, line, strlen(line));
       if (ret != ESP_OK) {
         ESP_LOGE(TAG, "httpd_resp_sendstr_chunk fail %d", ret);
+        return ret;
       }
-    }
-    fclose(fhtml);
-  }
-  return ESP_OK;
-}
 
-/**
- *
- */
-static esp_err_t Image2Html(httpd_req_t *req, char *filename, char *type) {
-  FILE *fhtml = fopen(filename, "r");
-  if (fhtml == NULL) {
-    ESP_LOGE(TAG, "fopen fail. [%s]", filename);
-    return ESP_FAIL;
-  } else {
-    char buffer[64];
-
-    if (strcmp(type, "jpeg") == 0) {
-      httpd_resp_sendstr_chunk(req, "<img src=\"data:image/jpeg;base64,");
-    } else if (strcmp(type, "jpg") == 0) {
-      httpd_resp_sendstr_chunk(req, "<img src=\"data:image/jpeg;base64,");
-    } else if (strcmp(type, "png") == 0) {
-      httpd_resp_sendstr_chunk(req, "<img src=\"data:image/png;base64,");
-    } else {
-      ESP_LOGW(TAG, "file type fail. [%s]", type);
-      httpd_resp_sendstr_chunk(req, "<img src=\"data:image/png;base64,");
+      line_len = 0;
     }
-    while (1) {
-      size_t bufferSize = fread(buffer, 1, sizeof(buffer), fhtml);
-      ESP_LOGD(TAG, "bufferSize=%d", bufferSize);
-      if (bufferSize > 0) {
-        httpd_resp_send_chunk(req, buffer, bufferSize);
-      } else {
-        break;
-      }
-    }
-    fclose(fhtml);
-    httpd_resp_sendstr_chunk(req, "\">");
   }
+
+  if (line_len > 0) {
+    line[line_len] = '\0';
+
+    replace_template_token(line, sizeof(line), "__GAIN_1__", gain_1);
+    replace_template_token(line, sizeof(line), "__GAIN_2__", gain_2);
+    replace_template_token(line, sizeof(line), "__GAIN_3__", gain_3);
+
+    esp_err_t ret = httpd_resp_send_chunk(req, line, strlen(line));
+    if (ret != ESP_OK) {
+      ESP_LOGE(TAG, "httpd_resp_sendstr_chunk fail %d", ret);
+      return ret;
+    }
+  }
+
   return ESP_OK;
 }
 
@@ -193,11 +257,12 @@ static esp_err_t Image2Html(httpd_req_t *req, char *filename, char *type) {
 static esp_err_t root_get_handler(httpd_req_t *req) {
   //	ESP_LOGI(TAG, "root_get_handler req->uri=[%s]", req->uri);
 
-  /* Send index.html */
-  Text2Html(req, "/html/index.html");
+  if (require_http_auth(req) != ESP_OK) {
+    return ESP_OK;
+  }
 
-  /* Send Image */
-  // Image2Html(req, "/html/ESP-LOGO.txt", "png");
+  /* Send index.html */
+  Text2Html(req);
 
   /* Send empty chunk to signal HTTP response completion */
   httpd_resp_sendstr_chunk(req, NULL);
@@ -212,6 +277,10 @@ static esp_err_t root_post_handler(httpd_req_t *req) {
   //	ESP_LOGI(TAG, "root_post_handler req->uri=[%s]", req->uri);
   URL_t urlBuf;
   int ret = -1;
+
+  if (require_http_auth(req) != ESP_OK) {
+    return ESP_OK;
+  }
 
   memset(&urlBuf, 0, sizeof(URL_t));
 
@@ -270,6 +339,9 @@ static esp_err_t root_post_handler(httpd_req_t *req) {
  */
 static esp_err_t favicon_get_handler(httpd_req_t *req) {
   //	ESP_LOGI(TAG, "favicon_get_handler req->uri=[%s]", req->uri);
+  if (require_http_auth(req) != ESP_OK) {
+    return ESP_OK;
+  }
   return ESP_OK;
 }
 
@@ -404,14 +476,16 @@ static void http_server_task(void *pvParameters) {
       ESP_LOGI(TAG, "str_value=%s gain_1=%f, gain_2=%f, gain_3=%f",
                urlBuf.str_value, urlBuf.gain_1, urlBuf.gain_2, urlBuf.gain_3);
 
-      filterParams.dspFlow = dspfEQBassTreble;
-      filterParams.fc_1 = 300.0;
-      filterParams.gain_1 = urlBuf.gain_1;
-      filterParams.fc_3 = 4000.0;
-      filterParams.gain_3 = urlBuf.gain_3;
-
 #if CONFIG_USE_DSP_PROCESSOR
-      dsp_processor_update_filter_params(&filterParams);
+      get_current_filter_params(&filterParams);
+      filterParams.dspFlow = dspfEQBassTreble;
+      filterParams.gain_1 = clamp_gain_db(urlBuf.gain_1);
+      filterParams.gain_2 = clamp_gain_db(urlBuf.gain_2);
+      filterParams.gain_3 = clamp_gain_db(urlBuf.gain_3);
+
+      if (dsp_processor_update_filter_params(&filterParams) != ESP_OK) {
+        ESP_LOGE(TAG, "failed to update DSP filter parameters");
+      }
 #endif
 
       // Set duty value
@@ -444,13 +518,6 @@ void init_http_server_task(char *key) {
   netInterface = esp_netif_get_handle_from_ifkey(key);
   if (!netInterface) {
     ESP_LOGE(TAG, "can't get net interface for %s", key);
-    return;
-  }
-
-  // Initialize SPIFFS
-  ESP_LOGI(TAG, "Initializing SPIFFS");
-  if (SPIFFS_Mount("/html", "storage", 6) != ESP_OK) {
-    ESP_LOGE(TAG, "SPIFFS mount failed");
     return;
   }
 

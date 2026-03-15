@@ -1,6 +1,7 @@
 idf_component_register(SRCS "ui_http_server.c"
                        INCLUDE_DIRS "include"
-                       REQUIRES spiffs esp_http_server mbedtls dsp_processor vfs esp_wifi)
+                       REQUIRES esp_http_server mbedtls dsp_processor esp_wifi
+                       EMBED_TXTFILES "html/index.html")
 
 # Create a SPIFFS image from the contents of the 'html' directory
 # that fits the partition named 'storage'. FLASH_IN_PROJECT indicates that

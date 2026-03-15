@@ -26,6 +26,14 @@ menu "Snapclient Configuration"
             Name of the client to register the snapserver.
 
 	menu "HTTP Server Setting"
+		config ENABLE_DSP_FILTER_WEB_UI
+			bool "Enable DSP filter web UI"
+			default true
+			depends on USE_DSP_PROCESSOR && SNAPCLIENT_DSP_FLOW_BASS_TREBLE_EQ
+			help
+				Start the HTTP interface that serves the "DSP processor filter
+				configuration" page and accepts filter changes over /post.
+
 		config WEB_PORT
 			int "User interface HTTP Server Port"
 			default 8000

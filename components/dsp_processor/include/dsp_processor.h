@@ -66,6 +66,7 @@ void dsp_processor_init(void);
 void dsp_processor_uninit(void);
 int dsp_processor_worker(char *audio, size_t chunk_size, uint32_t samplerate);
 esp_err_t dsp_processor_update_filter_params(filterParams_t *params);
+esp_err_t dsp_processor_get_filter_params(filterParams_t *params);
 void dsp_processor_set_volome(double volume);
 
 #ifdef __cplusplus

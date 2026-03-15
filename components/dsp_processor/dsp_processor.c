@@ -1,6 +1,7 @@
 
 
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
 
@@ -52,6 +53,91 @@ dspFlows_t dspFlowInit = dspfEQBassTreble;
 #endif
 #endif
 
+static float clamp_gain_db(float gain) {
+  if (gain < -6.0f) {
+    return -6.0f;
+  }
+
+  if (gain > 6.0f) {
+    return 6.0f;
+  }
+
+  return gain;
+}
+
+static float parse_gain_db(const char *value, float fallback) {
+  char *end = NULL;
+  float parsed = strtof(value, &end);
+
+  if ((end == value) || (end == NULL)) {
+    return clamp_gain_db(fallback);
+  }
+
+  return clamp_gain_db(parsed);
+}
+
+static void fill_default_filter_params(filterParams_t *params) {
+  memset(params, 0, sizeof(*params));
+  params->dspFlow = dspFlowInit;
+
+  switch (params->dspFlow) {
+    case dspfEQBassTreble: {
+#if CONFIG_SNAPCLIENT_DSP_FLOW_BASS_TREBLE_EQ
+      params->fc_1 = CONFIG_SNAPCLIENT_DSP_EQ_BASS_FREQ_HZ;
+      params->gain_1 =
+          parse_gain_db(CONFIG_SNAPCLIENT_DSP_EQ_BASS_GAIN_DB, 0.0f);
+      params->fc_2 = CONFIG_SNAPCLIENT_DSP_EQ_MIDS_FREQ_HZ;
+      params->gain_2 =
+          parse_gain_db(CONFIG_SNAPCLIENT_DSP_EQ_MIDS_GAIN_DB, 0.0f);
+      params->fc_3 = CONFIG_SNAPCLIENT_DSP_EQ_TREBLE_FREQ_HZ;
+      params->gain_3 =
+          parse_gain_db(CONFIG_SNAPCLIENT_DSP_EQ_TREBLE_GAIN_DB, 0.0f);
+#else
+      params->fc_1 = 300.0f;
+      params->gain_1 = 0.0f;
+      params->fc_2 = 1000.0f;
+      params->gain_2 = 0.0f;
+      params->fc_3 = 4000.0f;
+      params->gain_3 = 0.0f;
+#endif
+      break;
+    }
+
+    case dspfStereo: {
+      break;
+    }
+
+    case dspfBassBoost: {
+      params->fc_1 = 300.0f;
+      params->gain_1 = 6.0f;
+      break;
+    }
+
+    case dspfBiamp: {
+      params->fc_1 = 300.0f;
+      params->gain_1 = 0.0f;
+      params->fc_3 = 100.0f;
+      params->gain_3 = 0.0f;
+      break;
+    }
+
+    case dspf2DOT1: {
+      ESP_LOGW(TAG, "dspf2DOT1, not implemented yet, using stereo instead");
+      break;
+    }
+
+    case dspfFunkyHonda: {
+      ESP_LOGW(TAG,
+               "dspfFunkyHonda, not implemented yet, using stereo instead");
+      break;
+    }
+
+    default: {
+      break;
+    }
+  }
+}
+
 /**
  *
  */
@@ -72,48 +158,7 @@ void dsp_processor_init(void) {
   }
 
   // TODO: load this data from NVM if available
-  filterParams.dspFlow = dspFlowInit;
-
-  switch (filterParams.dspFlow) {
-    case dspfEQBassTreble: {
-      filterParams.fc_1 = 300.0;
-      filterParams.gain_1 = 0.0;
-      filterParams.fc_3 = 4000.0;
-      filterParams.gain_3 = 0.0;
-
-      break;
-    }
-
-    case dspfStereo: {
-      break;
-    }
-
-    case dspfBassBoost: {
-      filterParams.fc_1 = 300.0;
-      filterParams.gain_1 = 6.0;
-      break;
-    }
-
-    case dspfBiamp: {
-      filterParams.fc_1 = 300.0;
-      filterParams.gain_1 = 0;
-      filterParams.fc_3 = 100.0;
-      filterParams.gain_3 = 0.0;
-      break;
-    }
-
-    case dspf2DOT1: {  // Process audio L + R LOW PASS FILTER
-      ESP_LOGW(TAG, "dspf2DOT1, not implemented yet, using stereo instead");
-    } break;
-
-    case dspfFunkyHonda: {  // Process audio L + R LOW PASS FILTER
-      ESP_LOGW(TAG,
-               "dspfFunkyHonda, not implemented yet, using stereo instead");
-      break;
-    }
-
-    default: { break; }
-  }
+  fill_default_filter_params(&filterParams);
 
   ESP_LOGI(TAG, "%s: init done", __func__);
 }
@@ -151,6 +196,15 @@ void dsp_processor_uninit(void) {
  *
  */
 esp_err_t dsp_processor_update_filter_params(filterParams_t *params) {
+  if (params == NULL) {
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  params->gain_1 = clamp_gain_db(params->gain_1);
+  params->gain_2 = clamp_gain_db(params->gain_2);
+  params->gain_3 = clamp_gain_db(params->gain_3);
+  filterParams = *params;
+
   if (filterUpdateQHdl) {
     if (xQueueOverwrite(filterUpdateQHdl, params) == pdTRUE) {
       return ESP_OK;
@@ -158,6 +212,15 @@ esp_err_t dsp_processor_update_filter_params(filterParams_t *params) {
   }
 
   return ESP_FAIL;
+}
+
+esp_err_t dsp_processor_get_filter_params(filterParams_t *params) {
+  if (params == NULL) {
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  *params = filterParams;
+  return ESP_OK;
 }
 
 /**

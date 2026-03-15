@@ -2603,19 +2603,27 @@ void app_main(void) {
   init_snapcast(audioQHdl);
   init_player(i2s_pin_config0, I2S_NUM_0);
 
+#if CONFIG_USE_DSP_PROCESSOR
+  dsp_processor_init();
+#endif
+
 #if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
     CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
   eth_init();
+#if CONFIG_ENABLE_DSP_FILTER_WEB_UI
   // pass "WIFI_STA_DEF", "WIFI_AP_DEF", "ETH_DEF"
   init_http_server_task("ETH_DEF");
+#endif
 #else
   // Enable and setup WIFI in station mode and connect to Access point setup in
   // menu config or set up provisioning mode settable in menuconfig
   wifi_init();
   ESP_LOGI(TAG, "Connected to AP");
+#if CONFIG_ENABLE_DSP_FILTER_WEB_UI
   // http server for control operations and user interface
   // pass "WIFI_STA_DEF", "WIFI_AP_DEF", "ETH_DEF"
   init_http_server_task("WIFI_STA_DEF");
+#endif
 #endif
 
   // Enable websocket server
@@ -2625,10 +2633,6 @@ void app_main(void) {
   net_mdns_register("snapclient");
 #ifdef CONFIG_SNAPCLIENT_SNTP_ENABLE
   set_time_from_sntp();
-#endif
-
-#if CONFIG_USE_DSP_PROCESSOR
-  dsp_processor_init();
 #endif
 
   xTaskCreatePinnedToCore(&ota_server_task, "ota", 14 * 256, NULL,
