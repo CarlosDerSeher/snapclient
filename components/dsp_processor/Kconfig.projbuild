@@ -21,13 +21,6 @@ menu "ESP32 DSP processor config"
         help
             Use software volume mixer instead of hardware mixer (when your DAC does not support hardware volume control).
 
-    config USE_BIQUAD_ASM
-        bool "Use optimized asm version of Biquad_f32"
-        default true
-        depends on USE_DSP_PROCESSOR
-        help
-            Asm version 2 x speed on ESP32 - not working on ESP32-S2
-
     config USE_DSP_SOFT_CLIP
         bool "Use cubic soft clipping"
         default false
