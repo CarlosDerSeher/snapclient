@@ -12,19 +12,16 @@
 #include "esp_netif.h"
 #include "esp_sntp.h"
 #include "esp_system.h"
-#include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
 #include "mdns.h"
 #include "netdb.h"
-#include "wifi_interface.h"
 
 static const char *TAG = "NETF";
 
 extern EventGroupHandle_t s_wifi_event_group;
 
-static const char *if_str[] = {"STA", "AP", "ETH", "MAX"};
 static const char *ip_protocol_str[] = {"V4", "V6", "MAX"};
 
 void net_mdns_register(const char *clientname) {
@@ -35,33 +32,31 @@ void net_mdns_register(const char *clientname) {
   ESP_ERROR_CHECK(mdns_service_add(NULL, "_http", "_tcp", 8032, NULL, 0));
 }
 
-void mdns_print_results(mdns_result_t *results) {
-  mdns_result_t *r = results;
+void mdns_print_results(const mdns_result_t *results) {
+  mdns_result_t *r = (mdns_result_t *)results;
   mdns_ip_addr_t *a = NULL;
-  int i = 1, t;
+
   while (r) {
-    //      printf ("%d: Interface: %s, Type: %s\n", i++, if_str[r->tcpip_if],
-    //              ip_protocol_str[r->ip_protocol]);
-    printf("%d: Type: %s\n", i++, ip_protocol_str[r->ip_protocol]);
+    ESP_LOGI(TAG, "Interface: %s", esp_netif_get_desc(r->esp_netif));
+    ESP_LOGI(TAG, "Type: %s", ip_protocol_str[r->ip_protocol]);
     if (r->instance_name) {
-      printf("  PTR : %s\n", r->instance_name);
+      ESP_LOGI(TAG, "  PTR : %s", r->instance_name);
     }
     if (r->hostname) {
-      printf("  SRV : %s.local:%u\n", r->hostname, r->port);
+      ESP_LOGI(TAG, "  SRV : %s.local:%u", r->hostname, r->port);
     }
     if (r->txt_count) {
-      printf("  TXT : [%u] ", r->txt_count);
-      for (t = 0; t < r->txt_count; t++) {
-        printf("%s=%s; ", r->txt[t].key, r->txt[t].value);
+      ESP_LOGI(TAG, "  TXT : [%u] ", r->txt_count);
+      for (int t = 0; t < r->txt_count; t++) {
+        ESP_LOGI(TAG, "%s=%s; ", r->txt[t].key, r->txt[t].value);
       }
-      printf("\n");
     }
     a = r->addr;
     while (a) {
       if (a->addr.type == IPADDR_TYPE_V6) {
-        printf("  AAAA: " IPV6STR "\n", IPV62STR(a->addr.u_addr.ip6));
+        ESP_LOGI(TAG, "  AAAA: " IPV6STR, IPV62STR(a->addr.u_addr.ip6));
       } else {
-        printf("  A   : " IPSTR "\n", IP2STR(&(a->addr.u_addr.ip4)));
+        ESP_LOGI(TAG, "  A   : " IPSTR, IP2STR(&(a->addr.u_addr.ip4)));
       }
       a = a->next;
     }
@@ -106,31 +101,31 @@ void sntp_cb(struct timeval *tv) {
   ESP_LOGI(TAG, "sntp_cb called :%s", strftime_buf);
 }
 
-void set_time_from_sntp() {
-  xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT, false, true,
-                      portMAX_DELAY);
-  // ESP_LOGI(TAG, "clock %");
-  ESP_LOGI(TAG, "Initializing SNTP");
-  sntp_setoperatingmode(SNTP_OPMODE_POLL);
-  sntp_setservername(0, CONFIG_SNTP_SERVER);
-  sntp_init();
-  // sntp_set_time_sync_notification_cb(sntp_cb);
-  setenv("TZ", SNTP_TIMEZONE, 1);
-  tzset();
-
-  time_t now = 0;
-  struct tm timeinfo = {0};
-  int retry = 0;
-  const int retry_count = 10;
-  while (timeinfo.tm_year < (2016 - 1900) && ++retry < retry_count) {
-    ESP_LOGI(TAG, "Waiting for system time to be set... (%d/%d)", retry,
-             retry_count);
-    vTaskDelay(2000 / portTICK_PERIOD_MS);
-    time(&now);
-    localtime_r(&now, &timeinfo);
-  }
-  char strftime_buf[64];
-
-  strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
-  ESP_LOGI(TAG, "The current date/time in UTC is: %s", strftime_buf);
-}
+// void set_time_from_sntp() {
+//   xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT, false, true,
+//                       portMAX_DELAY);
+//   // ESP_LOGI(TAG, "clock %");
+//   ESP_LOGI(TAG, "Initializing SNTP");
+//   sntp_setoperatingmode(SNTP_OPMODE_POLL);
+//   sntp_setservername(0, CONFIG_SNTP_SERVER);
+//   sntp_init();
+//   // sntp_set_time_sync_notification_cb(sntp_cb);
+//   setenv("TZ", SNTP_TIMEZONE, 1);
+//   tzset();
+//
+//   time_t now = 0;
+//   struct tm timeinfo = {0};
+//   int retry = 0;
+//   const int retry_count = 10;
+//   while (timeinfo.tm_year < (2016 - 1900) && ++retry < retry_count) {
+//     ESP_LOGI(TAG, "Waiting for system time to be set... (%d/%d)", retry,
+//              retry_count);
+//     vTaskDelay(2000 / portTICK_PERIOD_MS);
+//     time(&now);
+//     localtime_r(&now, &timeinfo);
+//   }
+//   char strftime_buf[64];
+//
+//   strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
+//   ESP_LOGI(TAG, "The current date/time in UTC is: %s", strftime_buf);
+// }

@@ -1,6 +1,6 @@
 # Edit following two lines to set component requirements (see docs)
-set(COMPONENT_REQUIRES)
-set(COMPONENT_PRIV_REQUIRES audio_hal esp_peripherals)
+set(COMPONENT_REQUIRES audio_hal audio_board)
+set(COMPONENT_PRIV_REQUIRES esp_peripherals)
 
 if(CONFIG_AUDIO_BOARD_CUSTOM)
   message(STATUS "Current board name is " CONFIG_AUDIO_BOARD_CUSTOM)
