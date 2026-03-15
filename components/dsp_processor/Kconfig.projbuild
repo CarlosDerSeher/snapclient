@@ -7,26 +7,6 @@ menu "ESP32 DSP processor config"
         help
             enable audio filtering before queueing it to player component
 
-    choice SNAPCLIENT_DSP_FLOW
-        prompt "DSP flow"
-        default SNAPCLIENT_DSP_FLOW_STEREO
-        depends on USE_DSP_PROCESSOR
-        help
-            Select the DSP flow to use.
-
-        config SNAPCLIENT_DSP_FLOW_STEREO
-            bool "Stereo flow"
-
-        config SNAPCLIENT_DSP_FLOW_BASSBOOST
-            bool "Bassboost flow"
-
-        config SNAPCLIENT_DSP_FLOW_BIAMP
-            bool "Bi-Amp flow"
-
-        config SNAPCLIENT_DSP_FLOW_BASS_TREBLE_EQ
-            bool "Bass Treble EQ"
-    endchoice
-
     config SNAPCLIENT_MIX_LR_TO_MONO
         bool "mix stereo audio to mono"
         default false
