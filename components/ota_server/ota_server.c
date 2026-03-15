@@ -210,6 +210,8 @@ static bool request_has_valid_auth(const char *request) {
   header = strstr(request, "\r\nAuthorization:");
   if (header == NULL) {
     header = strstr(request, "Authorization:");
+  } else {
+    header += 2;
   }
   if (header == NULL) {
     return false;
