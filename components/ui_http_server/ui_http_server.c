@@ -12,17 +12,28 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <inttypes.h>
+#include <stdlib.h>
+#include <time.h>
 
+#include "cJSON.h"
+#include "esp_chip_info.h"
 #include "dsp_processor_settings.h"
 #include "esp_err.h"
+#include "esp_heap_caps.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
+#include "esp_mac.h"
+#include "esp_netif_ip_addr.h"
 #include "esp_system.h"
+#include "esp_timer.h"
+#include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "mbedtls/base64.h"
+#include "network_interface.h"
 #include "settings_manager.h"
 
 #if CONFIG_DAC_TAS5805M
@@ -30,10 +41,17 @@
 #endif
 
 static const char *TAG = "UI_HTTP";
+static const time_t STATUS_VALID_TIME_THRESHOLD_UNIX = 1767225600;  // 2026-01-01 00:00:00 UTC
 
 static QueueHandle_t xQueueHttp = NULL;
 static TaskHandle_t taskHandle = NULL;
 static httpd_handle_t server = NULL;
+
+extern struct netconn *lwipNetconn;
+extern const char *VERSION_STRING;
+extern uint32_t connection_get_last_snapserver_connect_uptime_sec(void);
+extern const char *connection_get_last_snapserver_host(void);
+extern uint16_t connection_get_last_snapserver_port(void);
 
 // External references to embedded files
 extern const uint8_t index_html_start[] asm("_binary_index_html_start");
@@ -75,6 +93,194 @@ static const embedded_file_t embedded_files[] = {
 	{"/eq-settings.html", eq_settings_html_start, eq_settings_html_end, "text/html; charset=utf-8"},
 	{"/favicon.ico", favicon_ico_start, favicon_ico_end, "image/x-icon"},
 };
+
+static void format_mac_address(char *out, size_t out_size, const uint8_t *mac) {
+	if ((out == NULL) || (out_size < 18) || (mac == NULL)) {
+		return;
+	}
+
+	snprintf(out, out_size, "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1],
+			 mac[2], mac[3], mac[4], mac[5]);
+}
+
+static esp_err_t build_status_json(char *json_out, size_t max_len) {
+	cJSON *root = NULL;
+	esp_netif_t *sta_netif = NULL;
+	esp_netif_t *eth_netif = NULL;
+	esp_netif_t *active_netif = NULL;
+	esp_netif_ip_info_t ip_info = {0};
+	wifi_ap_record_t ap_info = {0};
+	esp_chip_info_t chip_info = {0};
+	uint8_t mac[6] = {0};
+	char mac_str[18] = {0};
+	char hostname[64] = {0};
+	char ip_str[16] = "Unavailable";
+	char wifi_ssid[sizeof(ap_info.ssid) + 1] = "Disconnected";
+	char configured_host[128] = {0};
+	char snapserver_target[160] = "Not configured";
+	char snapserver_host[128] = {0};
+	char current_time_str[64] = "Not synchronized";
+	char *json_string = NULL;
+	bool mdns_enabled = true;
+	bool time_synced = false;
+	bool wifi_connected = false;
+	bool snapserver_connected = (lwipNetconn != NULL);
+	int32_t configured_port = 0;
+	int wifi_rssi_dbm = 0;
+	uint16_t snapserver_port = connection_get_last_snapserver_port();
+	time_t now = 0;
+
+	if ((json_out == NULL) || (max_len == 0)) {
+		return ESP_ERR_INVALID_ARG;
+	}
+
+	root = cJSON_CreateObject();
+	if (root == NULL) {
+		return ESP_ERR_NO_MEM;
+	}
+
+	settings_get_hostname(hostname, sizeof(hostname));
+	settings_get_mdns_enabled(&mdns_enabled);
+	settings_get_server_host(configured_host, sizeof(configured_host));
+	settings_get_server_port(&configured_port);
+	esp_read_mac(mac, ESP_MAC_WIFI_STA);
+	format_mac_address(mac_str, sizeof(mac_str), mac);
+	esp_chip_info(&chip_info);
+
+	sta_netif = network_get_netif_from_desc(NETWORK_INTERFACE_DESC_STA);
+	eth_netif = network_get_netif_from_desc(NETWORK_INTERFACE_DESC_ETH);
+
+	if ((eth_netif != NULL) && network_is_netif_up(eth_netif)) {
+		active_netif = eth_netif;
+	} else if ((sta_netif != NULL) && network_is_netif_up(sta_netif)) {
+		active_netif = sta_netif;
+	}
+
+	if ((active_netif != NULL) &&
+		(esp_netif_get_ip_info(active_netif, &ip_info) == ESP_OK)) {
+		snprintf(ip_str, sizeof(ip_str), IPSTR, IP2STR(&ip_info.ip));
+	}
+
+	if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+		snprintf(wifi_ssid, sizeof(wifi_ssid), "%s", (const char *)ap_info.ssid);
+		wifi_rssi_dbm = ap_info.rssi;
+		wifi_connected = true;
+	}
+
+	if (mdns_enabled) {
+		snprintf(snapserver_target, sizeof(snapserver_target),
+				 "_snapcast._tcp.local");
+	} else if ((configured_host[0] != '\0') && (configured_port > 0)) {
+		snprintf(snapserver_target, sizeof(snapserver_target), "%s:%" PRId32,
+				 configured_host, configured_port);
+	} else if (configured_host[0] != '\0') {
+		snprintf(snapserver_target, sizeof(snapserver_target), "%s",
+				 configured_host);
+	}
+
+	if ((connection_get_last_snapserver_host() != NULL) &&
+		(connection_get_last_snapserver_host()[0] != '\0')) {
+		strlcpy(snapserver_host, connection_get_last_snapserver_host(),
+				sizeof(snapserver_host));
+	} else if (configured_host[0] != '\0') {
+		strlcpy(snapserver_host, configured_host, sizeof(snapserver_host));
+	} else {
+		strlcpy(snapserver_host, snapserver_target, sizeof(snapserver_host));
+	}
+
+	if ((snapserver_port == 0) && (configured_port > 0)) {
+		snapserver_port = (uint16_t)configured_port;
+	}
+
+	time(&now);
+	if (now >= STATUS_VALID_TIME_THRESHOLD_UNIX) {
+		struct tm timeinfo = {0};
+		if (localtime_r(&now, &timeinfo) != NULL) {
+			if (strftime(current_time_str, sizeof(current_time_str),
+						 "%Y-%m-%d %H:%M:%S %Z", &timeinfo) > 0) {
+				time_synced = true;
+			}
+		}
+	}
+
+	cJSON_AddStringToObject(root, "app_version",
+							(VERSION_STRING != NULL) ? VERSION_STRING : "unknown");
+	cJSON_AddStringToObject(root, "target", CONFIG_IDF_TARGET);
+	cJSON_AddNumberToObject(root, "chip_cores", chip_info.cores);
+	cJSON_AddNumberToObject(root, "chip_revision", chip_info.revision);
+	cJSON_AddStringToObject(root, "mac", mac_str);
+	cJSON_AddStringToObject(root, "hostname",
+							hostname[0] ? hostname : "esp32-snapclient");
+	cJSON_AddBoolToObject(root, "time_synced", time_synced);
+	cJSON_AddStringToObject(root, "current_time", current_time_str);
+	cJSON_AddNumberToObject(root, "unix_time", (double)now);
+	cJSON_AddNumberToObject(root, "uptime_sec",
+							(double)(esp_timer_get_time() / 1000000ULL));
+	cJSON_AddNumberToObject(root, "task_count", uxTaskGetNumberOfTasks());
+	cJSON_AddNumberToObject(root, "free_heap_bytes", esp_get_free_heap_size());
+	cJSON_AddNumberToObject(root, "min_free_heap_bytes",
+							esp_get_minimum_free_heap_size());
+	cJSON_AddNumberToObject(root, "largest_free_block_bytes",
+							heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+	cJSON_AddNumberToObject(root, "free_internal_heap_bytes",
+							heap_caps_get_free_size(MALLOC_CAP_INTERNAL |
+													 MALLOC_CAP_8BIT));
+	cJSON_AddNumberToObject(root, "free_internal_dma_heap_bytes",
+							heap_caps_get_free_size(MALLOC_CAP_INTERNAL |
+													 MALLOC_CAP_DMA));
+#if CONFIG_SPIRAM
+	cJSON_AddNumberToObject(root, "free_psram_bytes",
+							heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+	cJSON_AddNumberToObject(root, "total_psram_bytes",
+							heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
+#else
+	cJSON_AddNumberToObject(root, "free_psram_bytes", 0);
+	cJSON_AddNumberToObject(root, "total_psram_bytes", 0);
+#endif
+	cJSON_AddNumberToObject(root, "last_snapserver_reconnect_uptime_sec",
+							connection_get_last_snapserver_connect_uptime_sec());
+	cJSON_AddStringToObject(root, "active_interface",
+							(active_netif == eth_netif)
+								? "ethernet"
+								: ((active_netif == sta_netif) ? "wifi" : "offline"));
+	cJSON_AddStringToObject(root, "ip_address", ip_str);
+	cJSON_AddBoolToObject(root, "wifi_connected", wifi_connected);
+	cJSON_AddStringToObject(root, "wifi_ssid", wifi_ssid);
+	if (wifi_connected) {
+		cJSON_AddNumberToObject(root, "wifi_rssi_dbm", wifi_rssi_dbm);
+	} else {
+		cJSON_AddNullToObject(root, "wifi_rssi_dbm");
+	}
+	cJSON_AddBoolToObject(root, "snapserver_connected", snapserver_connected);
+	cJSON_AddStringToObject(root, "snapserver_state",
+							snapserver_connected ? "Connected" : "Disconnected");
+	cJSON_AddStringToObject(root, "discovery_mode",
+							mdns_enabled ? "mDNS" : "Static");
+	cJSON_AddStringToObject(root, "snapserver_target", snapserver_target);
+	cJSON_AddStringToObject(root, "snapserver_host", snapserver_host);
+	cJSON_AddNumberToObject(root, "snapserver_port", snapserver_port);
+	cJSON_AddStringToObject(root, "configured_server_host",
+							configured_host[0] ? configured_host : "");
+	cJSON_AddNumberToObject(root, "configured_server_port", configured_port);
+
+	json_string = cJSON_PrintUnformatted(root);
+	if (json_string == NULL) {
+		cJSON_Delete(root);
+		return ESP_ERR_NO_MEM;
+	}
+
+	if (strlen(json_string) >= max_len) {
+		free(json_string);
+		cJSON_Delete(root);
+		return ESP_ERR_NO_MEM;
+	}
+
+	strlcpy(json_out, json_string, max_len);
+	free(json_string);
+	cJSON_Delete(root);
+
+	return ESP_OK;
+}
 
 #if CONFIG_HTTP_AUTH_ENABLE
 static esp_err_t build_expected_auth_header(char *encoded,
@@ -593,11 +799,14 @@ static esp_err_t get_param_handler(httpd_req_t *req) {
 
 /*
  * GET capabilities handler
- * Returns settings based on the 'tab' parameter: /capabilities?tab=general or
- * /capabilities?tab=dsp
+ * Returns settings based on the 'tab' parameter: /capabilities?tab=general,
+ * /capabilities?tab=status or /capabilities?tab=dsp
  *
  * Response for tab=general:
  * - hostname, mdns_enabled, server_host, server_port
+ *
+ * Response for tab=status:
+ * - runtime device/network/snapserver status
  *
  * Response for tab=dsp (if DSP enabled):
  * - active_flow and all flow parameters
@@ -618,7 +827,7 @@ static esp_err_t get_capabilities_handler(httpd_req_t *req) {
 		ESP_LOGW(TAG, "%s: Missing 'tab' parameter", __func__);
 		httpd_resp_set_status(req, "400 Bad Request");
 		httpd_resp_sendstr(req, "{\"error\": \"Missing 'tab' parameter. Use "
-								"?tab=general or ?tab=dsp\"}");
+								"?tab=general, ?tab=status or ?tab=dsp\"}");
 		return ESP_OK;
 	}
 
@@ -641,6 +850,31 @@ static esp_err_t get_capabilities_handler(httpd_req_t *req) {
 		httpd_resp_set_status(req, "200 OK");
 		httpd_resp_set_type(req, "application/json");
 		httpd_resp_sendstr(req, general_json);
+
+	} else if (strcmp(tab, "status") == 0) {
+		char *status_json = (char *)calloc(1, 2048);
+		if (status_json == NULL) {
+			httpd_resp_set_status(req, "500 Internal Server Error");
+			httpd_resp_sendstr(req, "{\"error\": \"Memory allocation failed\"}");
+			return ESP_OK;
+		}
+
+		esp_err_t ret = build_status_json(status_json, 2048);
+
+		if (ret != ESP_OK) {
+			ESP_LOGE(TAG, "%s: Failed to get status JSON: %s", __func__,
+					 esp_err_to_name(ret));
+			free(status_json);
+			httpd_resp_set_status(req, "500 Internal Server Error");
+			httpd_resp_sendstr(req,
+							   "{\"error\": \"Failed to retrieve device status\"}");
+			return ESP_OK;
+		}
+
+		httpd_resp_set_status(req, "200 OK");
+		httpd_resp_set_type(req, "application/json");
+		httpd_resp_sendstr(req, status_json);
+		free(status_json);
 
 	} else if (strcmp(tab, "dsp") == 0) {
 #if CONFIG_USE_DSP_PROCESSOR
@@ -683,7 +917,8 @@ static esp_err_t get_capabilities_handler(httpd_req_t *req) {
 		ESP_LOGW(TAG, "%s: Unknown tab: %s", __func__, tab);
 		httpd_resp_set_status(req, "400 Bad Request");
 		httpd_resp_sendstr(
-			req, "{\"error\": \"Unknown tab. Use ?tab=general or ?tab=dsp\"}");
+			req,
+			"{\"error\": \"Unknown tab. Use ?tab=general, ?tab=status or ?tab=dsp\"}");
 	}
 
 	return ESP_OK;
@@ -1127,6 +1362,9 @@ esp_err_t start_server(const char *base_path, int port) {
 	ESP_LOGD(TAG, "%s: base_path=%s port=%d", __func__, base_path, port);
 	httpd_config_t config = HTTPD_DEFAULT_CONFIG();
 	config.server_port = port;
+	config.stack_size = 8192;
+	config.max_req_hdr_len = 2048;
+	config.max_uri_len = 1024;
 	config.max_open_sockets = 7;
 	config.max_uri_handlers = 64;
 	config.lru_purge_enable = true; // Enable LRU socket purging

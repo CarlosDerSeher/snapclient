@@ -37,5 +37,8 @@ typedef struct {
 void setup_network(esp_netif_t** netif);
 
 int connection_get_byte(connection_t* connection, char* buffer);
+uint32_t connection_get_last_snapserver_connect_uptime_sec(void);
+const char* connection_get_last_snapserver_host(void);
+uint16_t connection_get_last_snapserver_port(void);
 
 #endif  // __CONNECTION_HANDLER_H__
