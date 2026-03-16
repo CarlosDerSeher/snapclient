@@ -329,7 +329,6 @@ static void es8311_mute(int mute) {
   if (mute) {
     es8311_write_reg(ES8311_SYSTEM_REG12, 0x02);
     es8311_write_reg(ES8311_DAC_REG31, regv | 0x60);
-    es8311_write_reg(ES8311_DAC_REG32, 0x00);
     es8311_write_reg(ES8311_DAC_REG37, 0x08);
   } else {
     es8311_write_reg(ES8311_DAC_REG31, regv);
