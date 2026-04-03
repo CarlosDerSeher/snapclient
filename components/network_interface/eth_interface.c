@@ -99,7 +99,7 @@ static esp_eth_handle_t eth_init_internal(esp_eth_mac_t **mac_out,
   esp32_emac_config.clock_config.rmii.clock_gpio = CONFIG_ETH_RMII_CLK_OUT_GPIO;
 #else
   esp32_emac_config.clock_config.rmii.clock_mode = EMAC_CLK_DEFAULT;
-  esp32_emac_config.clock_config.rmii.clock_gpio = CONFIG_ETH_RMII_CLK_IN_GPIO;
+  esp32_emac_config.clock_config.rmii.clock_gpio = EMAC_CLK_OUT_GPIO;
 #endif
 
   // Create new ESP32 Ethernet MAC instance

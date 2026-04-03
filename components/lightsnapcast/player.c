@@ -7,6 +7,7 @@
 #include <sys/time.h>
 
 #include "driver/i2s_common.h"
+#include "esp_pm.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
 #include "freertos/semphr.h"
@@ -21,6 +22,10 @@
 
 #if SOC_I2S_SUPPORTS_APLL
 #include "clk_ctrl_os.h"
+#endif
+
+#if CONFIG_PM_ENABLE
+#include "esp_pm.h"
 #endif
 
 #include <math.h>
@@ -40,6 +45,10 @@
 static const char *TAG = "PLAYER";
 
 #if USE_SAMPLE_INSERTION
+
+#if CONFIG_PM_ENABLE
+esp_pm_lock_handle_t player_pm_lock_handle = NULL;
+#endif
 
 #define INSERT_SAMPLES \
   1  //!< currently only allowed to be 1 or sync algorithm will break
@@ -68,17 +77,24 @@ static SemaphoreHandle_t latencyBufFullSemaphoreHandle = NULL;
 
 static gptimer_handle_t gptimer = NULL;
 
+#if USE_TIMEFILTER
 static sTimeFilter_t latencyTimeFilter;
+
+static double latencyToServer = 0;
+static double latencyDrift = 0;
+static int64_t latencyLastUpdate = 0;
+#else
+static sMedianFilter_t latencyMedianFilter;
+static sMedianNode_t latencyMedianLong[LATENCY_MEDIAN_FILTER_LEN];
+
+static int64_t latencyToServer = 0;
+#endif
 
 static sMedianFilter_t shortMedianFilter;
 static sMedianNode_t shortMedianBuffer[SHORT_BUFFER_LEN];
 
 static sMedianFilter_t miniMedianFilter;
 static sMedianNode_t miniMedianBuffer[MINI_BUFFER_LEN];
-
-static double latencyToServer = 0;
-static double latencyDrift = 0;
-static int64_t latencyLastUpdate = 0;
 
 static int8_t currentDir = 0;  //!< current apll direction, see apll_adjust()
 
@@ -149,6 +165,50 @@ esp_err_t my_i2s_channel_enable(i2s_chan_handle_t handle) {
 }
 
 /**
+ * This is a dirty hack to ensure smooth audio output without pops/clicks.
+ * It was originally developed to suppress es8388 noise between channel
+ * initialization and enabling. But the root cause of the noise was eliminated
+ * in es8388 driver. However: this function is still useful to suppress
+ * pops/clicks, typically when "pcm chunk queue not created" happens. It streams
+ * silence to I2S before starting actual audio playback. It's unclear, why this
+ * works, but it does.
+ */
+static void ensure_noiseless(i2s_chan_handle_t tx) {
+  // We only need to prime I2S once
+  static bool i2s_primed = false;
+  if (i2s_primed) {
+    return;
+  }
+  i2s_primed = true;
+
+  ESP_LOGI(TAG, "Priming I2S with silence to avoid noise");
+  // enabling I2S channel stops noise
+  my_i2s_channel_enable(tx);
+
+  // This could be adjusted size according to sample rate, bits, channels
+  size_t silence_size = 44100 * 2 * 2 / 10;
+  char *silence_buf = calloc(1, silence_size);
+
+  if (silence_buf) {
+    size_t bytes_written;
+
+    // Write silence
+    // While this is not required to stop noise, it somehow prevents pops later.
+    i2s_channel_write(tx, silence_buf, silence_size, &bytes_written,
+                      pdMS_TO_TICKS(200));
+
+    // Wait for DMA to flush
+    vTaskDelay(pdMS_TO_TICKS(150));
+
+    free(silence_buf);
+    ESP_LOGI(TAG, "Audio path primed with %d bytes of silence", bytes_written);
+  }
+
+  // Disable I2S channel again. Leaving it enabled may cause pops later.
+  my_i2s_channel_disable(tx);
+}
+
+/**
  *
  */
 static esp_err_t player_setup_i2s(snapcastSetting_t *setting) {
@@ -171,7 +231,7 @@ static esp_err_t player_setup_i2s(snapcastSetting_t *setting) {
   }
 
 #if USE_SAMPLE_INSERTION
-  i2sDmaBufCnt = 3;
+  i2sDmaBufCnt = 2;
   // OPUS has a minimum frame size of 120
   // with DMA buffer set to this value sync algorithm
   // works for all decoders. We set it to 100 so
@@ -244,7 +304,7 @@ static esp_err_t player_setup_i2s(snapcastSetting_t *setting) {
       .role = I2S_ROLE_MASTER,
       .dma_desc_num = i2sDmaBufCnt,
       .dma_frame_num = i2sDmaBufMaxLen,
-      .auto_clear = false,
+      .auto_clear = true,
   };
   ESP_ERROR_CHECK(i2s_new_channel(&tx_chan_cfg, &tx_chan, NULL));
 
@@ -280,6 +340,8 @@ static esp_err_t player_setup_i2s(snapcastSetting_t *setting) {
   };
 
   ESP_ERROR_CHECK(i2s_channel_init_std_mode(tx_chan, &tx_std_cfg));
+  // This prevents pops/clicks on some I2S codecs
+  ensure_noiseless(tx_chan);
 
   // my_i2s_channel_enable(tx_chan);
 
@@ -367,6 +429,13 @@ int deinit_player(void) {
 
 
   tg0_timer_deinit();
+  
+#if CONFIG_PM_ENABLE
+  if (player_pm_lock_handle) {
+    esp_pm_lock_delete(player_pm_lock_handle);
+    player_pm_lock_handle = NULL;
+  }
+#endif
 
   ESP_LOGI(TAG, "deinit player done");
 
@@ -416,9 +485,16 @@ int init_player(i2s_std_gpio_config_t pin_config0_, i2s_port_t i2sNum_) {
   }
   xSemaphoreTake(latencyBufFullSemaphoreHandle, 0);
 
+  
+#if USE_TIMEFILTER
+  // init Kalmann time filter 
+  TIMEFILTER_Init(&latencyTimeFilter, 0.01, 0.0, 1.001, 0.75, 100, 2.0);
+#else
   // init diff buff median filter
-  TIMEFILTER_Init(&latencyTimeFilter, 0.01, 0.0, 1.001, 0.75, 100);
-
+  latencyMedianFilter.numNodes = LATENCY_MEDIAN_FILTER_LEN;
+  latencyMedianFilter.medianBuffer = latencyMedianLong;
+  reset_latency_buffer();
+#endif
   shortMedianFilter.numNodes = SHORT_BUFFER_LEN;
   shortMedianFilter.medianBuffer = shortMedianBuffer;
   MEDIANFILTER_Init(&shortMedianFilter);
@@ -426,6 +502,10 @@ int init_player(i2s_std_gpio_config_t pin_config0_, i2s_port_t i2sNum_) {
   miniMedianFilter.numNodes = MINI_BUFFER_LEN;
   miniMedianFilter.medianBuffer = miniMedianBuffer;
   MEDIANFILTER_Init(&miniMedianFilter);
+  
+  #if CONFIG_PM_ENABLE
+  esp_pm_lock_create(ESP_PM_APB_FREQ_MAX, 0, "player", &player_pm_lock_handle);
+  #endif
 
   ESP_LOGI(TAG, "init player done");
 
@@ -457,6 +537,8 @@ int start_player(snapcastSetting_t *setting) {
   while(reset_latency_buffer()<0) {
     vTaskDelay(pdMS_TO_TICKS(10));
   }
+  
+  esp_pm_lock_acquire(player_pm_lock_handle);
 #endif
   
   // create message queue to inform task of changed settings
@@ -467,21 +549,19 @@ int start_player(snapcastSetting_t *setting) {
     snapcastSetting_t scSet;
     memset(&scSet, 0, sizeof(snapcastSetting_t));
     player_get_snapcast_settings(&scSet);
-
-    // Guard against divide-by-zero when chkInFrames hasn't been set yet
-    // (can happen during reconnection before first wire chunk is received)
-    if (scSet.chkInFrames == 0) {
-      ESP_LOGW(TAG, "chkInFrames is 0, cannot create queue yet");
-      playerstarted = false;
-      return -1;
+    
+    // ensure we don't have a divide by zero situation
+    uint32_t chkInFrames = scSet.chkInFrames;
+    if (chkInFrames == 0) {
+      chkInFrames = 1152; // choose a good default for now
     }
-
-    int entries = ceil(((float)scSet.sr / (float)scSet.chkInFrames) *
+    
+    int entries = ceil(((float)scSet.sr / (float)chkInFrames) *
                         ((float)scSet.buf_ms / 1000));
 
     // some chunks are placed in DMA buffer
     // so we can save a little RAM here
-    entries -= (i2sDmaBufMaxLen * i2sDmaBufCnt) / scSet.chkInFrames;
+    entries -= ((i2sDmaBufMaxLen * i2sDmaBufCnt) / chkInFrames);
 
     pcmChkQHdl = xQueueCreate(entries, sizeof(pcm_chunk_message_t *));
 
@@ -490,7 +570,7 @@ int start_player(snapcastSetting_t *setting) {
 
   ESP_LOGI(TAG, "Start player_task");
 
-  xTaskCreatePinnedToCore(player_task, "player", 2048 + 512, NULL,
+  xTaskCreatePinnedToCore(player_task, "player", 1024 * 3, NULL,
                           SYNC_TASK_PRIORITY, &playerTaskHandle,
                           SYNC_TASK_CORE_ID);
 
@@ -530,6 +610,7 @@ int8_t player_get_snapcast_settings(snapcastSetting_t *setting) {
   return ret;
 }
 
+#if USE_TIMEFILTER
 /**
  *
  */
@@ -537,7 +618,7 @@ int32_t player_latency_insert(int64_t newValue, int64_t max_error, int64_t time_
   TIMEFILTER_Insert(&latencyTimeFilter, newValue, max_error, time_added);
   int64_t last_update_ = latencyTimeFilter.last_update_;
   double offset_ = latencyTimeFilter.offset_;
-  double drift_ = latencyTimeFilter.drift_;
+  double drift_ = latencyTimeFilter.use_drift_ ? latencyTimeFilter.drift_ : 0.0;
   if (xSemaphoreTake(latencyBufSemaphoreHandle, pdMS_TO_TICKS(0)) == pdTRUE) {
     if (TIMEFILTER_isFull(&latencyTimeFilter, LATENCY_TIME_FILTER_FULL)) {
       xSemaphoreGive(latencyBufFullSemaphoreHandle);
@@ -558,6 +639,34 @@ int32_t player_latency_insert(int64_t newValue, int64_t max_error, int64_t time_
 
   return 0;
 }
+#else
+/**
+ *
+ */
+int32_t player_latency_insert(int64_t newValue) {
+  int64_t medianValue;
+
+  medianValue = MEDIANFILTER_Insert(&latencyMedianFilter, newValue);
+  if (xSemaphoreTake(latencyBufSemaphoreHandle, pdMS_TO_TICKS(0)) == pdTRUE) {
+    if (MEDIANFILTER_isFull(&latencyMedianFilter, LATENCY_MEDIAN_FILTER_FULL)) {
+      xSemaphoreGive(latencyBufFullSemaphoreHandle);
+
+      //      ESP_LOGI(TAG, "(full) latency median: %lldus", medianValue);
+    }
+    //    else {
+    //      ESP_LOGI(TAG, "(not full) latency median: %lldus", medianValue);
+    //    }
+
+    latencyToServer = medianValue;
+
+    xSemaphoreGive(latencyBufSemaphoreHandle);
+  } else {
+    ESP_LOGW(TAG, "couldn't set latencyToServer = medianValue");
+  }
+
+  return 0;
+}
+#endif
 
 /**
  *
@@ -613,6 +722,7 @@ int32_t player_send_snapcast_setting(snapcastSetting_t *setting) {
   return pdPASS;
 }
 
+#if USE_TIMEFILTER
 /**
  *
  */
@@ -689,6 +799,77 @@ int32_t get_diff_to_server(int64_t *tDiff, int64_t now) {
 
   return 0;
 }
+
+#else
+
+/**
+ *
+ */
+int32_t reset_latency_buffer(void) {
+  xSemaphoreTake(latencyBufFullSemaphoreHandle, pdMS_TO_TICKS(10));
+  
+  // init diff buff median filter
+  if (MEDIANFILTER_Init(&latencyMedianFilter) < 0) {
+    ESP_LOGE(TAG, "reset_diff_buffer: couldn't init median filter long. STOP");
+
+    return -2;
+  }
+
+  if (latencyBufSemaphoreHandle == NULL) {
+    ESP_LOGE(TAG, "reset_diff_buffer: latencyBufSemaphoreHandle == NULL");
+
+    return -2;
+  } 
+
+  if (xSemaphoreTake(latencyBufSemaphoreHandle, portMAX_DELAY) == pdTRUE) {
+    latencyToServer = 0;
+
+    xSemaphoreGive(latencyBufSemaphoreHandle);
+  } else {
+    ESP_LOGW(TAG, "reset_diff_buffer: can't take semaphore");
+
+    return -1;
+  }
+
+  return 0;
+}
+
+/**
+ *
+ */
+int32_t latency_buffer_full(bool *is_full) {
+  *is_full = MEDIANFILTER_isFull(&latencyMedianFilter, LATENCY_MEDIAN_FILTER_FULL);
+  
+  return 0;
+}
+
+int32_t get_diff_to_server(int64_t *tDiff, int64_t now) {
+  static int64_t lastDiff = 0;
+
+  if (latencyBufSemaphoreHandle == NULL) {
+    ESP_LOGE(TAG, "get_diff_to_server: latencyBufSemaphoreHandle == NULL");
+
+    return -2;
+  }
+
+  if (xSemaphoreTake(latencyBufSemaphoreHandle, 0) == pdFALSE) {
+    *tDiff = lastDiff;
+
+    // ESP_LOGW(TAG,
+    //          "get_diff_to_server: can't take semaphore. Old diff retrieved");
+
+    return -1;
+  }
+
+  *tDiff = latencyToServer;
+  lastDiff = latencyToServer;  // store value, so we can return a value if
+                               // semaphore couldn't be taken
+
+  xSemaphoreGive(latencyBufSemaphoreHandle);
+
+  return 0;
+}
+#endif
 
 /**
  *
@@ -783,7 +964,7 @@ esp_err_t my_gptimer_start(gptimer_handle_t timer) {
 }
 
 static void tg0_timer_deinit(void) {
-  //	timer_deinit(TIMER_GROUP_1, TIMER_1);
+  //  timer_deinit(TIMER_GROUP_1, TIMER_1);
   if (gptimer) {
     ESP_ERROR_CHECK(my_gptimer_stop(gptimer));
     ESP_ERROR_CHECK(gptimer_del_timer(gptimer));
@@ -1187,7 +1368,9 @@ int32_t insert_pcm_chunk(pcm_chunk_message_t *pcmChunk) {
     return -2;
   }
 
-  if (TIMEFILTER_isFull(&latencyTimeFilter, LATENCY_TIME_FILTER_FULL) == false) {
+  bool isFull = false;
+  latency_buffer_full(&isFull);
+  if (isFull == false) {
     free_pcm_chunk(pcmChunk);
 
     //    ESP_LOGW(TAG, "%s: wait for initial latency measurement to finish",
@@ -1195,7 +1378,6 @@ int32_t insert_pcm_chunk(pcm_chunk_message_t *pcmChunk) {
 
     return -3;
   }
-
   //  if (uxQueueSpacesAvailable(pcmChkQHdl) == 0) {
   //    pcm_chunk_message_t *element;
   //
@@ -1260,7 +1442,8 @@ static void player_task(void *pvParameters) {
   size_t alreadyWritten = 0;
   static uint32_t queueCreatedWithChkInFrames = UINT32_MAX;
   int64_t playback_start_time_us = 0;
-  uint64_t samples_written = 0;
+  uint64_t samples_written = 0;  
+  UBaseType_t uxHighWaterMark;
 
   memset(&scSet, 0, sizeof(snapcastSetting_t));
   player_get_snapcast_settings(&scSet);
@@ -1315,6 +1498,8 @@ static void player_task(void *pvParameters) {
   }
 
   while (1) {
+    //ESP_LOGD(TAG, "HIGH: %u", uxTaskGetStackHighWaterMark( NULL ));
+    
     // ESP_LOGW( TAG, "32b f %d b %d", heap_caps_get_free_size
     //(MALLOC_CAP_8BIT), heap_caps_get_largest_free_block (MALLOC_CAP_8BIT));
     // ESP_LOGW (TAG, "stack free: %d", uxTaskGetStackHighWaterMark(NULL));
@@ -1673,7 +1858,7 @@ static void player_task(void *pvParameters) {
 
               // #if USE_SAMPLE_INSERTION
               //               if (dir_insert_sample < 0) {
-              //         	  tmpSize -= sampleSizeInBytes;
+              //            tmpSize -= sampleSizeInBytes;
               //               }
               // #endif
 
@@ -1793,7 +1978,7 @@ static void player_task(void *pvParameters) {
             #endif
             
             // expected play out based on timestamp
-            int64_t target_play_local_us = chunkStart - diff2Server + buf_us - outputBufferDacTime_us;
+            int64_t target_play_local_us = chunkStart - diff2Server + buf_us - outputBufferDacTime_us - clientDacLatency_us;
             // Ideal playout time based on local audio clock                    
             int64_t actual_play_local_us = playback_start_time_us + (int64_t)((samples_played * 1000000ll) / (int64_t)scSet.sr);
             int64_t error_us = actual_play_local_us - target_play_local_us;
@@ -1888,15 +2073,15 @@ static void player_task(void *pvParameters) {
           //         age, shortMedian, miniMedian,
           //         uxQueueMessagesWaiting(pcmChkQHdl));
           // ESP_LOGI( TAG, "8b f %d b %d",
-          // 		   heap_caps_get_free_size(MALLOC_CAP_8BIT |
-          //           						   MALLOC_CAP_INTERNAL),
+          //       heap_caps_get_free_size(MALLOC_CAP_8BIT |
+          //                         MALLOC_CAP_INTERNAL),
           //           heap_caps_get_largest_free_block(MALLOC_CAP_8BIT |
           //                                            MALLOC_CAP_INTERNAL));
           // ESP_LOGI( TAG, "32b f %d b %d",
           //           heap_caps_get_free_size(MALLOC_CAP_32BIT |
           //                                   MALLOC_CAP_EXEC),
           //           heap_caps_get_largest_free_block(MALLOC_CAP_32BIT |
-          //		 MALLOC_CAP_EXEC));
+          //     MALLOC_CAP_EXEC));
         } else {
           // ESP_LOGW(TAG, "couldn't get server now");
 
@@ -1945,7 +2130,9 @@ static void player_task(void *pvParameters) {
   snapcastSettingQueueHandle = NULL;
   xSemaphoreGive(snapcastSettingsMux);
 
-
+#if CONFIG_PM_ENABLE
+  esp_pm_lock_release(player_pm_lock_handle);
+#endif
 
   ret = destroy_pcm_queue(&pcmChkQHdl);
 
@@ -1955,3 +2142,4 @@ static void player_task(void *pvParameters) {
   playerTaskHandle = NULL;
   vTaskDelete(NULL);
 }
+

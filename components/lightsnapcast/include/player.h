@@ -11,6 +11,8 @@
 extern "C" {
 #endif
 
+#define USE_TIMEFILTER  CONFIG_SNAPCLIENT_USE_TIMEFILTER
+
 #define I2S_PORT I2S_NUM_0
 
 // TODO: maybe calculate this dynamically based on chunk duration and buffer
@@ -26,6 +28,9 @@ extern "C" {
 // 2 samples above and below will be added plus the actual median. So in
 // reality n+1 samples will be averaged
 #define LATENCY_MEDIAN_AVG_DIVISOR 0
+
+#define LATENCY_MEDIAN_FILTER_LEN 199
+#define LATENCY_MEDIAN_FILTER_FULL 19
 
 #define SHORT_BUFFER_LEN 99
 #define MINI_BUFFER_LEN 19
@@ -73,13 +78,20 @@ int32_t insert_pcm_chunk(pcm_chunk_message_t *pcmChunk);
 // int8_t insert_pcm_chunk (wire_chunk_message_t *decodedWireChunk);
 int8_t free_pcm_chunk(pcm_chunk_message_t *pcmChunk);
 
+#if USE_TIMEFILTER
 int32_t player_latency_insert(int64_t newValue, int64_t max_error, int64_t time_added);
+#else
+int32_t player_latency_insert(int64_t newValue);
+#endif
+
+int32_t get_diff_to_server(int64_t *tDiff, int64_t now);
+int32_t latency_buffer_full(bool *is_full);
+
 int32_t player_send_snapcast_setting(snapcastSetting_t *setting);
 int8_t player_get_snapcast_settings(snapcastSetting_t *setting);
 
 int32_t reset_latency_buffer(void);
-int32_t latency_buffer_full(bool *is_full);
-int32_t get_diff_to_server(int64_t *tDiff, int64_t now);
+
 int32_t server_now(int64_t *sNow, int64_t *diff2Server);
 
 int32_t pcm_chunk_queue_msg_waiting(void);

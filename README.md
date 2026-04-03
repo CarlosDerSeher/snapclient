@@ -36,6 +36,7 @@ list. Also there is a lot of code clean up needed, as there is quite some dead c
 Components
  - audio-board : taken from ADF, stripped down to strictly necessary parts for playback
  - audio-hal : taken from ADF, stripped down to strictly necessary parts for playback
+   * additional modification: es8388 driver was changed to remove a noise bug introduced by ADF upstream.
  - audio-sal : taken from ADF, stripped down to strictly necessary parts for playback
  - custom_board : generic board component to support easy integration of DACs
  - dsp_processor : Audio Processor, low pass filters, effects, etc.
@@ -57,6 +58,7 @@ Components
  - improv_wifi : WiFi provisioning via [ImprovWifi via Serial](https://www.improv-wifi.com/)
  - network_interface : init code for wifi module and AP connection and ethernet init code
  - ui_http_server : work in progress control interface for DSP functions
+ - udp_logger: Logging submodule through UPD. Just open a terminal and `nc -klu 9999` to see the logs. Many thanks to [AchimPieters](https://github.com/AchimPieters/esp32-udp-logger) 
 
 The snapclient functionality are implemented in a task included in main - but
 should be refactored to a component at some point.
@@ -106,11 +108,23 @@ Update third party code (opus, flac, esp-dsp, improv_wifi):
 ```
 git submodule update --init
 ```
+Copy one of the template sdkconfig files and rename it to sdkconfig...
 
-### ESP-IDF environnement configuration
+...on Linux:
+```
+cp sdkconfig_lyrat_v4.3 sdkconfig
+```
+
+...on Windows:
+```
+copy sdkconfig_lyrat_v4.3 sdkconfig
+```
+
+### ESP-IDF environment setup (required for configuration, compiling and flashing)
 - <b>If you're on Windows :</b> Install [ESP-IDF v5.5.1](https://github.com/espressif/esp-idf/releases/tag/v5.5.1) locally ([More info](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/windows-setup-update.html)).
-- <b>If you're on Linux (docker) :</b> Use the image for ESP-IDF by following [docker build](doc/docker_build.md) doc
+- <b>If you're on Linux (docker) :</b> Use the image for ESP-IDF by following [docker build](doc/docker_build.md) doc (you won't need any of the remaining commands/steps below up until the <b>Test</b> section then) 
 - <b>If you're on Linux :</b> follow [official Espressif](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/linux-macos-setup.html) instructions
+
   For debian based systems you'll need to do the following:
   ```
   sudo apt-get install git wget flex bison gperf python3 python3-pip python3-venv cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0
@@ -122,24 +136,16 @@ git submodule update --init
   . ./export.sh
   ```
 
-<a name="config"></a>
-### Snapcast ESP Configuration
-Start with the default config (remove any existing sdkconfig file) or copy one of the template sdkconfig files and rename it to sdkconfig
+### Snapcast ESP Configuration (Non-Docker-Linux and Windows)
 
-```
-rm sdkconfig
-```
-or
-```
-cp sdkconfig_lyrat_v4.3 sdkconfig
-```
-
-then configure your platform:
+Configure your platform:
 
 ```
 idf.py menuconfig
 ```
-Configure to match your setup
+
+<a name="config"></a>
+Choose configuration options to match your setup
   - <b>Audio HAL :</b> Choose your audio board
     - Lyrat (4.3, 4.2)
     - Lyrat TD (2.2, 2.1)
@@ -165,14 +171,14 @@ Configure to match your setup
     - Use asm version of Biquad_f32 : Optimized version of the DSP algorithm only for ESP32. Don't work on ESP32-S2
     - Use software volume : Handle snapcast volume in the ESP. Activate this if your DAC do not provide a volume control (no I2C like PCM5102A or MAX98357)
   - <b>WiFi Configuration :</b>
-    - WiFi Provisioning : Use the Espressif "ESP SoftAP Prov" APP to configure your wifi network.
+    - WiFi Provisioning : Use Improv WiFi (e.g. via [this link](https://web.esphome.io/) on a supported browser)
     - SSID : The SSID to connect to or the provisioning SSID.
     - Password : The password of your WiFi network or the provisioning network.
     - Maximum retry: Use 0 for no limit.
   - <b>Snapclient configuration :</b>
     - Use mDNS : The client will search on the network for the snapserver automatically. Your network must support mDNS.
-    - Snapserver host : IP or URL of the server if mDNS is disabled or the mDNS resolution fail.
-    - Snapserver port : Port of your snapserver, default is 1704.
+    - Snapserver host : IP address of the server if mDNS is disabled or the mDNS resolution fails.
+    - Snapserver port :  Port of your snapserver, default is 1704.
     - Snapclient name : The name under which your ESP will appear on the Snapserver.
     - HTTP Server Setting : The ESP creates a basic webpage. You can configure the port to view this page and configure the DSP.
 
@@ -210,6 +216,12 @@ Android : snapclient from the app play store
 ## OTA update
 Update your client(s) over the air.
 
+>Note:<br>
+>In commits [98c439d](https://github.com/CarlosDerSeher/snapclient/commit/98c439d) and [4fcf3a6](https://github.com/CarlosDerSeher/snapclient/commit/4fcf3a6) the partition table has been altered,
+so there is a chance that systems running versions of the Firmware < v0.0.3 (before 2025-12-28 22:58:54) will encounter troubles during OTA upgrade. In tests we found OTA
+works without any issues but it hasn't been tested for every possible hardware combination. So be prepared to flash using serial connection if
+something goes sideways.
+
 On a linux box:
 
 ```
@@ -223,7 +235,7 @@ Replace `snapclient.local` with your clients IP address. If you have multiple cl
 
 You are very welcome to help and provide [Pull
 Requests](https://docs.github.com/en/github/collaborating-with-issues-and-pull-requests/about-pull-requests)
-to the project.
+to the project. Use [develop](https://github.com/CarlosDerSeher/snapclient/tree/develop) branch for your PRs as this is the place where new features will go.
 
 We strongly suggest you activate [pre-commit](https://pre-commit.com) hooks in
 this git repository before starting to hack and make commits.
@@ -250,3 +262,7 @@ Then on every `git commit`, a few sanity/formatting checks will be performed.
 
 ## Minor task
 - [ ] fill in missing component descriptions in Readme.md
+
+## Known issues
+- The ADF introduced a bug in `components/audio_hal/driver/es8388/es8388.c` which results in loud noise between i2s channel initialization and i2s enabling. The issue was caused by three lines setting undocumented registers. This was fixed by a simple hack in this repo: we modified the file to comment out these lines.
+- There is a hacky `ensure_noiseless` function in `player.c`, that streams silence for a short period of time, once. It was originally added to fix the aforementioned noise issue. It remains in the codebase (although the es8388 driver is fixed now) because it prevents random clicks and pops during playback, especially when `PLAYER: pcm chunk queue not created` messages occur. The root cause of the clicks and the reason why this hack works are currently unknown.

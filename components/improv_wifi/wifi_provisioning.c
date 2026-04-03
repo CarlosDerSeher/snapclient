@@ -7,7 +7,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "driver/uart.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_wifi.h"
@@ -17,10 +16,7 @@
 #include "freertos/task.h"
 #include "improv_wrapper.h"
 #include "wifi_interface.h"
-
 #include "wifi_provisioning.h"
-
-#define TAG "IMPROV"
 
 #ifdef CONFIG_ESP_CONSOLE_UART_DEFAULT
 #include "driver/uart.h"
@@ -64,8 +60,10 @@ void uart_event_handler(void) {
       events than other types of events. If we take too much time on data event,
       the queue might be full. */
       case UART_DATA:
-        //ESP_LOGD(TAG, "uart data: %d bytes", event.size);
+        ESP_LOGD(TAG, "[UART DATA]: %d bytes", event.size);
+
         uart_read_bytes(uart_num, dtmp, event.size, portMAX_DELAY);
+        // ESP_LOGD(TAG, "[DATA EVT]:");
         improv_wifi_handle_serial(dtmp, event.size);
         break;
       // Event of HW FIFO overflow detected
@@ -87,8 +85,6 @@ void uart_event_handler(void) {
         // read more data.
         uart_flush_input(uart_num);
         xQueueReset(uart_queue);
-        break;
-      case UART_BREAK:
         break;
       // Others
       default:
@@ -258,7 +254,7 @@ void improv_wifi_get_local_ip(uint8_t *address) {
   address[2] = (uint8_t)((ip_info.ip.addr >> 16) & 0xFF);
   address[3] = (uint8_t)((ip_info.ip.addr >> 24) & 0xFF);
 
-  ESP_LOGI(TAG, "%d.%d.%d.%d", address[0], address[1], address[2], address[3]);
+  ESP_LOGD(TAG, "%d.%d.%d.%d", address[0], address[1], address[2], address[3]);
 }
 
 void improv_init(void) {
@@ -322,6 +318,7 @@ void improv_init(void) {
   esp_err_t usb_ret = usb_serial_jtag_driver_install(&usb_serial_config);
   if (usb_ret == ESP_OK) {
     ESP_LOGD(TAG, "USB Serial JTAG driver installed successfully");
+
     // Create USB Serial task
     BaseType_t usb_task_ret = xTaskCreatePinnedToCore(&usb_serial_improv_task, "usb_improv", 
                               8 * 1024, NULL, 4, &t_usb_serial_task, tskNO_AFFINITY);

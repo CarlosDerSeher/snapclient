@@ -287,6 +287,78 @@ esp_err_t tas5805m_read_bytes(uint8_t *reg, int regLen, uint8_t *data, int datal
   return ret;
 }
 
+esp_err_t tas5805m_write_bytes(uint8_t *reg,
+                               int regLen, uint8_t *data, int datalen)
+{
+  int ret = ESP_OK;
+  ESP_LOGV(TAG, "%s: 0x%02x <- [%d] bytes", __func__, *reg, datalen);
+  for (int i = 0; i < datalen; i++)
+  {
+    ESP_LOGV(TAG, "%s: 0x%02x", __func__, data[i]);
+  }
+
+  i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+  ret |= i2c_master_start(cmd);
+  ret |= i2c_master_write_byte(cmd, TAS5805M_ADDRESS << 1 | WRITE_BIT, ACK_CHECK_EN);
+  ret |= i2c_master_write(cmd, reg, regLen, ACK_CHECK_EN);
+  ret |= i2c_master_write(cmd, data, datalen, ACK_CHECK_EN);
+  ret |= i2c_master_stop(cmd);
+  ret = i2c_master_cmd_begin(I2C_TAS5805M_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+
+  // Check if ret is OK
+  if (ret != ESP_OK)
+  {
+    ESP_LOGE(TAG, "%s: Error during I2C transmission: %s", __func__, esp_err_to_name(ret));
+  }
+
+  i2c_cmd_link_delete(cmd);
+
+  return ret;
+}
+
+esp_err_t tas5805m_read_bytes(uint8_t *reg, int regLen, uint8_t *data, int datalen)
+{
+  int ret = ESP_OK;
+  ESP_LOGV(TAG, "%s: 0x%02x -> [%d] bytes", __func__, *reg, datalen);
+
+  i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+  ret |= i2c_master_start(cmd);
+  ret |= i2c_master_write_byte(cmd, TAS5805M_ADDRESS << 1 | WRITE_BIT, ACK_CHECK_EN);
+  ret |= i2c_master_write(cmd, reg, regLen, ACK_CHECK_EN);
+  ret |= i2c_master_stop(cmd);
+  ret = i2c_master_cmd_begin(I2C_TAS5805M_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+  i2c_cmd_link_delete(cmd);
+
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "%s: Error during I2C write phase: %s", __func__, esp_err_to_name(ret));
+    return ret;
+  }
+
+  vTaskDelay(1 / portTICK_PERIOD_MS);
+  
+  cmd = i2c_cmd_link_create();
+  ret |= i2c_master_start(cmd);
+  ret |= i2c_master_write_byte(cmd, TAS5805M_ADDRESS << 1 | READ_BIT, ACK_CHECK_EN);
+  if (datalen > 1) {
+    ret |= i2c_master_read(cmd, data, datalen - 1, ACK_VAL);
+  }
+  ret |= i2c_master_read_byte(cmd, data + datalen - 1, NACK_VAL);
+  ret |= i2c_master_stop(cmd);
+  ret = i2c_master_cmd_begin(I2C_TAS5805M_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "%s: Error during I2C read phase: %s", __func__, esp_err_to_name(ret));
+  } else {
+    for (int i = 0; i < datalen; i++) {
+      ESP_LOGV(TAG, "%s: [%d] = 0x%02x", __func__, i, data[i]);
+    }
+  }
+
+  i2c_cmd_link_delete(cmd);
+
+  return ret;
+}
+
 // Inits the TAS5805M change Settings in Menuconfig to enable Bridge-Mode
 esp_err_t tas5805m_init() {
   ESP_LOGD(TAG, "%s: Initializing TAS5805M", __func__);
@@ -1235,7 +1307,9 @@ esp_err_t tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS channel, int b
     }
     
     raw_value = tas5805m_float_to_q5_27(coeffs[i]);
-
+    ESP_LOGD(TAG, "%s: Writing %s = %f -> 0x%08X to offset 0x%02X", 
+             __func__, names[i], coeffs[i], (unsigned int)raw_value, offset);
+    
     ret = tas5805m_write_bytes(&offset, 1, (uint8_t *)&raw_value, sizeof(raw_value));
     if (ret != ESP_OK) {
       ESP_LOGE(TAG, "%s: Failed to write coefficient %s: %s", 
