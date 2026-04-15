@@ -16,6 +16,13 @@ extern "C" {
 #define TAS5805M_VOLUME_DIGITAL_DEFAULT 48 //  +0 Db
 #define TAS5805M_VOLUME_DIGITAL_MIN 0	   // +24 Db
 
+/* Detected DAC model */
+typedef enum {
+	TAS5805_MODEL_UNKNOWN = 0,
+	TAS5805_MODEL_TAS5805M = 1,
+	TAS5805_MODEL_TAS5825M = 2,
+} TAS5805_MODEL;
+
 /* Control states */
 typedef enum {
 	TAS5805M_CTRL_DEEP_SLEEP = 0x00,

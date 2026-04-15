@@ -61,6 +61,7 @@ typedef struct {
 	int8_t eq_gain_l[TAS5805M_EQ_BANDS];
 	int8_t eq_gain_r[TAS5805M_EQ_BANDS];
 	TAS5805M_EQ_PROFILE eq_profile[2];
+	TAS5805M_EQ_MODE eq_mode;
 #endif
 } TAS5805_STATE;
 
@@ -71,6 +72,15 @@ typedef struct {
  *     - ESP_FAIL
  */
 esp_err_t tas5805m_init();
+
+/**
+ * @brief Get the detected DAC model
+ *
+ * Valid after tas5805m_init() has been called.
+ *
+ * @return TAS5805_MODEL_TAS5805M, TAS5805_MODEL_TAS5825M, or TAS5805_MODEL_UNKNOWN
+ */
+TAS5805_MODEL tas5805m_get_model(void);
 
 /**
  * @brief Deinitialize TAS5805 codec chip
