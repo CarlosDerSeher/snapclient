@@ -1100,17 +1100,20 @@
           console.log(`Updating ${key} = ${value} (immediate)`);
           await postRequest('/api/eq/settings', update);
 
-          // Mode change - reload schema and settings
+          // Mode change - reload schema and settings (staged to avoid ESP32 socket/memory issues)
           console.log('Mode changed, reloading schema and settings...');
           const backendUrl = getBackendUrl();
-          const [schemaResponse, settingsResponse] = await Promise.all([
-            fetch(`${backendUrl}/api/eq/schema`),
-            fetch(`${backendUrl}/api/eq/settings`)
-          ]);
-          if (schemaResponse.ok && settingsResponse.ok) {
+          const schemaResponse = await fetch(`${backendUrl}/api/eq/schema`);
+          if (schemaResponse.ok) {
             schema = await schemaResponse.json();
-            currentSettings = await settingsResponse.json();
-            renderUI();
+            await new Promise(resolve => setTimeout(resolve, 300));
+            const settingsResponse = await fetch(`${backendUrl}/api/eq/settings`);
+            if (settingsResponse.ok) {
+              currentSettings = await settingsResponse.json();
+              renderUI();
+            } else {
+              updateAllGroupVisibility();
+            }
           } else {
             updateAllGroupVisibility();
           }
@@ -1141,17 +1144,18 @@
             const isGainOrPresetChange = key.startsWith('eq_gain_') || key.startsWith('eq_profile_');
 
             if (isAutoMode && isGainOrPresetChange) {
-              // In auto modes, reload to get actual DAC coefficients
+              // In auto modes, reload to get actual DAC coefficients (staged fetch)
               console.log('Reloading schema and settings to fetch actual DAC coefficients...');
               const backendUrl = getBackendUrl();
-              const [schemaResponse, settingsResponse] = await Promise.all([
-                fetch(`${backendUrl}/api/eq/schema`),
-                fetch(`${backendUrl}/api/eq/settings`)
-              ]);
-              if (schemaResponse.ok && settingsResponse.ok) {
+              const schemaResponse = await fetch(`${backendUrl}/api/eq/schema`);
+              if (schemaResponse.ok) {
                 schema = await schemaResponse.json();
-                currentSettings = await settingsResponse.json();
-                renderUI();
+                await new Promise(resolve => setTimeout(resolve, 300));
+                const settingsResponse = await fetch(`${backendUrl}/api/eq/settings`);
+                if (settingsResponse.ok) {
+                  currentSettings = await settingsResponse.json();
+                  renderUI();
+                }
               }
             }
           } catch (error) {
