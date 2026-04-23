@@ -288,7 +288,7 @@ Define the volume percentage boundaries between zones:
 
 #### Treble Boost (per zone)
 - **Range:** -12 to +12 dB
-- **Frequency:** High shelf at ~5 kHz (tweeter channel)
+- **Frequency:** High shelf at ~4 kHz (tweeter channel)
 
 **Default Values:**
 | Zone | Volume Range | Treble Boost |

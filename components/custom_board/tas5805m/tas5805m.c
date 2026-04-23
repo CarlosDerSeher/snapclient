@@ -41,8 +41,6 @@ static const char *TAG = "TAS5805M";
 
 /* Mutex for thread-safe I2C access */
 static SemaphoreHandle_t tas5805m_i2c_mutex = NULL;
-/* Spinlock to protect mutex initialization (prevents TOCTOU race) */
-static portMUX_TYPE tas5805m_init_lock = portMUX_INITIALIZER_UNLOCKED;
 
 #define TAS5805M_SET_BOOK_AND_PAGE(BOOK, PAGE) \
     do { \
@@ -364,18 +362,15 @@ esp_err_t tas5805m_init() {
   ESP_LOGD(TAG, "%s: Initializing TAS5805M", __func__);
   int ret = 0;
 
-  /* Create I2C mutex if not already created (recursive to allow nested calls) */
-  /* Use spinlock to prevent TOCTOU race if init is called concurrently */
-  portENTER_CRITICAL(&tas5805m_init_lock);
+  /* Create I2C mutex if not already created (recursive to allow nested calls).
+   * Safe without locking: called from app_main before concurrent access. */
   if (tas5805m_i2c_mutex == NULL) {
     tas5805m_i2c_mutex = xSemaphoreCreateRecursiveMutex();
     if (tas5805m_i2c_mutex == NULL) {
-      portEXIT_CRITICAL(&tas5805m_init_lock);
       ESP_LOGE(TAG, "%s: Failed to create I2C mutex", __func__);
       return ESP_ERR_NO_MEM;
     }
   }
-  portEXIT_CRITICAL(&tas5805m_init_lock);
 
   // Init the I2C-Driver
   i2c_master_init();
@@ -1233,44 +1228,50 @@ static esp_err_t tas5805m_get_biquad_register(TAS5805M_EQ_CHANNELS channel, int 
   return ESP_OK;
 }
 
-esp_err_t tas5805m_read_biquad_coefficients(TAS5805M_EQ_CHANNELS channel, int band, 
-                                              float *b0, float *b1, float *b2, 
+esp_err_t tas5805m_read_biquad_coefficients(TAS5805M_EQ_CHANNELS channel, int band,
+                                              float *b0, float *b1, float *b2,
                                               float *a1, float *a2)
 {
   if (!b0 || !b1 || !b2 || !a1 || !a2) {
     return ESP_ERR_INVALID_ARG;
   }
 
-  ESP_LOGD(TAG, "%s: Reading biquad coefficients for channel %d, band %d", 
+  ESP_LOGD(TAG, "%s: Reading biquad coefficients for channel %d, band %d",
            __func__, channel, band);
 
   esp_err_t ret = ESP_OK;
   uint8_t page, offset;
   uint32_t raw_value;
-  
+
   // Read each coefficient
   float *coeffs[] = {b0, b1, b2, a1, a2};
   const char *names[] = {"B0", "B1", "B2", "A1", "A2"};
-  
+
   for (int i = 0; i < TAS5805M_EQ_KOEF_PER_BAND; i++) {
     ret = tas5805m_get_biquad_register(channel, band, i, &page, &offset);
     if (ret != ESP_OK) {
       return ret;
     }
-    
+
     TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_EQ, page);
-    
+
     ret = tas5805m_read_bytes(&offset, 1, (uint8_t *)&raw_value, sizeof(raw_value));
     if (ret != ESP_OK) {
-      ESP_LOGE(TAG, "%s: Failed to read coefficient %s: %s", 
+      ESP_LOGE(TAG, "%s: Failed to read coefficient %s: %s",
                __func__, names[i], esp_err_to_name(ret));
       break;
     }
-    
+
     *coeffs[i] = tas5805m_q5_27_to_float(raw_value);
     ESP_LOGD(TAG, "%s: %s = %f (raw: 0x%08X)", __func__, names[i], *coeffs[i], (unsigned int)raw_value);
   }
-  
+
+  // TAS5805M uses addition convention for feedback: y = b0*x + b1*x1 + b2*x2 + a1*y1 + a2*y2
+  // Standard DSP uses subtraction: y = b0*x + b1*x1 + b2*x2 - a1*y1 - a2*y2
+  // Negate a1 and a2 to convert from TAS5805M convention back to standard DSP convention
+  *a1 = -(*a1);
+  *a2 = -(*a2);
+
   TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_CONTROL_PORT, TAS5805M_REG_PAGE_ZERO);
   return ret;
 }

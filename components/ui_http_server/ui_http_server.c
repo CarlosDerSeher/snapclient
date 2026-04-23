@@ -10,6 +10,7 @@
 
 #include "ui_http_server.h"
 
+#include <ctype.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -29,6 +30,8 @@
 #endif
 
 static const char *TAG = "UI_HTTP";
+
+#define MAX_POST_BODY_SIZE (32 * 1024)  /* 32 KB max for POST request bodies */
 
 static QueueHandle_t xQueueHttp = NULL;
 static TaskHandle_t taskHandle = NULL;
@@ -158,6 +161,40 @@ static int find_key_value(char *key, char *parameter, char *value, size_t value_
 }
 
 /**
+ * Validate that an Origin header represents a local/private network address.
+ * Checks for localhost and RFC1918 private IP ranges, ensuring the character
+ * after the prefix is valid (digit for IPs, terminator for localhost) to
+ * prevent hostname spoofing like "http://192.168.evil.com".
+ */
+static bool is_local_origin(const char *origin) {
+	/* Check localhost variants */
+	if (strncmp(origin, "http://localhost", 16) == 0) {
+		char after = origin[16];
+		return (after == '\0' || after == ':' || after == '/');
+	}
+	if (strncmp(origin, "https://localhost", 17) == 0) {
+		char after = origin[17];
+		return (after == '\0' || after == ':' || after == '/');
+	}
+	/* Check private IP ranges - next char after prefix must be a digit */
+	if (strncmp(origin, "http://127.", 11) == 0) {
+		return isdigit((unsigned char)origin[11]);
+	}
+	if (strncmp(origin, "http://192.168.", 15) == 0) {
+		return isdigit((unsigned char)origin[15]);
+	}
+	if (strncmp(origin, "http://10.", 10) == 0) {
+		return isdigit((unsigned char)origin[10]);
+	}
+	/* 172.16-31.x.x range (RFC1918) */
+	if (strncmp(origin, "http://172.", 11) == 0 && isdigit((unsigned char)origin[11])) {
+		int second_octet = atoi(&origin[11]);
+		return (second_octet >= 16 && second_octet <= 31);
+	}
+	return false;
+}
+
+/**
  * Set CORS headers to allow cross-origin requests
  * This enables local development with ?backend parameter
  *
@@ -170,13 +207,7 @@ static void set_cors_headers(httpd_req_t *req) {
 	/* Get the Origin header from the request */
 	char origin[128] = {0};
 	if (httpd_req_get_hdr_value_str(req, "Origin", origin, sizeof(origin)) == ESP_OK && origin[0] != '\0') {
-		/* Validate origin: only allow http/https from localhost or local IPs */
-		if (strncmp(origin, "http://localhost", 16) == 0 ||
-			strncmp(origin, "https://localhost", 17) == 0 ||
-			strncmp(origin, "http://127.", 11) == 0 ||
-			strncmp(origin, "http://192.168.", 15) == 0 ||
-			strncmp(origin, "http://10.", 10) == 0 ||
-			strncmp(origin, "http://172.", 11) == 0) {
+		if (is_local_origin(origin)) {
 			httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", origin);
 		}
 		/* If origin doesn't match allowed patterns, don't set CORS header (browser will block) */
@@ -768,16 +799,52 @@ static esp_err_t get_dac_schema_handler(httpd_req_t *req) {
 #endif
 }
 
+/**
+ * Read the complete request body, handling partial reads.
+ * Returns total bytes read, or negative value on error.
+ */
+static int httpd_recv_all(httpd_req_t *req, char *buf, size_t len) {
+  int total = 0;
+  int retries = 0;
+  while (total < (int)len) {
+    int ret = httpd_req_recv(req, buf + total, len - total);
+    if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+      if (++retries >= 5) {
+        return HTTPD_SOCK_ERR_TIMEOUT;
+      }
+      continue;
+    }
+    if (ret <= 0) {
+      return ret;
+    }
+    total += ret;
+    retries = 0;
+  }
+  return total;
+}
+
 /*
  * POST /api/dac/settings handler
  * Updates TAS5805M DAC settings from JSON
  */
 static esp_err_t post_dac_settings_handler(httpd_req_t *req) {
   ESP_LOGD(TAG, "%s: uri=%s", __func__, req->uri);
-  
+
   set_cors_headers(req);
-  
+
 #if CONFIG_DAC_TAS5805M
+  if (req->content_len == 0) {
+    httpd_resp_set_status(req, "400 Bad Request");
+    httpd_resp_sendstr(req, "{\"error\": \"Empty request body\"}");
+    return ESP_OK;
+  }
+  if (req->content_len > MAX_POST_BODY_SIZE) {
+    ESP_LOGW(TAG, "%s: Request body too large (%d bytes)", __func__, req->content_len);
+    httpd_resp_set_status(req, "413 Payload Too Large");
+    httpd_resp_sendstr(req, "{\"error\": \"Request body too large\"}");
+    return ESP_OK;
+  }
+
   // Allocate buffer for request body
   char *buf = (char *)malloc(req->content_len + 1);
   if (!buf) {
@@ -786,9 +853,9 @@ static esp_err_t post_dac_settings_handler(httpd_req_t *req) {
     httpd_resp_sendstr(req, "{\"error\": \"Memory allocation failed\"}");
     return ESP_OK;
   }
-  
+
   // Read request body
-  int ret = httpd_req_recv(req, buf, req->content_len);
+  int ret = httpd_recv_all(req, buf, req->content_len);
   if (ret <= 0) {
     free(buf);
     if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
@@ -919,10 +986,22 @@ static esp_err_t get_eq_schema_handler(httpd_req_t *req) {
  */
 static esp_err_t post_eq_settings_handler(httpd_req_t *req) {
   ESP_LOGD(TAG, "%s: uri=%s", __func__, req->uri);
-  
+
   set_cors_headers(req);
-  
+
 #if CONFIG_DAC_TAS5805M
+  if (req->content_len == 0) {
+    httpd_resp_set_status(req, "400 Bad Request");
+    httpd_resp_sendstr(req, "{\"error\": \"Empty request body\"}");
+    return ESP_OK;
+  }
+  if (req->content_len > MAX_POST_BODY_SIZE) {
+    ESP_LOGW(TAG, "%s: Request body too large (%d bytes)", __func__, req->content_len);
+    httpd_resp_set_status(req, "413 Payload Too Large");
+    httpd_resp_sendstr(req, "{\"error\": \"Request body too large\"}");
+    return ESP_OK;
+  }
+
   // Allocate buffer for request body
   char *buf = (char *)malloc(req->content_len + 1);
   if (!buf) {
@@ -931,9 +1010,9 @@ static esp_err_t post_eq_settings_handler(httpd_req_t *req) {
     httpd_resp_sendstr(req, "{\"error\": \"Memory allocation failed\"}");
     return ESP_OK;
   }
-  
+
   // Read request body
-  int ret = httpd_req_recv(req, buf, req->content_len);
+  int ret = httpd_recv_all(req, buf, req->content_len);
   if (ret <= 0) {
     free(buf);
     if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
@@ -1024,6 +1103,18 @@ static esp_err_t post_biamp_preset_handler(httpd_req_t *req) {
   set_cors_headers(req);
 
 #if CONFIG_DAC_TAS5805M
+  if (req->content_len == 0) {
+    httpd_resp_set_status(req, "400 Bad Request");
+    httpd_resp_sendstr(req, "{\"error\": \"Empty request body\"}");
+    return ESP_OK;
+  }
+  if (req->content_len > MAX_POST_BODY_SIZE) {
+    ESP_LOGW(TAG, "%s: Request body too large (%d bytes)", __func__, req->content_len);
+    httpd_resp_set_status(req, "413 Payload Too Large");
+    httpd_resp_sendstr(req, "{\"error\": \"Request body too large\"}");
+    return ESP_OK;
+  }
+
   // Allocate buffer for request body
   char *buf = (char *)malloc(req->content_len + 1);
   if (!buf) {
@@ -1034,7 +1125,7 @@ static esp_err_t post_biamp_preset_handler(httpd_req_t *req) {
   }
 
   // Read request body
-  int ret = httpd_req_recv(req, buf, req->content_len);
+  int ret = httpd_recv_all(req, buf, req->content_len);
   if (ret <= 0) {
     free(buf);
     if (ret == HTTPD_SOCK_ERR_TIMEOUT) {

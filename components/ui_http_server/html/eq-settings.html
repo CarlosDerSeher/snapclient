@@ -960,7 +960,7 @@
         exportBtn.textContent = 'Export Preset';
         exportBtn.onclick = async () => {
           try {
-            const response = await fetch('/api/biamp/preset');
+            const response = await fetch(`${getBackendUrl()}/api/biamp/preset`);
             if (!response.ok) throw new Error('Export failed');
             const blob = await response.blob();
             const url = URL.createObjectURL(blob);
@@ -989,7 +989,7 @@
             if (!file) return;
             try {
               const text = await file.text();
-              const response = await fetch('/api/biamp/preset', {
+              const response = await fetch(`${getBackendUrl()}/api/biamp/preset`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: text
@@ -1011,7 +1011,7 @@
         resetBtn.onclick = async () => {
           if (!confirm('Reset all Advanced Bi-Amp settings to defaults?\n\nThis will clear all crossover, PEQ, and loudness settings.')) return;
           try {
-            const response = await fetch('/api/biamp/reset', { method: 'POST' });
+            const response = await fetch(`${getBackendUrl()}/api/biamp/reset`, { method: 'POST' });
             if (!response.ok) throw new Error('Reset failed');
             alert('Settings reset to defaults! Refreshing...');
             location.reload();
@@ -1075,7 +1075,7 @@
           clearTimeout(debounceTimers[key].timerId);
           // Send the pending update synchronously
           const { value } = debounceTimers[key];
-          navigator.sendBeacon('/api/eq/settings', JSON.stringify({ [key]: value }));
+          navigator.sendBeacon(`${getBackendUrl()}/api/eq/settings`, JSON.stringify({ [key]: value }));
           delete debounceTimers[key];
         }
       });

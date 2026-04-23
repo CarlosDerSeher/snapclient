@@ -646,10 +646,10 @@ esp_err_t tas5805m_biamp_apply(const tas5805m_biamp_settings_t *settings)
     float fs = (float)validate_sample_rate(settings->sample_rate);
     int band;
 
-    ESP_LOGI(TAG, "Applying bi-amp crossover: fc=%dHz, slope=%ddB/oct, type=%s, fs=%.0fHz",
+    /* Cascading identical BW2 stages produces Linkwitz-Riley alignment */
+    ESP_LOGI(TAG, "Applying bi-amp crossover: fc=%dHz, slope=%ddB/oct, type=LR, fs=%.0fHz",
              settings->crossover_freq,
              num_stages * 12,
-             settings->type == BIAMP_TYPE_LINKWITZ_RILEY ? "LR" : "BW",
              fs);
 
     /* ========== LEFT CHANNEL (WOOFER/LOW OUTPUT) ========== */

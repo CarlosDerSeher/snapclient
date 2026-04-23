@@ -3057,17 +3057,10 @@ esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
             cJSON_AddItemToObject(slope, "values", slope_vals);
             cJSON_AddItemToArray(xover_params, slope);
 
-            cJSON *xtype = cJSON_CreateObject();
-            cJSON_AddStringToObject(xtype, "key", "biamp_type");
-            cJSON_AddStringToObject(xtype, "name", "Type");
-            cJSON_AddStringToObject(xtype, "type", "enum");
-            cJSON_AddNumberToObject(xtype, "current", (int)biamp.type);
-            cJSON *type_vals = cJSON_CreateArray();
-            cJSON *tv;
-            tv = cJSON_CreateObject(); cJSON_AddNumberToObject(tv, "value", BIAMP_TYPE_BUTTERWORTH); cJSON_AddStringToObject(tv, "name", "Butterworth"); cJSON_AddItemToArray(type_vals, tv);
-            tv = cJSON_CreateObject(); cJSON_AddNumberToObject(tv, "value", BIAMP_TYPE_LINKWITZ_RILEY); cJSON_AddStringToObject(tv, "name", "Linkwitz-Riley"); cJSON_AddItemToArray(type_vals, tv);
-            cJSON_AddItemToObject(xtype, "values", type_vals);
-            cJSON_AddItemToArray(xover_params, xtype);
+            /* Filter type selector removed: cascading identical BW2 stages
+             * produces Linkwitz-Riley alignment, which is the industry standard
+             * for audio crossovers. The type field is kept in NVS/presets for
+             * backward compatibility but is not exposed in the UI. */
 
             cJSON *sr = cJSON_CreateObject();
             cJSON_AddStringToObject(sr, "key", "biamp_sample_rate");
