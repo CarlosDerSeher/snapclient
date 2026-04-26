@@ -338,6 +338,12 @@ static esp_err_t player_setup_i2s(snapcastSetting_t *setting) {
 #endif
       .gpio_cfg = pin_config0,
   };
+#if CONFIG_I2S_SLOT_32BIT
+  // MA120X0P (and similar) only support 32-bit or 24-bit BCLK frames.
+  // Override slot width so the ESP32 sends 32 BCLK pulses per channel;
+  // 16-bit samples are zero-padded by the IDF automatically.
+  tx_std_cfg.slot_cfg.slot_bit_width = I2S_SLOT_BIT_WIDTH_32BIT;
+#endif
 
   ESP_ERROR_CHECK(i2s_channel_init_std_mode(tx_chan, &tx_std_cfg));
   // This prevents pops/clicks on some I2S codecs
