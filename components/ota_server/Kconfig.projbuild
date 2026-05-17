@@ -1,0 +1,23 @@
+menu "OTA Server"
+    config HTTP_AUTH_ENABLE
+        bool "Require HTTP Basic Auth for OTA and web UI"
+        default false
+        help
+            Require a valid HTTP Basic Authorization header before accepting
+            a firmware upload on the OTA port or serving the DSP web UI.
+
+    config HTTP_AUTH_USERNAME
+        string "HTTP auth username"
+        default "ota"
+        depends on HTTP_AUTH_ENABLE
+        help
+            Username expected by the shared OTA/web UI HTTP Basic Auth check.
+
+    config HTTP_AUTH_PASSWORD
+        string "HTTP auth password"
+        default "change-me"
+        depends on HTTP_AUTH_ENABLE
+        help
+            Password expected by the shared OTA/web UI HTTP Basic Auth check.
+            This value is stored in plain text inside sdkconfig.
+endmenu

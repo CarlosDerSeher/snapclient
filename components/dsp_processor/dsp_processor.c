@@ -60,6 +60,29 @@ static float *sbufout0 = NULL;
 dspFlows_t dspFlowInit = dspfStereo;
 #endif
 
+static float clamp_gain_db(float gain) {
+  if (gain < DSP_GAIN_MIN) {
+    return DSP_GAIN_MIN;
+  }
+
+  if (gain > DSP_GAIN_MAX) {
+    return DSP_GAIN_MAX;
+  }
+
+  return gain;
+}
+
+static float parse_gain_db(const char *value, float fallback) {
+  char *end = NULL;
+  float parsed = strtof(value, &end);
+
+  if ((end == value) || (end == NULL)) {
+    return clamp_gain_db(fallback);
+  }
+
+  return clamp_gain_db(parsed);
+}
+
 /**
  *
  */
@@ -70,11 +93,15 @@ void dsp_processor_init(void) {
   memset(&all_params, 0, sizeof(dsp_all_params_t));
   all_params.active_flow = dspFlowInit;
   
-  // Set defaults for dspfEQBassTreble
-  all_params.flow_params[dspfEQBassTreble].fc_1 = DSP_BASS_FREQ_DEFAULT;
-  all_params.flow_params[dspfEQBassTreble].gain_1 = DSP_GAIN_DEFAULT;
-  all_params.flow_params[dspfEQBassTreble].fc_3 = DSP_TREBLE_FREQ_DEFAULT;
-  all_params.flow_params[dspfEQBassTreble].gain_3 = DSP_GAIN_DEFAULT;
+  // Set defaults for dspfEQBassTreble from build configuration
+  all_params.flow_params[dspfEQBassTreble].fc_1 =
+      CONFIG_SNAPCLIENT_DSP_EQ_BASS_FREQ_HZ;
+  all_params.flow_params[dspfEQBassTreble].gain_1 =
+      parse_gain_db(CONFIG_SNAPCLIENT_DSP_EQ_BASS_GAIN_DB, DSP_GAIN_DEFAULT);
+  all_params.flow_params[dspfEQBassTreble].fc_3 =
+      CONFIG_SNAPCLIENT_DSP_EQ_TREBLE_FREQ_HZ;
+  all_params.flow_params[dspfEQBassTreble].gain_3 =
+      parse_gain_db(CONFIG_SNAPCLIENT_DSP_EQ_TREBLE_GAIN_DB, DSP_GAIN_DEFAULT);
   
   // Set defaults for dspfBassBoost
   all_params.flow_params[dspfBassBoost].fc_1 = DSP_BASS_FREQ_DEFAULT;
@@ -155,7 +182,14 @@ void dsp_processor_uninit(void) {
  */
 esp_err_t dsp_processor_update_filter_params(filterParams_t *params) {
   ESP_LOGD(TAG, "%s: updating filter params", __func__);
-  
+
+  if (params == NULL) {
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  params->gain_1 = clamp_gain_db(params->gain_1);
+  params->gain_3 = clamp_gain_db(params->gain_3);
+
   // Update centralized storage for the current flow
   dspFlows_t flow = params->dspFlow;
   if (flow >= 0 && flow < DSP_FLOW_COUNT) {  // Validate flow index
@@ -798,11 +832,15 @@ void dsp_processor_set_volome(double volume) {
  */
 esp_err_t dsp_processor_set_params_for_flow(dspFlows_t flow, const filterParams_t *params) {
   ESP_LOGD(TAG, "%s: setting params for flow %d", __func__, flow);
-  
+
   if (params == NULL || flow < 0 || flow >= DSP_FLOW_COUNT) {
     return ESP_ERR_INVALID_ARG;
   }
-  
+
+  filterParams_t sanitized = *params;
+  sanitized.gain_1 = clamp_gain_db(sanitized.gain_1);
+  sanitized.gain_3 = clamp_gain_db(sanitized.gain_3);
+
   // Update centralized storage for this specific flow
   if (params_mutex) {
     xSemaphoreTake(params_mutex, portMAX_DELAY);
@@ -810,10 +848,10 @@ esp_err_t dsp_processor_set_params_for_flow(dspFlows_t flow, const filterParams_
     ESP_LOGW(TAG, "%s: params mutex not available, proceeding without mutex", __func__);
   }
 
-  all_params.flow_params[flow].fc_1 = params->fc_1;
-  all_params.flow_params[flow].gain_1 = params->gain_1;
-  all_params.flow_params[flow].fc_3 = params->fc_3;
-  all_params.flow_params[flow].gain_3 = params->gain_3;
+  all_params.flow_params[flow].fc_1 = sanitized.fc_1;
+  all_params.flow_params[flow].gain_1 = sanitized.gain_1;
+  all_params.flow_params[flow].fc_3 = sanitized.fc_3;
+  all_params.flow_params[flow].gain_3 = sanitized.gain_3;
   if (params_mutex) {
     xSemaphoreGive(params_mutex);
   } else {
@@ -837,14 +875,14 @@ esp_err_t dsp_processor_set_params_for_flow(dspFlows_t flow, const filterParams_
   if (is_active) {
     filterParams_t temp_params;
     temp_params.dspFlow = flow;
-    temp_params.fc_1 = params->fc_1;
-    temp_params.gain_1 = params->gain_1;
-    temp_params.fc_3 = params->fc_3;
-    temp_params.gain_3 = params->gain_3;
-    
+    temp_params.fc_1 = sanitized.fc_1;
+    temp_params.gain_1 = sanitized.gain_1;
+    temp_params.fc_3 = sanitized.fc_3;
+    temp_params.gain_3 = sanitized.gain_3;
+
     return dsp_processor_update_filter_params(&temp_params);
   }
-  
+
   return ESP_OK;
 }
 

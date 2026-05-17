@@ -38,6 +38,13 @@ menu "Snapclient Configuration"
             Name of the client to register the snapserver.
 
 	menu "HTTP Server Setting"
+		config ENABLE_DSP_FILTER_WEB_UI
+			bool "Enable local web UI"
+			default true
+			help
+				Start the local HTTP interface for device settings. When DSP is
+				enabled, the UI also exposes DSP flow and filter configuration.
+
 		config WEB_PORT
 			int "User interface HTTP Server Port"
 			default 8000

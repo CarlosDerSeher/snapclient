@@ -29,4 +29,53 @@ menu "ESP32 DSP processor config"
             Apply cubic soft clipping to prevent hard clipping distortion when signal exceeds the ±1.0 range.
             This provides a smoother transition when the signal approaches clipping, reducing harsh distortion.
 
+    menu "Bass Treble EQ defaults"
+        depends on USE_DSP_PROCESSOR
+
+        config SNAPCLIENT_DSP_EQ_BASS_FREQ_HZ
+            int "Bass crossover frequency (Hz)"
+            range 20 20000
+            default 300
+            help
+                Frequency used by the low shelf filter behind the "Base" UI
+                control.
+
+        config SNAPCLIENT_DSP_EQ_BASS_GAIN_DB
+            string "Bass gain (dB)"
+            default "0.00"
+            help
+                Initial gain applied to the low shelf filter. Values outside
+                the supported UI range are clamped to -6.00 .. 6.00 dB.
+
+        config SNAPCLIENT_DSP_EQ_MIDS_FREQ_HZ
+            int "Mids center frequency (Hz)"
+            range 20 20000
+            default 1000
+            help
+                Stored together with the other EQ defaults for the web UI.
+                The current DSP flow does not apply a dedicated mid filter yet.
+
+        config SNAPCLIENT_DSP_EQ_MIDS_GAIN_DB
+            string "Mids gain (dB)"
+            default "0.00"
+            help
+                Initial value shown for the "Mids" UI control. The current DSP
+                flow keeps this value but does not apply it to audio yet.
+
+        config SNAPCLIENT_DSP_EQ_TREBLE_FREQ_HZ
+            int "Treble crossover frequency (Hz)"
+            range 20 20000
+            default 4000
+            help
+                Frequency used by the high shelf filter behind the "Heights"
+                UI control.
+
+        config SNAPCLIENT_DSP_EQ_TREBLE_GAIN_DB
+            string "Treble gain (dB)"
+            default "0.00"
+            help
+                Initial gain applied to the high shelf filter. Values outside
+                the supported UI range are clamped to -6.00 .. 6.00 dB.
+    endmenu
+
 endmenu

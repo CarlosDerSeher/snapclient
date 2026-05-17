@@ -166,6 +166,127 @@
       padding: 0; /* inner control uses outer padding */
       background: transparent;
     }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+      margin-top: 10px;
+    }
+
+    .status-item {
+      border: 1px solid #dbe4ea;
+      border-radius: 8px;
+      padding: 12px 14px;
+      background: #f8fbfd;
+    }
+
+    .status-card {
+      padding: 16px;
+    }
+
+    .status-label {
+      font-size: 11px;
+      color: #5f6b76;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 6px;
+    }
+
+    .status-value {
+      font-size: 15px;
+      color: #1f2a33;
+      font-weight: 600;
+      line-height: 1.35;
+      word-break: break-word;
+    }
+
+    .status-value-muted {
+      color: #7b8792;
+      font-weight: 500;
+    }
+
+    .status-lines {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .status-line {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      padding-top: 8px;
+      border-top: 1px solid #e5edf2;
+    }
+
+    .status-line:first-child {
+      padding-top: 0;
+      border-top: none;
+    }
+
+    .status-line-label {
+      flex: 0 0 84px;
+      font-size: 11px;
+      color: #5f6b76;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .status-line-value {
+      flex: 1 1 auto;
+      font-size: 13px;
+      color: #1f2a33;
+      font-weight: 600;
+      text-align: right;
+      line-height: 1.35;
+      word-break: break-word;
+    }
+
+    .status-line-value .status-badge {
+      margin-bottom: 6px;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .status-ok {
+      background: #d8f3dc;
+      color: #1b5e20;
+    }
+
+    .status-warn {
+      background: #fde2e4;
+      color: #9b2226;
+    }
+
+    .status-placeholder {
+      padding: 16px;
+      color: #5f6b76;
+      border: 1px dashed #c8d4dc;
+      border-radius: 8px;
+      background: #f8fbfd;
+    }
+
+    @media (max-width: 640px) {
+      .status-line {
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .status-line-label,
+      .status-line-value {
+        flex: none;
+        text-align: left;
+      }
+    }
   </style>
 </head>
 <body>
@@ -182,6 +303,8 @@
     let currentSnapUseMDNS = true;
     let currentSnapHost = '';
     let currentSnapPort = '';
+    let currentStatus = null;
+    let statusPollTimer = null;
     let needsRestart = false; // Track if device needs restart
     let isDirty = false;
 
@@ -191,10 +314,7 @@
       
       try {
         // Fetch all settings from capabilities endpoint
-        const response = await fetch('/capabilities?tab=general');
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
+        const response = await getRequest('/capabilities?tab=general');
         const capabilities = await response.json();
         
         // Extract settings with defaults
@@ -204,6 +324,8 @@
         currentSnapPort = capabilities.server_port || '';
         
         renderUI();
+        await loadStatus();
+        startStatusPolling();
       } catch (error) {
         console.error('Error loading settings:', error);
         showError('Error loading settings. Please refresh the page.', app);
@@ -252,6 +374,15 @@
       html += '<button class="btn btn-danger" id="restart-btn-snap" onclick="requestRestart()" style="background-color:#e74c3c;" disabled>Restart</button>';
       html += '</div>';
       html += '</div>'; // .setting-control.setting-section
+
+      html += '<div class="setting-control setting-section">';
+      html += '<div class="section-title">Status</div>';
+      html += '<div class="description">Live device and connection metrics. Values refresh automatically.</div>';
+      html += '<div id="status-grid" class="status-grid">';
+      html += '<div class="status-placeholder">Loading device status...</div>';
+      html += '</div>';
+      html += '</div>';
+
       html += '</div>';
       
       // Info message
@@ -261,6 +392,186 @@
       
       app.innerHTML = html;
       updateRestartButton();
+      renderStatus();
+    }
+
+    async function loadStatus() {
+      try {
+        const response = await getRequest('/capabilities?tab=status');
+        currentStatus = await response.json();
+        renderStatus();
+      } catch (error) {
+        console.error('Error loading device status:', error);
+        currentStatus = { error: 'Unable to load device status' };
+        renderStatus();
+      }
+    }
+
+    function startStatusPolling() {
+      if (statusPollTimer) {
+        clearInterval(statusPollTimer);
+      }
+
+      statusPollTimer = setInterval(() => {
+        loadStatus();
+      }, 5000);
+    }
+
+    function formatBytes(bytes) {
+      if (bytes === null || bytes === undefined || Number.isNaN(Number(bytes))) {
+        return 'Unavailable';
+      }
+
+      const value = Number(bytes);
+      if (value < 1024) {
+        return `${value} B`;
+      }
+      if (value < 1024 * 1024) {
+        return `${(value / 1024).toFixed(1)} KiB`;
+      }
+      return `${(value / (1024 * 1024)).toFixed(2)} MiB`;
+    }
+
+    function formatUptime(seconds) {
+      if (seconds === null || seconds === undefined || Number.isNaN(Number(seconds))) {
+        return 'Unavailable';
+      }
+
+      let remaining = Math.max(0, Math.floor(Number(seconds)));
+      const days = Math.floor(remaining / 86400);
+      remaining %= 86400;
+      const hours = Math.floor(remaining / 3600);
+      remaining %= 3600;
+      const minutes = Math.floor(remaining / 60);
+      const secs = remaining % 60;
+
+      const parts = [];
+      if (days > 0) parts.push(`${days}d`);
+      if (hours > 0 || parts.length) parts.push(`${hours}h`);
+      if (minutes > 0 || parts.length) parts.push(`${minutes}m`);
+      parts.push(`${secs}s`);
+      return parts.join(' ');
+    }
+
+    function formatValue(value, fallback = 'Unavailable') {
+      if (value === null || value === undefined || value === '') {
+        return fallback;
+      }
+      return escapeHtml(String(value));
+    }
+
+    function renderStatusItem(label, value, extraClass = '') {
+      const classSuffix = extraClass ? ` ${extraClass}` : '';
+      return `
+        <div class="status-item">
+          <div class="status-label">${escapeHtml(label)}</div>
+          <div class="status-value${classSuffix}">${value}</div>
+        </div>
+      `;
+    }
+
+    function renderStatusLine(label, value) {
+      return `
+        <div class="status-line">
+          <div class="status-line-label">${escapeHtml(label)}</div>
+          <div class="status-line-value">${value}</div>
+        </div>
+      `;
+    }
+
+    function renderStatusCard(title, linesHtml) {
+      return `
+        <div class="status-item status-card">
+          <div class="status-label">${escapeHtml(title)}</div>
+          <div class="status-lines">${linesHtml}</div>
+        </div>
+      `;
+    }
+
+    function renderStatusBadge(text, isOk) {
+      const badgeClass = isOk ? 'status-ok' : 'status-warn';
+      return `<span class="status-badge ${badgeClass}">${escapeHtml(text)}</span>`;
+    }
+
+    function formatSnapserverEndpoint(status) {
+      const host = status.snapserver_host || status.configured_server_host || status.snapserver_target || '';
+      const port = Number(status.snapserver_port || status.configured_server_port || 0);
+
+      if (!host) {
+        return '<span class="status-value-muted">Unavailable</span>';
+      }
+
+      if (port > 0) {
+        return `${escapeHtml(String(host))}:${escapeHtml(String(port))}`;
+      }
+
+      return escapeHtml(String(host));
+    }
+
+    function formatReconnectTime(status) {
+      const reconnectUptime = Number(status.last_snapserver_reconnect_uptime_sec || 0);
+      const currentUptime = Number(status.uptime_sec || 0);
+
+      if (reconnectUptime <= 0) {
+        return '<span class="status-value-muted">Never</span>';
+      }
+
+      const age = Math.max(0, currentUptime - reconnectUptime);
+      return `${escapeHtml(formatUptime(age))} ago <span class="status-value-muted">(at ${escapeHtml(formatUptime(reconnectUptime))} uptime)</span>`;
+    }
+
+    function renderStatus() {
+      const statusGrid = document.getElementById('status-grid');
+      if (!statusGrid) {
+        return;
+      }
+
+      if (!currentStatus) {
+        statusGrid.innerHTML = '<div class="status-placeholder">Loading device status...</div>';
+        return;
+      }
+
+      if (currentStatus.error) {
+        statusGrid.innerHTML = `<div class="status-placeholder">${escapeHtml(currentStatus.error)}</div>`;
+        return;
+      }
+
+      const wifiValue = currentStatus.wifi_connected
+        ? `${formatValue(currentStatus.wifi_ssid)}${currentStatus.wifi_rssi_dbm !== null ? ` (${currentStatus.wifi_rssi_dbm} dBm)` : ''}`
+        : '<span class="status-value-muted">Not connected</span>';
+      const psramValue = Number(currentStatus.total_psram_bytes || 0) > 0
+        ? `${formatBytes(currentStatus.free_psram_bytes)} free / ${formatBytes(currentStatus.total_psram_bytes)} total`
+        : '<span class="status-value-muted">Not available</span>';
+      const networkValue = currentStatus.active_interface === 'offline'
+        ? renderStatusBadge('Offline', false)
+        : `${renderStatusBadge(`Online via ${currentStatus.active_interface}`, true)}<div class="status-value-muted">${formatValue(currentStatus.ip_address)}</div>`;
+      const snapserverValue = `${renderStatusBadge(currentStatus.snapserver_state || 'Disconnected', !!currentStatus.snapserver_connected)}<div class="status-value-muted">${formatSnapserverEndpoint(currentStatus)}</div>`;
+
+      let connectionHtml = '';
+      connectionHtml += renderStatusLine('Network', networkValue);
+      connectionHtml += renderStatusLine('Wi-Fi', wifiValue);
+      connectionHtml += renderStatusLine('Snapserver', snapserverValue);
+      connectionHtml += renderStatusLine('Reconnect', formatReconnectTime(currentStatus));
+
+      let deviceHtml = '';
+      deviceHtml += renderStatusLine('Firmware', formatValue(currentStatus.app_version));
+      deviceHtml += renderStatusLine('Platform', `${formatValue(currentStatus.target)} / rev ${formatValue(currentStatus.chip_revision, '0')}`);
+      deviceHtml += renderStatusLine('MAC', formatValue(currentStatus.mac));
+      deviceHtml += renderStatusLine('Uptime', formatValue(formatUptime(currentStatus.uptime_sec)));
+      deviceHtml += renderStatusLine('Tasks', formatValue(currentStatus.task_count));
+
+      let memoryHtml = '';
+      memoryHtml += renderStatusLine('Free Heap', formatValue(formatBytes(currentStatus.free_heap_bytes)));
+      memoryHtml += renderStatusLine('Min Heap', formatValue(formatBytes(currentStatus.min_free_heap_bytes)));
+      memoryHtml += renderStatusLine('Largest Block', formatValue(formatBytes(currentStatus.largest_free_block_bytes)));
+      memoryHtml += renderStatusLine('Internal Heap', formatValue(formatBytes(currentStatus.free_internal_heap_bytes)));
+      memoryHtml += renderStatusLine('DMA Heap', formatValue(formatBytes(currentStatus.free_internal_dma_heap_bytes)));
+      memoryHtml += renderStatusLine('PSRAM', psramValue);
+
+      statusGrid.innerHTML =
+        renderStatusCard('Connection', connectionHtml) +
+        renderStatusCard('Device', deviceHtml) +
+        renderStatusCard('Memory', memoryHtml);
     }
 
     // Handle snapserver mDNS selection change
@@ -519,6 +830,11 @@
 
     // Initialize on page load
     document.addEventListener('DOMContentLoaded', loadSettings);
+    window.addEventListener('beforeunload', () => {
+      if (statusPollTimer) {
+        clearInterval(statusPollTimer);
+      }
+    });
   </script>
 </body>
 </html>

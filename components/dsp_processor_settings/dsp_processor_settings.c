@@ -12,6 +12,7 @@
 #include "freertos/semphr.h"
 #include "nvs.h"
 #include "nvs_flash.h"
+#include <stdlib.h>
 #include <string.h>
 
 static const char *TAG = "dsp_settings";
@@ -20,6 +21,29 @@ static const char *NVS_KEY_ACTIVE_FLOW = "active_flow";
 
 // Mutex for thread-safe NVS access
 static SemaphoreHandle_t dsp_settings_mutex = NULL;
+
+static float clamp_gain_db(float gain) {
+	if (gain < DSP_GAIN_MIN) {
+		return DSP_GAIN_MIN;
+	}
+
+	if (gain > DSP_GAIN_MAX) {
+		return DSP_GAIN_MAX;
+	}
+
+	return gain;
+}
+
+static float parse_gain_db(const char *value, float fallback) {
+	char *end = NULL;
+	float parsed = strtof(value, &end);
+
+	if ((end == value) || (end == NULL)) {
+		return clamp_gain_db(fallback);
+	}
+
+	return clamp_gain_db(parsed);
+}
 
 
 /**
@@ -276,6 +300,9 @@ esp_err_t dsp_settings_get_json(char *json_out, size_t max_len) {
 	cJSON_AddItemToArray(schema, stereo);
 
 	// Flow: dspfEQBassTreble (5)
+	filterParams_t eq_current = {0};
+	dsp_settings_get_flow_params(dspfEQBassTreble, &eq_current);
+
 	cJSON *eq = cJSON_CreateObject();
 	cJSON_AddStringToObject(eq, "id", "dspfEQBassTreble");
 	cJSON_AddStringToObject(eq, "name", "Bass & Treble EQ");
@@ -292,11 +319,10 @@ esp_err_t dsp_settings_get_json(char *json_out, size_t max_len) {
 	cJSON_AddStringToObject(p1, "unit", "Hz");
 	cJSON_AddNumberToObject(p1, "min", (int)DSP_BASS_FREQ_MIN);
 	cJSON_AddNumberToObject(p1, "max", (int)DSP_BASS_FREQ_MAX);
-	cJSON_AddNumberToObject(p1, "default", (int)DSP_BASS_FREQ_DEFAULT);
+	cJSON_AddNumberToObject(p1, "default",
+							(int)CONFIG_SNAPCLIENT_DSP_EQ_BASS_FREQ_HZ);
 	cJSON_AddNumberToObject(p1, "step", (int)DSP_BASS_FREQ_STEP);
-	int32_t val_fc1 = 100;
-	dsp_settings_load_flow_param(dspfEQBassTreble, "fc_1", &val_fc1);
-	cJSON_AddNumberToObject(p1, "current", val_fc1);
+	cJSON_AddNumberToObject(p1, "current", (int)eq_current.fc_1);
 	cJSON_AddItemToArray(eq_params, p1);
 
 	// Bass gain
@@ -306,11 +332,12 @@ esp_err_t dsp_settings_get_json(char *json_out, size_t max_len) {
 	cJSON_AddStringToObject(p2, "unit", "dB");
 	cJSON_AddNumberToObject(p2, "min", (int)DSP_GAIN_MIN);
 	cJSON_AddNumberToObject(p2, "max", (int)DSP_GAIN_MAX);
-	cJSON_AddNumberToObject(p2, "default", (int)DSP_GAIN_DEFAULT);
+	cJSON_AddNumberToObject(
+		p2, "default",
+		(int)parse_gain_db(CONFIG_SNAPCLIENT_DSP_EQ_BASS_GAIN_DB,
+						   DSP_GAIN_DEFAULT));
 	cJSON_AddNumberToObject(p2, "step", (int)DSP_GAIN_STEP);
-	int32_t val_g1 = 0;
-	dsp_settings_load_flow_param(dspfEQBassTreble, "gain_1", &val_g1);
-	cJSON_AddNumberToObject(p2, "current", val_g1);
+	cJSON_AddNumberToObject(p2, "current", (int)eq_current.gain_1);
 	cJSON_AddItemToArray(eq_params, p2);
 
 	// Treble frequency
@@ -320,11 +347,10 @@ esp_err_t dsp_settings_get_json(char *json_out, size_t max_len) {
 	cJSON_AddStringToObject(p3, "unit", "Hz");
 	cJSON_AddNumberToObject(p3, "min", (int)DSP_TREBLE_FREQ_MIN);
 	cJSON_AddNumberToObject(p3, "max", (int)DSP_TREBLE_FREQ_MAX);
-	cJSON_AddNumberToObject(p3, "default", (int)DSP_TREBLE_FREQ_DEFAULT);
+	cJSON_AddNumberToObject(p3, "default",
+							(int)CONFIG_SNAPCLIENT_DSP_EQ_TREBLE_FREQ_HZ);
 	cJSON_AddNumberToObject(p3, "step", (int)DSP_TREBLE_FREQ_STEP);
-	int32_t val_fc3 = 8000;
-	dsp_settings_load_flow_param(dspfEQBassTreble, "fc_3", &val_fc3);
-	cJSON_AddNumberToObject(p3, "current", val_fc3);
+	cJSON_AddNumberToObject(p3, "current", (int)eq_current.fc_3);
 	cJSON_AddItemToArray(eq_params, p3);
 
 	// Treble gain
@@ -334,17 +360,21 @@ esp_err_t dsp_settings_get_json(char *json_out, size_t max_len) {
 	cJSON_AddStringToObject(p4, "unit", "dB");
 	cJSON_AddNumberToObject(p4, "min", (int)DSP_GAIN_MIN);
 	cJSON_AddNumberToObject(p4, "max", (int)DSP_GAIN_MAX);
-	cJSON_AddNumberToObject(p4, "default", (int)DSP_GAIN_DEFAULT);
+	cJSON_AddNumberToObject(
+		p4, "default",
+		(int)parse_gain_db(CONFIG_SNAPCLIENT_DSP_EQ_TREBLE_GAIN_DB,
+						   DSP_GAIN_DEFAULT));
 	cJSON_AddNumberToObject(p4, "step", (int)DSP_GAIN_STEP);
-	int32_t val_g3 = 0;
-	dsp_settings_load_flow_param(dspfEQBassTreble, "gain_3", &val_g3);
-	cJSON_AddNumberToObject(p4, "current", val_g3);
+	cJSON_AddNumberToObject(p4, "current", (int)eq_current.gain_3);
 	cJSON_AddItemToArray(eq_params, p4);
 
 	cJSON_AddItemToObject(eq, "parameters", eq_params);
 	cJSON_AddItemToArray(schema, eq);
 
 	// Flow: dspfBassBoost (4)
+	filterParams_t boost_current = {0};
+	dsp_settings_get_flow_params(dspfBassBoost, &boost_current);
+
 	cJSON *boost = cJSON_CreateObject();
 	cJSON_AddStringToObject(boost, "id", "dspfBassBoost");
 	cJSON_AddStringToObject(boost, "name", "Bass Boost");
@@ -361,9 +391,7 @@ esp_err_t dsp_settings_get_json(char *json_out, size_t max_len) {
 	cJSON_AddNumberToObject(bp1, "max", (int)DSP_BASS_FREQ_MAX);
 	cJSON_AddNumberToObject(bp1, "default", (int)DSP_BASS_FREQ_DEFAULT);
 	cJSON_AddNumberToObject(bp1, "step", (int)DSP_BASS_FREQ_STEP);
-	int32_t val_b_fc1 = 100;
-	dsp_settings_load_flow_param(dspfBassBoost, "fc_1", &val_b_fc1);
-	cJSON_AddNumberToObject(bp1, "current", val_b_fc1);
+	cJSON_AddNumberToObject(bp1, "current", (int)boost_current.fc_1);
 	cJSON_AddItemToArray(boost_params, bp1);
 
 	cJSON *bp2 = cJSON_CreateObject();
@@ -374,15 +402,16 @@ esp_err_t dsp_settings_get_json(char *json_out, size_t max_len) {
 	cJSON_AddNumberToObject(bp2, "max", (int)DSP_BASSBOOST_GAIN_MAX);
 	cJSON_AddNumberToObject(bp2, "default", (int)DSP_BASSBOOST_GAIN_DEFAULT);
 	cJSON_AddNumberToObject(bp2, "step", (int)DSP_BASSBOOST_GAIN_STEP);
-	int32_t val_b_g1 = 12;
-	dsp_settings_load_flow_param(dspfBassBoost, "gain_1", &val_b_g1);
-	cJSON_AddNumberToObject(bp2, "current", val_b_g1);
+	cJSON_AddNumberToObject(bp2, "current", (int)boost_current.gain_1);
 	cJSON_AddItemToArray(boost_params, bp2);
 
 	cJSON_AddItemToObject(boost, "parameters", boost_params);
 	cJSON_AddItemToArray(schema, boost);
 
 	// Flow: dspfBiamp (1)
+	filterParams_t biamp_current = {0};
+	dsp_settings_get_flow_params(dspfBiamp, &biamp_current);
+
 	cJSON *biamp = cJSON_CreateObject();
 	cJSON_AddStringToObject(biamp, "id", "dspfBiamp");
 	cJSON_AddStringToObject(biamp, "name", "Bi-Amp Crossover");
@@ -399,9 +428,7 @@ esp_err_t dsp_settings_get_json(char *json_out, size_t max_len) {
 	cJSON_AddNumberToObject(bip1, "max", (int)DSP_CROSSOVER_FREQ_MAX);
 	cJSON_AddNumberToObject(bip1, "default", (int)DSP_CROSSOVER_FREQ_DEFAULT);
 	cJSON_AddNumberToObject(bip1, "step", (int)DSP_CROSSOVER_FREQ_STEP);
-	int32_t val_bi_fc1 = 200;
-	dsp_settings_load_flow_param(dspfBiamp, "fc_1", &val_bi_fc1);
-	cJSON_AddNumberToObject(bip1, "current", val_bi_fc1);
+	cJSON_AddNumberToObject(bip1, "current", (int)biamp_current.fc_1);
 	cJSON_AddItemToArray(biamp_params, bip1);
 
 	cJSON *bip2 = cJSON_CreateObject();
@@ -412,9 +439,7 @@ esp_err_t dsp_settings_get_json(char *json_out, size_t max_len) {
 	cJSON_AddNumberToObject(bip2, "max", (int)DSP_GAIN_MAX);
 	cJSON_AddNumberToObject(bip2, "default", (int)DSP_GAIN_DEFAULT);
 	cJSON_AddNumberToObject(bip2, "step", (int)DSP_GAIN_STEP);
-	int32_t val_bi_g1 = 0;
-	dsp_settings_load_flow_param(dspfBiamp, "gain_1", &val_bi_g1);
-	cJSON_AddNumberToObject(bip2, "current", val_bi_g1);
+	cJSON_AddNumberToObject(bip2, "current", (int)biamp_current.gain_1);
 	cJSON_AddItemToArray(biamp_params, bip2);
 
 	cJSON *bip3 = cJSON_CreateObject();
@@ -425,9 +450,7 @@ esp_err_t dsp_settings_get_json(char *json_out, size_t max_len) {
 	cJSON_AddNumberToObject(bip3, "max", (int)DSP_CROSSOVER_FREQ_MAX);
 	cJSON_AddNumberToObject(bip3, "default", (int)DSP_CROSSOVER_FREQ_DEFAULT);
 	cJSON_AddNumberToObject(bip3, "step", (int)DSP_CROSSOVER_FREQ_STEP);
-	int32_t val_bi_fc3 = 200;
-	dsp_settings_load_flow_param(dspfBiamp, "fc_3", &val_bi_fc3);
-	cJSON_AddNumberToObject(bip3, "current", val_bi_fc3);
+	cJSON_AddNumberToObject(bip3, "current", (int)biamp_current.fc_3);
 	cJSON_AddItemToArray(biamp_params, bip3);
 
 	cJSON *bip4 = cJSON_CreateObject();
@@ -438,9 +461,7 @@ esp_err_t dsp_settings_get_json(char *json_out, size_t max_len) {
 	cJSON_AddNumberToObject(bip4, "max", (int)DSP_GAIN_MAX);
 	cJSON_AddNumberToObject(bip4, "default", (int)DSP_GAIN_DEFAULT);
 	cJSON_AddNumberToObject(bip4, "step", (int)DSP_GAIN_STEP);
-	int32_t val_bi_g3 = 0;
-	dsp_settings_load_flow_param(dspfBiamp, "gain_3", &val_bi_g3);
-	cJSON_AddNumberToObject(bip4, "current", val_bi_g3);
+	cJSON_AddNumberToObject(bip4, "current", (int)biamp_current.gain_3);
 	cJSON_AddItemToArray(biamp_params, bip4);
 
 	cJSON_AddItemToObject(biamp, "parameters", biamp_params);
@@ -552,25 +573,39 @@ esp_err_t dsp_settings_get_flow_params(dspFlows_t flow,
 	if (dsp_settings_load_flow_param(flow, "fc_1", &v) == ESP_OK) {
 		params->fc_1 = (float)v;
 	} else {
-		params->fc_1 = DSP_BASS_FREQ_DEFAULT;
+		params->fc_1 = (flow == dspfEQBassTreble)
+						   ? (float)CONFIG_SNAPCLIENT_DSP_EQ_BASS_FREQ_HZ
+						   : DSP_BASS_FREQ_DEFAULT;
 	}
 
 	if (dsp_settings_load_flow_param(flow, "gain_1", &v) == ESP_OK) {
 		params->gain_1 = (float)v;
 	} else {
-		params->gain_1 = DSP_GAIN_DEFAULT;
+		params->gain_1 =
+			(flow == dspfEQBassTreble)
+				? parse_gain_db(CONFIG_SNAPCLIENT_DSP_EQ_BASS_GAIN_DB,
+								DSP_GAIN_DEFAULT)
+				: ((flow == dspfBassBoost) ? DSP_BASSBOOST_GAIN_DEFAULT
+										 : DSP_GAIN_DEFAULT);
 	}
 
 	if (dsp_settings_load_flow_param(flow, "fc_3", &v) == ESP_OK) {
 		params->fc_3 = (float)v;
 	} else {
-		params->fc_3 = DSP_TREBLE_FREQ_DEFAULT;
+		params->fc_3 = (flow == dspfEQBassTreble)
+						   ? (float)CONFIG_SNAPCLIENT_DSP_EQ_TREBLE_FREQ_HZ
+						   : ((flow == dspfBiamp) ? DSP_CROSSOVER_FREQ_DEFAULT
+												  : DSP_TREBLE_FREQ_DEFAULT);
 	}
 
 	if (dsp_settings_load_flow_param(flow, "gain_3", &v) == ESP_OK) {
 		params->gain_3 = (float)v;
 	} else {
-		params->gain_3 = DSP_GAIN_DEFAULT;
+		params->gain_3 =
+			(flow == dspfEQBassTreble)
+				? parse_gain_db(CONFIG_SNAPCLIENT_DSP_EQ_TREBLE_GAIN_DB,
+								DSP_GAIN_DEFAULT)
+				: DSP_GAIN_DEFAULT;
 	}
 
 	return ESP_OK;

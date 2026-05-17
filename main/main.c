@@ -33,7 +33,12 @@
 #include "network_interface.h"
 #include "nvs_flash.h"
 
+#if __has_include("esp32_udp_logger.h")
 #include "esp32_udp_logger.h"
+#define HAS_ESP32_UDP_LOGGER 1
+#else
+#define HAS_ESP32_UDP_LOGGER 0
+#endif
 
 // Web socket server
 // #include "websocket_if.h"
@@ -1523,12 +1528,19 @@ void app_main(void) {
   }
   ESP_LOGI(TAG, "Device hostname: %s", mdns_hostname);
   
-  #if CONFIG_ESP32_UDP_LOGGER_ENABLED
+  #if CONFIG_ESP32_UDP_LOGGER_ENABLED && HAS_ESP32_UDP_LOGGER
 //  esp32_udp_logger_set_hostname(mdns_hostname);
   esp32_udp_logger_autostart();
   #endif
 
+  #if CONFIG_USE_DSP_PROCESSOR
+  dsp_processor_init();  // Must init processor first (creates mutexes/semaphores)
+  dsp_settings_init();   // Then settings can restore params into the processor
+  #endif
+
+  #if CONFIG_ENABLE_DSP_FILTER_WEB_UI
   init_http_server_task();
+  #endif
 
   // Enable websocket server
   //  ESP_LOGI(TAG, "Setup ws server");
@@ -1537,11 +1549,6 @@ void app_main(void) {
   net_mdns_register(mdns_hostname);
 #ifdef CONFIG_SNAPCLIENT_SNTP_ENABLE
   set_time_from_sntp();
-#endif
-
-#if CONFIG_USE_DSP_PROCESSOR
-  dsp_processor_init();  // Must init processor first (creates mutexes/semaphores)
-  dsp_settings_init();   // Then settings can restore params into the processor
 #endif
 
   xTaskCreatePinnedToCore(&ota_server_task, "ota", 14 * 256, NULL,
