@@ -25,7 +25,7 @@ enum filtertypes {
 
 void dsp_processor_init(void);
 void dsp_processor_uninit(void);
-int dsp_processor_worker(void *pcmChnk, const void *scSet);
+int dsp_processor_worker(char *pcmChnk, uint16_t len, uint32_t samplerate, int ch);
 esp_err_t dsp_processor_update_filter_params(filterParams_t *params);
 
 void dsp_processor_set_volome(double volume);

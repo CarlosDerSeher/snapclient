@@ -287,8 +287,10 @@ menu "Wifi Configuration"
             bool "WPA2/WPA3"
         config WIFI_AUTH_ENTERPRISE
             bool "ENTERPRISE"
+            select ESP_WIFI_ENTERPRISE_SUPPORT
         config WIFI_AUTH_WPA2_ENTERPRISE
             bool "WPA2 ENTERPRISE"
+            select ESP_WIFI_ENTERPRISE_SUPPORT
         config WIFI_AUTH_WPA3_PSK
             bool "WPA3 ENTERPRISE"
         config WIFI_AUTH_WPA3_ENT_192

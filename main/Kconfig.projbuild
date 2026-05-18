@@ -55,5 +55,12 @@ menu "Snapclient Configuration"
             2. sample insertion (duplicates a sample now and then to keep up sync)
 
             Both approaches have similar performance keeping clients in sync <= 500µs
+    
+    config SNAPCLIENT_DEBUG_MEM
+        bool "Debug memory usage and tasks"
+        default n
+        select FREERTOS_GENERATE_RUN_TIME_STATS
+        help
+            Print memory usage and task runtime
 
 endmenu

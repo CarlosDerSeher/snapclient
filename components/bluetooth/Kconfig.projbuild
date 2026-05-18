@@ -1,0 +1,46 @@
+menu "Bluetooth A2DP Sink Configuration"
+    depends on SOC_BT_CLASSIC_SUPPORTED
+    
+    config SNAPCLIENT_BT_ENABLED
+        bool "Enable Bluetooth A2DP sink"
+        select BT_ENABLED
+        default n
+        help
+            Enable bluetooth. Increases ram and flash usage.
+
+    if SNAPCLIENT_BT_ENABLED
+        config SNAPCLIENT_BT_SSP_ENABLED
+            bool "Enable Simple Secure Pairing"
+            default n
+            help
+                Ignores the pin and just connects
+
+        config SNAPCLIENT_BT_PIN
+            string "snapclient bluetooth pin"
+            default "0000"
+            help
+                Pin to connect to the bluetooth sink.
+
+        choice SNAPCLIENT_BT_MODE
+            prompt "Choose mode of operation"
+
+            config SNAPCLIENT_BT_MODE_DISCONNECT
+                bool "Stop and disconnect BT while Snapcast is playing."
+
+            config SNAPCLIENT_BT_MODE_CONNECTED
+                bool "Keep BT connected while Snapcast is playing, but stop audio."
+                depends on SPIRAM
+
+            config SNAPCLIENT_BT_MODE_STOP
+                bool "Stop BT completely while Snapcast is playing."
+        endchoice
+
+        config SNAPCLIENT_PLAYER_TIMEOUT
+            int "How long to wait after player stops before reset"
+            default 10
+            depends on SNAPCLIENT_BT_MODE_STOP
+    endif
+
+
+
+endmenu

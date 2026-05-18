@@ -327,7 +327,5 @@ parser_return_state_t parser_skip_typed_message(snapcast_protocol_parser_t* pars
     if (!read_byte(parser, &dummy_byte)) return PARSER_RESTART_CONNECTION;
   }
 
-  ESP_LOGI(TAG, "done skipping typed message %d", base_message_rx->type);
-
   return PARSER_OK;
 }
