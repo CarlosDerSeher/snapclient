@@ -86,43 +86,43 @@ esp_err_t tas5805m_settings_save_analog_gain(int gain_half_db);
 esp_err_t tas5805m_settings_load_analog_gain(int *gain_half_db);
 
 /** Save DAC mode setting to NVS */
-esp_err_t tas5805m_settings_save_dac_mode(TAS5805M_DAC_MODE mode);
+esp_err_t tas5805m_settings_save_dac_mode(tas5805m_dac_mode_t mode);
 /** Load DAC mode setting from NVS */
-esp_err_t tas5805m_settings_load_dac_mode(TAS5805M_DAC_MODE *mode);
+esp_err_t tas5805m_settings_load_dac_mode(tas5805m_dac_mode_t *mode);
 
 /** Save modulation mode settings to NVS */
-esp_err_t tas5805m_settings_save_modulation_mode(TAS5805M_MOD_MODE mode, 
-                                                   TAS5805M_SW_FREQ freq,
-                                                   TAS5805M_BD_FREQ bd_freq);
+esp_err_t tas5805m_settings_save_modulation_mode(tas5805m_modulation_mode_t mode, 
+                                                   tas5805m_sw_freq_t freq,
+                                                   tas5805m_bd_freq_t bd_freq);
 /** Load modulation mode settings from NVS */
-esp_err_t tas5805m_settings_load_modulation_mode(TAS5805M_MOD_MODE *mode,
-                                                   TAS5805M_SW_FREQ *freq,
-                                                   TAS5805M_BD_FREQ *bd_freq);
+esp_err_t tas5805m_settings_load_modulation_mode(tas5805m_modulation_mode_t *mode,
+                                                   tas5805m_sw_freq_t *freq,
+                                                   tas5805m_bd_freq_t *bd_freq);
 
 /** Save mixer mode to NVS */
-esp_err_t tas5805m_settings_save_mixer_mode(TAS5805M_MIXER_MODE mode);
+esp_err_t tas5805m_settings_save_mixer_mode(tas5805m_mixer_mode_t mode);
 /** Load mixer mode from NVS */
-esp_err_t tas5805m_settings_load_mixer_mode(TAS5805M_MIXER_MODE *mode);
+esp_err_t tas5805m_settings_load_mixer_mode(tas5805m_mixer_mode_t *mode);
 
 /** Save EQ mode to NVS */
-esp_err_t tas5805m_settings_save_eq_mode(TAS5805M_EQ_MODE mode);
+esp_err_t tas5805m_settings_save_eq_mode(tas5805m_eq_mode_t mode);
 /** Load EQ mode from NVS */
-esp_err_t tas5805m_settings_load_eq_mode(TAS5805M_EQ_MODE *mode);
+esp_err_t tas5805m_settings_load_eq_mode(tas5805m_eq_mode_t *mode);
 
 /** Save per-band EQ gain for a channel to NVS (gain in dB, integer) */
-esp_err_t tas5805m_settings_save_eq_gain(TAS5805M_EQ_CHANNELS ch, int band, int gain_db);
+esp_err_t tas5805m_settings_save_eq_gain(tas5805m_eq_chan_t ch, int band, int gain_db);
 /** Load per-band EQ gain for a channel from NVS */
-esp_err_t tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS ch, int band, int *gain_db);
+esp_err_t tas5805m_settings_load_eq_gain(tas5805m_eq_chan_t ch, int band, int *gain_db);
 
 /** Save EQ profile/preset for a specific channel to NVS */
-esp_err_t tas5805m_settings_save_eq_profile(TAS5805M_EQ_CHANNELS ch, TAS5805M_EQ_PROFILE profile);
+esp_err_t tas5805m_settings_save_eq_profile(tas5805m_eq_chan_t ch, tas5805m_eq_profile_t profile);
 /** Load EQ profile/preset for a specific channel from NVS */
-esp_err_t tas5805m_settings_load_eq_profile(TAS5805M_EQ_CHANNELS ch, TAS5805M_EQ_PROFILE *profile);
+esp_err_t tas5805m_settings_load_eq_profile(tas5805m_eq_chan_t ch, tas5805m_eq_profile_t *profile);
 
 /** Save per-output channel gain (single value per channel, in dB) */
-esp_err_t tas5805m_settings_save_channel_gain(TAS5805M_EQ_CHANNELS ch, int gain_db);
+esp_err_t tas5805m_settings_save_channel_gain(tas5805m_eq_chan_t ch, int gain_db);
 /** Load per-output channel gain (single value per channel, in dB) */
-esp_err_t tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS ch, int *gain_db);
+esp_err_t tas5805m_settings_load_channel_gain(tas5805m_eq_chan_t ch, int *gain_db);
 
 /** Get current TAS5805M settings as a JSON string */
 //esp_err_t tas5805m_settings_get_json(char *json_out, size_t max_len);

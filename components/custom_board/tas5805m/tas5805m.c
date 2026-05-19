@@ -41,7 +41,7 @@ static const char *TAG = "TAS5805M";
     } while (0)
 
 // Detected DAC model (set during init)
-static TAS5805_MODEL tas5805m_model = TAS5805_MODEL_UNKNOWN;
+static tas5805m_model_t tas5805m_model = TAS5805_MODEL_UNKNOWN;
 
 // State of TAS5805M (internal to this module)
 static TAS5805_STATE tas5805m_state = {
@@ -83,7 +83,7 @@ audio_hal_func_t AUDIO_CODEC_TAS5805M_DEFAULT_HANDLE = {
 
 /* Fault monitoring task */
 static void tas5805m_fault_monitor_task(void *pvParameters) {
-  TAS5805M_FAULT fault;
+  tas5805m_fault_t fault;
   ESP_LOGI(TAG, "Fault monitoring task started");
   
   while (1) {
@@ -121,7 +121,7 @@ static void tas5805m_fault_monitor_task(void *pvParameters) {
 
 /* Determine the DAC model from the configured I2C address (CONFIG_DAC_I2C_ADDR).
  * TAS5825M uses addresses 0x4C–0x4F; TAS5805M uses 0x2C–0x2F. */
-static TAS5805_MODEL tas5805m_probe_model(void) {
+static tas5805m_model_t tas5805m_probe_model(void) {
   const uint8_t addr = TAS5805M_ADDRESS;
 
   if (addr == TAS5825M_ADDR_GND || addr == TAS5825M_ADDR_1K ||
@@ -318,10 +318,10 @@ esp_err_t tas5805m_init() {
   /* TAS5825M requires GPIO pin configuration after reset */
   if (tas5805m_model == TAS5805_MODEL_TAS5825M) {
     ESP_LOGI(TAG, "%s: Configuring TAS5825M GPIO pins", __func__);
-    tas5805m_write_byte(TAS5825M_GPIO0_REGISTER,    TAS5825M_GPIO_WARN);
-    tas5805m_write_byte(TAS5825M_GPIO1_REGISTER,    TAS5825M_GPIO_FAULT);
-    tas5805m_write_byte(TAS5825M_GPIO2_REGISTER,    TAS5825M_GPIO_SDOUT);
-    tas5805m_write_byte(TAS5825M_GPIO_CTL_REGISTER, TAS5825M_GPIO_CTL_OUT);
+    ret = tas5805m_write_byte(TAS5825M_GPIO0_REGISTER,    TAS5825M_GPIO_WARN);
+    ret |= tas5805m_write_byte(TAS5825M_GPIO1_REGISTER,    TAS5825M_GPIO_FAULT);
+    ret |= tas5805m_write_byte(TAS5825M_GPIO2_REGISTER,    TAS5825M_GPIO_SDOUT);
+    ret |= tas5805m_write_byte(TAS5825M_GPIO_CTL_REGISTER, TAS5825M_GPIO_CTL_OUT);
   }
 
   if (ret != ESP_OK) {
@@ -369,13 +369,13 @@ esp_err_t tas5805m_get_state(TAS5805_STATE *out_state)
   return ESP_OK;
 }
 
-TAS5805_MODEL tas5805m_get_model(void)
+tas5805m_model_t tas5805m_get_model(void)
 {
   return tas5805m_model;
 }
 
 // Setting the DAC State of TAS5805M
-esp_err_t tas5805m_set_state(TAS5805M_CTRL_STATE state)
+esp_err_t tas5805m_set_state(tas5805m_ctrl_state_t state)
 {
   ESP_LOGD(TAG, "%s: Setting state to 0x%x", __func__, state);
   esp_err_t ret = tas5805m_write_byte(TAS5805M_DEVICE_CTRL_2_REGISTER, state);
@@ -480,11 +480,11 @@ esp_err_t tas5805m_deinit(void) {
 // Setting mute state
 esp_err_t tas5805m_set_mute(bool enable) {
   ESP_LOGD(TAG, "%s: Setting mute to %d", __func__, enable);
-  TAS5805M_CTRL_STATE new_state;
+  tas5805m_ctrl_state_t new_state;
   if (enable) {
-    new_state = (TAS5805M_CTRL_STATE)(tas5805m_state.state | TAS5805M_CTRL_MUTE);
+    new_state = (tas5805m_ctrl_state_t)(tas5805m_state.state | TAS5805M_CTRL_MUTE);
   } else {
-    new_state = (TAS5805M_CTRL_STATE)(tas5805m_state.state & ~TAS5805M_CTRL_MUTE);
+    new_state = (tas5805m_ctrl_state_t)(tas5805m_state.state & ~TAS5805M_CTRL_MUTE);
   }
   /* Use existing set_state helper which writes-first and updates cache on success */
   return tas5805m_set_state(new_state);
@@ -502,18 +502,18 @@ esp_err_t tas5805m_get_mute(bool *enabled) {
 esp_err_t tas5805m_ctrl(audio_hal_codec_mode_t mode,
                         audio_hal_ctrl_t ctrl_state) {
   ESP_LOGI(TAG, "%s: Control state: %d", __func__, ctrl_state);
-  TAS5805M_CTRL_STATE new_state;
+  tas5805m_ctrl_state_t new_state;
 
   if (ctrl_state == AUDIO_HAL_CTRL_STOP) {
     ESP_LOGD(TAG, "%s: Setting to DEEP_SLEEP", __func__);
     /* Clear lower 3 bits (state field) then set to DEEP_SLEEP (0x0)
      * This ensures lower bits are reset to 0 as required by the device.
      */
-    new_state = (TAS5805M_CTRL_STATE)((tas5805m_state.state & ~0x07) | TAS5805M_CTRL_DEEP_SLEEP);
+    new_state = (tas5805m_ctrl_state_t)((tas5805m_state.state & ~0x07) | TAS5805M_CTRL_DEEP_SLEEP);
   } else if (ctrl_state == AUDIO_HAL_CTRL_START ) {
     ESP_LOGD(TAG, "%s: Setting to PLAY", __func__);
     /* Clear lower 3 bits (state field) and set to PLAY (0x3), preserve other flags */
-    new_state = (TAS5805M_CTRL_STATE)((tas5805m_state.state & ~0x07) | TAS5805M_CTRL_PLAY);
+    new_state = (tas5805m_ctrl_state_t)((tas5805m_state.state & ~0x07) | TAS5805M_CTRL_PLAY);
   } else {
     ESP_LOGW(TAG, "%s: Unknown control state: %d", __func__, ctrl_state);
     return ESP_FAIL;
@@ -528,7 +528,7 @@ esp_err_t tas5805m_config_iface(audio_hal_codec_mode_t mode,
   return ESP_OK;
 }
 
-esp_err_t tas5805m_get_dac_mode(TAS5805M_DAC_MODE *mode)
+esp_err_t tas5805m_get_dac_mode(tas5805m_dac_mode_t *mode)
 {
     uint8_t current_value;
     esp_err_t err = tas5805m_read_byte(TAS5805M_DEVICE_CTRL_1_REGISTER, &current_value);
@@ -546,7 +546,7 @@ esp_err_t tas5805m_get_dac_mode(TAS5805M_DAC_MODE *mode)
     return ESP_OK;
 }
 
-esp_err_t tas5805m_set_dac_mode(TAS5805M_DAC_MODE mode)
+esp_err_t tas5805m_set_dac_mode(tas5805m_dac_mode_t mode)
 {
     ESP_LOGD(TAG, "%s: Setting DAC mode to %d", __func__, mode);
 
@@ -574,7 +574,7 @@ esp_err_t tas5805m_set_dac_mode(TAS5805M_DAC_MODE mode)
     return ret;
 }
 
-esp_err_t tas5805m_get_modulation_mode(TAS5805M_MOD_MODE *mode, TAS5805M_SW_FREQ *freq, TAS5805M_BD_FREQ *bd_freq)
+esp_err_t tas5805m_get_modulation_mode(tas5805m_modulation_mode_t *mode, tas5805m_sw_freq_t *freq, tas5805m_bd_freq_t *bd_freq)
 {
   // Read the current value of the register
   uint8_t current_value;
@@ -600,7 +600,7 @@ esp_err_t tas5805m_get_modulation_mode(TAS5805M_MOD_MODE *mode, TAS5805M_SW_FREQ
   return ESP_OK;
 }
 
-esp_err_t tas5805m_set_modulation_mode(TAS5805M_MOD_MODE mode, TAS5805M_SW_FREQ freq, TAS5805M_BD_FREQ bd_freq)
+esp_err_t tas5805m_set_modulation_mode(tas5805m_modulation_mode_t mode, tas5805m_sw_freq_t freq, tas5805m_bd_freq_t bd_freq)
 {
   ESP_LOGD(TAG, "%s: Setting modulation to %d, FSW: %d, Class-D bandwidth control: %d", __func__, mode, freq, bd_freq);
 
@@ -664,13 +664,13 @@ esp_err_t tas5805m_set_again(uint8_t gain)
   return ret;
 }
 
-esp_err_t tas5805m_get_mixer_mode(TAS5805M_MIXER_MODE *mode)
+esp_err_t tas5805m_get_mixer_mode(tas5805m_mixer_mode_t *mode)
 {
   *mode = tas5805m_state.mixer_mode;
   return ESP_OK;
 }
 
-esp_err_t tas5805m_set_mixer_mode(TAS5805M_MIXER_MODE mode)
+esp_err_t tas5805m_set_mixer_mode(tas5805m_mixer_mode_t mode)
 {
   ESP_LOGD(TAG, "%s: Setting mixer mode to %d", __func__, mode);
   
@@ -728,7 +728,7 @@ esp_err_t tas5805m_set_mixer_mode(TAS5805M_MIXER_MODE mode)
   return ret;
 }
 
-esp_err_t tas5805m_set_mixer_gain(TAS5805M_MIXER_CHANNELS channel, uint32_t gain)
+esp_err_t tas5805m_set_mixer_gain(tas5805m_mixer_chan_t channel, uint32_t gain)
 {
   ESP_LOGD(TAG, "%s: Setting mixer gain for channel %d to 0x%08x", __func__, channel, (unsigned int)gain);
   uint8_t reg;
@@ -770,7 +770,7 @@ esp_err_t tas5805m_set_mixer_gain(TAS5805M_MIXER_CHANNELS channel, uint32_t gain
 
 
 // Set output channel volume using mixer gain lookup table
-esp_err_t tas5805m_set_channel_gain(TAS5805M_EQ_CHANNELS channel, int8_t gain_db)
+esp_err_t tas5805m_set_channel_gain(tas5805m_eq_chan_t channel, int8_t gain_db)
 {
   ESP_LOGD(TAG, "%s: Setting channel %d volume to %d dB", __func__, channel, gain_db);
 
@@ -813,7 +813,7 @@ esp_err_t tas5805m_set_channel_gain(TAS5805M_EQ_CHANNELS channel, int8_t gain_db
   return ret;
 }
 
-esp_err_t tas5805m_get_channel_gain(TAS5805M_EQ_CHANNELS channel, int8_t *gain_db)
+esp_err_t tas5805m_get_channel_gain(tas5805m_eq_chan_t channel, int8_t *gain_db)
 {
   if (gain_db == NULL) {
     return ESP_ERR_INVALID_ARG;
@@ -840,11 +840,11 @@ esp_err_t tas5805m_clear_faults()
   return ret;
 }
 
-esp_err_t tas5805m_get_faults(TAS5805M_FAULT *fault)
+esp_err_t tas5805m_get_faults(tas5805m_fault_t *fault)
 {
   /* Registers 0x70-0x73 are consecutive: read all four in one burst to
    * reduce I2C overhead and call-stack depth compared to four read_byte
-   * calls.  The layout must match the TAS5805M_FAULT struct. */
+   * calls.  The layout must match the tas5805m_fault_t struct. */
   uint8_t reg = TAS5805M_CHAN_FAULT_REGISTER;
   uint8_t buf[4];
   int ret = tas5805m_read_bytes(&reg, 1, buf, sizeof(buf));
@@ -859,7 +859,7 @@ esp_err_t tas5805m_get_faults(TAS5805M_FAULT *fault)
   return ESP_OK;
 }
 
-void tas5805m_decode_faults(TAS5805M_FAULT fault)
+void tas5805m_decode_faults(tas5805m_fault_t fault)
 {
   if (fault.err0) {
     if (fault.err0 & (1 << 0))
@@ -919,13 +919,13 @@ void tas5805m_decode_faults(TAS5805M_FAULT fault)
 /* EQ-related functions and data: compile only when enabled in Kconfig */
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
 
-esp_err_t tas5805m_get_eq_mode(TAS5805M_EQ_MODE *mode)
+esp_err_t tas5805m_get_eq_mode(tas5805m_eq_mode_t *mode)
 {
   *mode = tas5805m_state.eq_mode;
   return ESP_OK;
 }
 
-esp_err_t tas5805m_set_eq_mode(TAS5805M_EQ_MODE mode)
+esp_err_t tas5805m_set_eq_mode(tas5805m_eq_mode_t mode)
 {
   ESP_LOGD(TAG, "%s: Setting EQ MODE to %d", __func__, mode);
   if (tas5805m_model == TAS5805_MODEL_TAS5825M) {
@@ -963,7 +963,7 @@ esp_err_t tas5805m_get_eq_gain(int band, int *gain)
   return tas5805m_get_eq_gain_channel(TAS5805M_EQ_CHANNELS_LEFT, band, gain);
 }
 
-esp_err_t tas5805m_get_eq_gain_channel(TAS5805M_EQ_CHANNELS channel, int band, int *gain)
+esp_err_t tas5805m_get_eq_gain_channel(tas5805m_eq_chan_t channel, int band, int *gain)
 {
   switch (channel)
   {
@@ -981,7 +981,7 @@ esp_err_t tas5805m_set_eq_gain(int band, int gain) {
   return tas5805m_set_eq_gain_channel(TAS5805M_EQ_CHANNELS_LEFT, band, gain);
 }
 
-esp_err_t tas5805m_set_eq_gain_channel(TAS5805M_EQ_CHANNELS channel, int band, int gain)
+esp_err_t tas5805m_set_eq_gain_channel(tas5805m_eq_chan_t channel, int band, int gain)
 {
   if (band < 0 || band >= TAS5805M_EQ_BANDS)
   {
@@ -1051,22 +1051,22 @@ esp_err_t tas5805m_set_eq_gain_channel(TAS5805M_EQ_CHANNELS channel, int band, i
   return ret;
 }
 
-esp_err_t tas5805m_get_eq_profile(TAS5805M_EQ_PROFILE *profile)
+esp_err_t tas5805m_get_eq_profile(tas5805m_eq_profile_t *profile)
 {
   return tas5805m_get_eq_profile_channel(TAS5805M_EQ_CHANNELS_LEFT, profile);
 }
 
-esp_err_t tas5805m_get_eq_profile_channel(TAS5805M_EQ_CHANNELS channel, TAS5805M_EQ_PROFILE *profile)
+esp_err_t tas5805m_get_eq_profile_channel(tas5805m_eq_chan_t channel, tas5805m_eq_profile_t *profile)
 {
   *profile = tas5805m_state.eq_profile[channel];
   return ESP_OK;
 }
 
-esp_err_t tas5805m_set_eq_profile(TAS5805M_EQ_PROFILE profile) {
+esp_err_t tas5805m_set_eq_profile(tas5805m_eq_profile_t profile) {
   return tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS_LEFT, profile);
 }
 
-esp_err_t tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS channel, TAS5805M_EQ_PROFILE profile)
+esp_err_t tas5805m_set_eq_profile_channel(tas5805m_eq_chan_t channel, tas5805m_eq_profile_t profile)
 {
   // Apply preset EQ gains for the selected profile
   int current_page = 0; 
@@ -1136,7 +1136,7 @@ esp_err_t tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS channel, TAS5805M
  * @param offset Output: register offset
  * @return ESP_OK on success
  */
-static esp_err_t tas5805m_get_biquad_register(TAS5805M_EQ_CHANNELS channel, int band, 
+static esp_err_t tas5805m_get_biquad_register(tas5805m_eq_chan_t channel, int band, 
                                                 int coef_index, uint8_t *page, uint8_t *offset)
 {
   if (band < 0 || band >= TAS5805M_EQ_BANDS) {
@@ -1168,7 +1168,7 @@ static esp_err_t tas5805m_get_biquad_register(TAS5805M_EQ_CHANNELS channel, int 
   return ESP_OK;
 }
 
-esp_err_t tas5805m_read_biquad_coefficients(TAS5805M_EQ_CHANNELS channel, int band, 
+esp_err_t tas5805m_read_biquad_coefficients(tas5805m_eq_chan_t channel, int band, 
                                               float *b0, float *b1, float *b2, 
                                               float *a1, float *a2)
 {
@@ -1210,7 +1210,7 @@ esp_err_t tas5805m_read_biquad_coefficients(TAS5805M_EQ_CHANNELS channel, int ba
   return ret;
 }
 
-esp_err_t tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS channel, int band,
+esp_err_t tas5805m_write_biquad_coefficients(tas5805m_eq_chan_t channel, int band,
                                                float b0, float b1, float b2,
                                                float a1, float a2)
 {

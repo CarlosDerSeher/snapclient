@@ -72,7 +72,7 @@ static void tas5805m_poll_for_play_task(void *arg)
 /**
  * Create JSON array with all fault status indicators
  */
-static cJSON* tas5805m_create_faults_array(TAS5805M_FAULT fault) {
+static cJSON* tas5805m_create_faults_array(tas5805m_fault_t fault) {
     cJSON *faults = cJSON_CreateArray();
     if (!faults) {
         return NULL;
@@ -143,11 +143,11 @@ static cJSON* tas5805m_create_faults_array(TAS5805M_FAULT fault) {
 }
 
 /**
- * Convert TAS5805M_CTRL_STATE enum to human-readable string
+ * Convert tas5805m_ctrl_state_t enum to human-readable string
  */
-static const char* tas5805m_state_to_string(TAS5805M_CTRL_STATE state) {
+static const char* tas5805m_state_to_string(tas5805m_ctrl_state_t state) {
     // Mask out the mute flag for string conversion
-    TAS5805M_CTRL_STATE base_state = state & ~TAS5805M_CTRL_MUTE;
+    tas5805m_ctrl_state_t base_state = state & ~TAS5805M_CTRL_MUTE;
     
     switch (base_state) {
         case TAS5805M_CTRL_DEEP_SLEEP: return "Deep Sleep";
@@ -159,7 +159,7 @@ static const char* tas5805m_state_to_string(TAS5805M_CTRL_STATE state) {
     }
 }
 
-static const char* tas5805m_mixer_mode_to_string(TAS5805M_MIXER_MODE mode) {
+static const char* tas5805m_mixer_mode_to_string(tas5805m_mixer_mode_t mode) {
     switch (mode) {
         case MIXER_UNKNOWN: return "Unknown";
         case MIXER_STEREO: return "Stereo";
@@ -171,7 +171,7 @@ static const char* tas5805m_mixer_mode_to_string(TAS5805M_MIXER_MODE mode) {
     }
 }
 
-static const char* tas5805m_eq_mode_to_string(TAS5805M_EQ_MODE mode) {
+static const char* tas5805m_eq_mode_to_string(tas5805m_eq_mode_t mode) {
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
     switch (mode) {
         case TAS5805M_EQ_MODE_OFF: return "OFF";
@@ -327,7 +327,7 @@ esp_err_t tas5805m_settings_load_analog_gain(int *gain_half_db) {
     return err;
 }
 
-esp_err_t tas5805m_settings_save_dac_mode(TAS5805M_DAC_MODE mode) {
+esp_err_t tas5805m_settings_save_dac_mode(tas5805m_dac_mode_t mode) {
     ESP_LOGD(TAG, "%s: mode=%d", __func__, (int)mode);
     
     if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
@@ -360,7 +360,7 @@ esp_err_t tas5805m_settings_save_dac_mode(TAS5805M_DAC_MODE mode) {
     return err;
 }
 
-esp_err_t tas5805m_settings_load_dac_mode(TAS5805M_DAC_MODE *mode) {
+esp_err_t tas5805m_settings_load_dac_mode(tas5805m_dac_mode_t *mode) {
     if (!mode) return ESP_ERR_INVALID_ARG;
     if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
     
@@ -374,7 +374,7 @@ esp_err_t tas5805m_settings_load_dac_mode(TAS5805M_DAC_MODE *mode) {
         int32_t v = 0;
         err = nvs_get_i32(h, TAS5805M_NVS_KEY_DAC_MODE, &v);
         if (err == ESP_OK) {
-            *mode = (TAS5805M_DAC_MODE)v;
+            *mode = (tas5805m_dac_mode_t)v;
             ESP_LOGD(TAG, "%s: DAC mode from NVS: %d (%s)", __func__, (int)*mode,
                      *mode == TAS5805M_DAC_MODE_BTL ? "BTL" : "PBTL");
         } else if (err == ESP_ERR_NVS_NOT_FOUND) {
@@ -391,9 +391,9 @@ esp_err_t tas5805m_settings_load_dac_mode(TAS5805M_DAC_MODE *mode) {
     return err;
 }
 
-esp_err_t tas5805m_settings_save_modulation_mode(TAS5805M_MOD_MODE mode, 
-                                                   TAS5805M_SW_FREQ freq,
-                                                   TAS5805M_BD_FREQ bd_freq) {
+esp_err_t tas5805m_settings_save_modulation_mode(tas5805m_modulation_mode_t mode, 
+                                                   tas5805m_sw_freq_t freq,
+                                                   tas5805m_bd_freq_t bd_freq) {
     ESP_LOGD(TAG, "%s: mode=%d, freq=%d, bd_freq=%d", __func__, (int)mode, (int)freq, (int)bd_freq);
     
     if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
@@ -432,9 +432,9 @@ esp_err_t tas5805m_settings_save_modulation_mode(TAS5805M_MOD_MODE mode,
     return err;
 }
 
-esp_err_t tas5805m_settings_load_modulation_mode(TAS5805M_MOD_MODE *mode,
-                                                   TAS5805M_SW_FREQ *freq,
-                                                   TAS5805M_BD_FREQ *bd_freq) {
+esp_err_t tas5805m_settings_load_modulation_mode(tas5805m_modulation_mode_t *mode,
+                                                   tas5805m_sw_freq_t *freq,
+                                                   tas5805m_bd_freq_t *bd_freq) {
     if (!mode || !freq || !bd_freq) return ESP_ERR_INVALID_ARG;
     if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
     
@@ -458,9 +458,9 @@ esp_err_t tas5805m_settings_load_modulation_mode(TAS5805M_MOD_MODE *mode,
             ESP_LOGD(TAG, "%s: NVS key '%s' not found", __func__, TAS5805M_NVS_KEY_SW_FREQ);
         }
         if (err == ESP_OK) {
-            *mode = (TAS5805M_MOD_MODE)v_mode;
-            *freq = (TAS5805M_SW_FREQ)v_freq;
-            *bd_freq = (TAS5805M_BD_FREQ)v_bd;
+            *mode = (tas5805m_modulation_mode_t)v_mode;
+            *freq = (tas5805m_sw_freq_t)v_freq;
+            *bd_freq = (tas5805m_bd_freq_t)v_bd;
             ESP_LOGD(TAG, "%s: Modulation mode from NVS: mode=%d, freq=%d, bd_freq=%d", 
                      __func__, (int)*mode, (int)*freq, (int)*bd_freq);
         } else if (err != ESP_ERR_NVS_NOT_FOUND) {
@@ -476,7 +476,7 @@ esp_err_t tas5805m_settings_load_modulation_mode(TAS5805M_MOD_MODE *mode,
 }
 
 /** Save mixer mode to NVS */
-esp_err_t tas5805m_settings_save_mixer_mode(TAS5805M_MIXER_MODE mode) {
+esp_err_t tas5805m_settings_save_mixer_mode(tas5805m_mixer_mode_t mode) {
     ESP_LOGD(TAG, "%s: mode=%d", __func__, (int)mode);
 
     if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
@@ -509,7 +509,7 @@ esp_err_t tas5805m_settings_save_mixer_mode(TAS5805M_MIXER_MODE mode) {
 }
 
 /** Load mixer mode from NVS */
-esp_err_t tas5805m_settings_load_mixer_mode(TAS5805M_MIXER_MODE *mode) {
+esp_err_t tas5805m_settings_load_mixer_mode(tas5805m_mixer_mode_t *mode) {
     if (!mode) return ESP_ERR_INVALID_ARG;
     if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
 
@@ -523,7 +523,7 @@ esp_err_t tas5805m_settings_load_mixer_mode(TAS5805M_MIXER_MODE *mode) {
         int32_t v = 0;
         err = nvs_get_i32(h, TAS5805M_NVS_KEY_MIXER_MODE, &v);
         if (err == ESP_OK) {
-            *mode = (TAS5805M_MIXER_MODE)v;
+            *mode = (tas5805m_mixer_mode_t)v;
             ESP_LOGD(TAG, "%s: Mixer mode from NVS: %d", __func__, (int)*mode);
         } else if (err == ESP_ERR_NVS_NOT_FOUND) {
             ESP_LOGD(TAG, "%s: NVS key '%s' not found", __func__, TAS5805M_NVS_KEY_MIXER_MODE);
@@ -540,7 +540,7 @@ esp_err_t tas5805m_settings_load_mixer_mode(TAS5805M_MIXER_MODE *mode) {
 }
 
 /** Save EQ mode to NVS */
-esp_err_t tas5805m_settings_save_eq_mode(TAS5805M_EQ_MODE mode) {
+esp_err_t tas5805m_settings_save_eq_mode(tas5805m_eq_mode_t mode) {
     ESP_LOGD(TAG, "%s: mode=%d", __func__, (int)mode);
 
     if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
@@ -573,7 +573,7 @@ esp_err_t tas5805m_settings_save_eq_mode(TAS5805M_EQ_MODE mode) {
 }
 
 /** Save per-band EQ gain for a specific channel */
-esp_err_t tas5805m_settings_save_eq_gain(TAS5805M_EQ_CHANNELS ch, int band, int gain_db) {
+esp_err_t tas5805m_settings_save_eq_gain(tas5805m_eq_chan_t ch, int band, int gain_db) {
     ESP_LOGD(TAG, "%s: ch=%d band=%d gain=%d", __func__, (int)ch, band, gain_db);
     
     if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
@@ -607,7 +607,7 @@ esp_err_t tas5805m_settings_save_eq_gain(TAS5805M_EQ_CHANNELS ch, int band, int 
 }
 
 /** Load per-band EQ gain for a specific channel */
-esp_err_t tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS ch, int band, int *gain_db) {
+esp_err_t tas5805m_settings_load_eq_gain(tas5805m_eq_chan_t ch, int band, int *gain_db) {
     if (!gain_db) return ESP_ERR_INVALID_ARG;
     if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
     if (band < 0 || band >= TAS5805M_EQ_BANDS) return ESP_ERR_INVALID_ARG;
@@ -646,7 +646,7 @@ esp_err_t tas5805m_settings_load_eq_gain(TAS5805M_EQ_CHANNELS ch, int band, int 
 }
 
 /** Save EQ profile/preset for a specific channel */
-esp_err_t tas5805m_settings_save_eq_profile(TAS5805M_EQ_CHANNELS ch, TAS5805M_EQ_PROFILE profile) {
+esp_err_t tas5805m_settings_save_eq_profile(tas5805m_eq_chan_t ch, tas5805m_eq_profile_t profile) {
     ESP_LOGD(TAG, "%s: ch=%d profile=%d", __func__, (int)ch, (int)profile);
 
     if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
@@ -674,7 +674,7 @@ esp_err_t tas5805m_settings_save_eq_profile(TAS5805M_EQ_CHANNELS ch, TAS5805M_EQ
 }
 
 /** Load EQ profile/preset for a specific channel */
-esp_err_t tas5805m_settings_load_eq_profile(TAS5805M_EQ_CHANNELS ch, TAS5805M_EQ_PROFILE *profile) {
+esp_err_t tas5805m_settings_load_eq_profile(tas5805m_eq_chan_t ch, tas5805m_eq_profile_t *profile) {
     if (!profile) return ESP_ERR_INVALID_ARG;
     if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
 
@@ -690,7 +690,7 @@ esp_err_t tas5805m_settings_load_eq_profile(TAS5805M_EQ_CHANNELS ch, TAS5805M_EQ
         int32_t v = 0;
         err = nvs_get_i32(h, key, &v);
         if (err == ESP_OK) {
-            *profile = (TAS5805M_EQ_PROFILE)v;
+            *profile = (tas5805m_eq_profile_t)v;
             ESP_LOGD(TAG, "%s: Loaded %s=%d from NVS", __func__, key, (int)*profile);
         } else if (err == ESP_ERR_NVS_NOT_FOUND) {
             ESP_LOGD(TAG, "%s: NVS key '%s' not found", __func__, key);
@@ -707,7 +707,7 @@ esp_err_t tas5805m_settings_load_eq_profile(TAS5805M_EQ_CHANNELS ch, TAS5805M_EQ
 }
 
 /** Save per-output channel gain (single value per channel, in dB) */
-esp_err_t tas5805m_settings_save_channel_gain(TAS5805M_EQ_CHANNELS ch, int gain_db) {
+esp_err_t tas5805m_settings_save_channel_gain(tas5805m_eq_chan_t ch, int gain_db) {
     ESP_LOGD(TAG, "%s: ch=%d gain=%d", __func__, (int)ch, gain_db);
 
     if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
@@ -735,7 +735,7 @@ esp_err_t tas5805m_settings_save_channel_gain(TAS5805M_EQ_CHANNELS ch, int gain_
 }
 
 /** Load per-output channel gain (single value per channel, in dB) */
-esp_err_t tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS ch, int *gain_db) {
+esp_err_t tas5805m_settings_load_channel_gain(tas5805m_eq_chan_t ch, int *gain_db) {
     if (!gain_db) return ESP_ERR_INVALID_ARG;
     if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
 
@@ -768,7 +768,7 @@ esp_err_t tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS ch, int *gain
 }
 
 /** Load EQ mode from NVS */
-esp_err_t tas5805m_settings_load_eq_mode(TAS5805M_EQ_MODE *mode) {
+esp_err_t tas5805m_settings_load_eq_mode(tas5805m_eq_mode_t *mode) {
     if (!mode) return ESP_ERR_INVALID_ARG;
     if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
 
@@ -782,7 +782,7 @@ esp_err_t tas5805m_settings_load_eq_mode(TAS5805M_EQ_MODE *mode) {
         int32_t v = 0;
         err = nvs_get_i32(h, TAS5805M_NVS_KEY_EQ_MODE, &v);
         if (err == ESP_OK) {
-            *mode = (TAS5805M_EQ_MODE)v;
+            *mode = (tas5805m_eq_mode_t)v;
             ESP_LOGD(TAG, "%s: EQ mode from NVS: %d", __func__, (int)*mode);
         } else if (err == ESP_ERR_NVS_NOT_FOUND) {
             ESP_LOGD(TAG, "%s: NVS key '%s' not found", __func__, TAS5805M_NVS_KEY_EQ_MODE);
@@ -814,15 +814,15 @@ esp_err_t tas5805m_settings_get_json(char *json_out, size_t max_len) {
     }
 
     // Get DAC mode
-    TAS5805M_DAC_MODE dac_mode;
+    tas5805m_dac_mode_t dac_mode;
     if (tas5805m_get_dac_mode(&dac_mode) != ESP_OK) {
         dac_mode = TAS5805M_DAC_MODE_BTL;
     }
 
     /* Get current modulation mode and frequencies */
-    TAS5805M_MOD_MODE mod_mode;
-    TAS5805M_SW_FREQ sw_freq;
-    TAS5805M_BD_FREQ bd_freq;
+    tas5805m_modulation_mode_t mod_mode;
+    tas5805m_sw_freq_t sw_freq;
+    tas5805m_bd_freq_t bd_freq;
     if (tas5805m_get_modulation_mode(&mod_mode, &sw_freq, &bd_freq) != ESP_OK) {
         mod_mode = MOD_MODE_BD;
         sw_freq = SW_FREQ_768K;
@@ -864,7 +864,7 @@ esp_err_t tas5805m_settings_get_json(char *json_out, size_t max_len) {
     cJSON_AddNumberToObject(root, "bd_freq", (int)bd_freq);
     
     /* EQ mode - query driver when available, otherwise default to OFF */
-    TAS5805M_EQ_MODE eq_mode_val = TAS5805M_EQ_MODE_OFF;
+    tas5805m_eq_mode_t eq_mode_val = TAS5805M_EQ_MODE_OFF;
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
     if (tas5805m_get_eq_mode(&eq_mode_val) != ESP_OK) {
         eq_mode_val = TAS5805M_EQ_MODE_OFF;
@@ -885,7 +885,7 @@ esp_err_t tas5805m_settings_get_json(char *json_out, size_t max_len) {
     /* EQ profile/preset per channel */
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
     {
-        TAS5805M_EQ_PROFILE prof_l = FLAT, prof_r = FLAT;
+        tas5805m_eq_profile_t prof_l = FLAT, prof_r = FLAT;
         if (tas5805m_settings_restored) {
             if (tas5805m_get_eq_profile_channel(TAS5805M_EQ_CHANNELS_LEFT, &prof_l) == ESP_OK) {
                 cJSON_AddNumberToObject(root, "eq_profile_l", (int)prof_l);
@@ -1020,7 +1020,7 @@ esp_err_t tas5805m_settings_set_from_json(const char *json_in) {
     // Update state if present
     cJSON *state_item = cJSON_GetObjectItem(root, "state");
     if (cJSON_IsNumber(state_item)) {
-        TAS5805M_CTRL_STATE new_state = (TAS5805M_CTRL_STATE)state_item->valueint;
+        tas5805m_ctrl_state_t new_state = (tas5805m_ctrl_state_t)state_item->valueint;
         
         // Apply to DAC (do NOT persist state - state is managed by application)
         err = tas5805m_set_state(new_state);
@@ -1067,7 +1067,7 @@ esp_err_t tas5805m_settings_set_from_json(const char *json_in) {
     // Update DAC mode if present
     cJSON *dac_mode_item = cJSON_GetObjectItem(root, "dac_mode");
     if (cJSON_IsNumber(dac_mode_item)) {
-        TAS5805M_DAC_MODE mode = (TAS5805M_DAC_MODE)dac_mode_item->valueint;
+        tas5805m_dac_mode_t mode = (tas5805m_dac_mode_t)dac_mode_item->valueint;
         
         err = tas5805m_set_dac_mode(mode);
         if (err == ESP_OK) {
@@ -1088,9 +1088,9 @@ esp_err_t tas5805m_settings_set_from_json(const char *json_in) {
     cJSON *bd_freq_item = cJSON_GetObjectItem(root, "bd_freq");
 
     if (cJSON_IsNumber(mod_mode_item) || cJSON_IsNumber(sw_freq_item) || cJSON_IsNumber(bd_freq_item)) {
-        TAS5805M_MOD_MODE cur_mod = MOD_MODE_BD;
-        TAS5805M_SW_FREQ cur_sw = SW_FREQ_768K;
-        TAS5805M_BD_FREQ cur_bd = SW_FREQ_80K;
+        tas5805m_modulation_mode_t cur_mod = MOD_MODE_BD;
+        tas5805m_sw_freq_t cur_sw = SW_FREQ_768K;
+        tas5805m_bd_freq_t cur_bd = SW_FREQ_80K;
 
         // Read current values where possible
         if (tas5805m_get_modulation_mode(&cur_mod, &cur_sw, &cur_bd) != ESP_OK) {
@@ -1099,13 +1099,13 @@ esp_err_t tas5805m_settings_set_from_json(const char *json_in) {
 
         // Override with provided values
         if (cJSON_IsNumber(mod_mode_item)) {
-            cur_mod = (TAS5805M_MOD_MODE)mod_mode_item->valueint;
+            cur_mod = (tas5805m_modulation_mode_t)mod_mode_item->valueint;
         }
         if (cJSON_IsNumber(sw_freq_item)) {
-            cur_sw = (TAS5805M_SW_FREQ)sw_freq_item->valueint;
+            cur_sw = (tas5805m_sw_freq_t)sw_freq_item->valueint;
         }
         if (cJSON_IsNumber(bd_freq_item)) {
-            cur_bd = (TAS5805M_BD_FREQ)bd_freq_item->valueint;
+            cur_bd = (tas5805m_bd_freq_t)bd_freq_item->valueint;
         }
 
         // Apply merged settings
@@ -1123,7 +1123,7 @@ esp_err_t tas5805m_settings_set_from_json(const char *json_in) {
     // Update mixer mode if present
     cJSON *mixer_mode_item = cJSON_GetObjectItem(root, "mixer_mode");
     if (cJSON_IsNumber(mixer_mode_item)) {
-        TAS5805M_MIXER_MODE mode = (TAS5805M_MIXER_MODE)mixer_mode_item->valueint;
+        tas5805m_mixer_mode_t mode = (tas5805m_mixer_mode_t)mixer_mode_item->valueint;
         err = tas5805m_set_mixer_mode(mode);
         if (err == ESP_OK) {
             ESP_LOGI(TAG, "%s: Applied mixer mode %d to DAC", __func__, (int)mode);
@@ -1136,7 +1136,7 @@ esp_err_t tas5805m_settings_set_from_json(const char *json_in) {
     // Update EQ mode if present
     cJSON *eq_mode_item = cJSON_GetObjectItem(root, "eq_mode");
     if (cJSON_IsNumber(eq_mode_item)) {
-        TAS5805M_EQ_MODE new_eq = (TAS5805M_EQ_MODE)eq_mode_item->valueint;
+        tas5805m_eq_mode_t new_eq = (tas5805m_eq_mode_t)eq_mode_item->valueint;
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
         err = tas5805m_set_eq_mode(new_eq);
         if (err == ESP_OK) {
@@ -1170,7 +1170,7 @@ esp_err_t tas5805m_settings_set_from_json(const char *json_in) {
         }
 
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
-        TAS5805M_EQ_MODE drv = TAS5805M_EQ_MODE_OFF;
+        tas5805m_eq_mode_t drv = TAS5805M_EQ_MODE_OFF;
         switch (ui) {
             case TAS5805M_EQ_UI_MODE_OFF: drv = TAS5805M_EQ_MODE_OFF; break;
             case TAS5805M_EQ_UI_MODE_15_BAND: drv = TAS5805M_EQ_MODE_ON; break;
@@ -1214,7 +1214,7 @@ esp_err_t tas5805m_settings_set_from_json(const char *json_in) {
                 }
             }
         } else if (ui == TAS5805M_EQ_UI_MODE_PRESETS) {
-            TAS5805M_EQ_PROFILE prof = FLAT;
+            tas5805m_eq_profile_t prof = FLAT;
             if (tas5805m_settings_load_eq_profile(TAS5805M_EQ_CHANNELS_LEFT, &prof) == ESP_OK) {
                 tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS_LEFT, prof);
             }
@@ -1230,7 +1230,7 @@ esp_err_t tas5805m_settings_set_from_json(const char *json_in) {
     // Update EQ profile/preset per channel if present
     cJSON *eq_prof_l_item = cJSON_GetObjectItem(root, "eq_profile_l");
     if (cJSON_IsNumber(eq_prof_l_item)) {
-        TAS5805M_EQ_PROFILE p = (TAS5805M_EQ_PROFILE)eq_prof_l_item->valueint;
+        tas5805m_eq_profile_t p = (tas5805m_eq_profile_t)eq_prof_l_item->valueint;
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
         esp_err_t serr = tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS_LEFT, p);
         if (serr == ESP_OK) {
@@ -1249,7 +1249,7 @@ esp_err_t tas5805m_settings_set_from_json(const char *json_in) {
 
     cJSON *eq_prof_r_item = cJSON_GetObjectItem(root, "eq_profile_r");
     if (cJSON_IsNumber(eq_prof_r_item)) {
-        TAS5805M_EQ_PROFILE p = (TAS5805M_EQ_PROFILE)eq_prof_r_item->valueint;
+        tas5805m_eq_profile_t p = (tas5805m_eq_profile_t)eq_prof_r_item->valueint;
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
         esp_err_t serr = tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS_RIGHT, p);
         if (serr == ESP_OK) {
@@ -1381,22 +1381,22 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     }
 
     // Get current DAC mode
-    TAS5805M_DAC_MODE dac_mode;
+    tas5805m_dac_mode_t dac_mode;
     if (tas5805m_get_dac_mode(&dac_mode) != ESP_OK) {
         dac_mode = TAS5805M_DAC_MODE_BTL;
     }
 
     // Get current modulation mode
-    TAS5805M_MOD_MODE mod_mode;
-    TAS5805M_SW_FREQ sw_freq;
-    TAS5805M_BD_FREQ bd_freq;
+    tas5805m_modulation_mode_t mod_mode;
+    tas5805m_sw_freq_t sw_freq;
+    tas5805m_bd_freq_t bd_freq;
     if (tas5805m_get_modulation_mode(&mod_mode, &sw_freq, &bd_freq) != ESP_OK) {
         mod_mode = MOD_MODE_BD;
         sw_freq = SW_FREQ_768K;
         bd_freq = SW_FREQ_80K;
     }
     /* EQ mode - query driver when available, otherwise default to OFF */
-    TAS5805M_EQ_MODE eq_mode_val = TAS5805M_EQ_MODE_OFF;
+    tas5805m_eq_mode_t eq_mode_val = TAS5805M_EQ_MODE_OFF;
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
     if (tas5805m_get_eq_mode(&eq_mode_val) != ESP_OK) {
         eq_mode_val = TAS5805M_EQ_MODE_OFF;
@@ -1671,7 +1671,7 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     if (tas5805m_settings_load_eq_ui_mode(&cur_ui_mode) != ESP_OK) {
         // fallback: map driver eq_mode to a reasonable UI mode
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
-        TAS5805M_EQ_MODE drv = TAS5805M_EQ_MODE_OFF;
+        tas5805m_eq_mode_t drv = TAS5805M_EQ_MODE_OFF;
         if (tas5805m_get_eq_mode(&drv) == ESP_OK) {
             if (drv == TAS5805M_EQ_MODE_OFF) cur_ui_mode = TAS5805M_EQ_UI_MODE_OFF;
             else if (drv == TAS5805M_EQ_MODE_ON) cur_ui_mode = TAS5805M_EQ_UI_MODE_15_BAND;
@@ -1715,7 +1715,7 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
     // EQ Preset / Profile per channel
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
     {
-        TAS5805M_EQ_PROFILE cur_prof_l = FLAT, cur_prof_r = FLAT;
+        tas5805m_eq_profile_t cur_prof_l = FLAT, cur_prof_r = FLAT;
         if (tas5805m_get_eq_profile_channel(TAS5805M_EQ_CHANNELS_LEFT, &cur_prof_l) != ESP_OK) cur_prof_l = FLAT;
         if (tas5805m_get_eq_profile_channel(TAS5805M_EQ_CHANNELS_RIGHT, &cur_prof_r) != ESP_OK) cur_prof_r = FLAT;
 
@@ -1951,15 +1951,15 @@ esp_err_t tas5805m_settings_get_dac_schema_json(char *json_out, size_t max_len) 
         analog_gain = 0;
     }
 
-    TAS5805M_DAC_MODE dac_mode;
+    tas5805m_dac_mode_t dac_mode;
     if (tas5805m_get_dac_mode(&dac_mode) != ESP_OK) {
         dac_mode = TAS5805M_DAC_MODE_BTL;
     }
 
     /* Get current modulation mode and frequencies */
-    TAS5805M_MOD_MODE mod_mode;
-    TAS5805M_SW_FREQ sw_freq;
-    TAS5805M_BD_FREQ bd_freq;
+    tas5805m_modulation_mode_t mod_mode;
+    tas5805m_sw_freq_t sw_freq;
+    tas5805m_bd_freq_t bd_freq;
     if (tas5805m_get_modulation_mode(&mod_mode, &sw_freq, &bd_freq) != ESP_OK) {
         mod_mode = MOD_MODE_BD;
         sw_freq = SW_FREQ_768K;
@@ -2065,7 +2065,7 @@ esp_err_t tas5805m_settings_get_dac_schema_json(char *json_out, size_t max_len) 
     cJSON *faults_params = cJSON_CreateArray();
     
     // Get current faults to populate schema
-    TAS5805M_FAULT current_fault = {0};
+    tas5805m_fault_t current_fault = {0};
     tas5805m_get_faults(&current_fault);
     
     // Create fault status parameter (readonly, displayed as list)
@@ -2330,7 +2330,7 @@ esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
 
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
     // Get current EQ mode
-    TAS5805M_EQ_MODE eq_mode_val = TAS5805M_EQ_MODE_OFF;
+    tas5805m_eq_mode_t eq_mode_val = TAS5805M_EQ_MODE_OFF;
     tas5805m_get_eq_mode(&eq_mode_val);
 
     // EQ Mode Group
@@ -2375,7 +2375,7 @@ esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
     /* EQ Preset / Profile per channel (so UI 'Presets' mode has controls) */
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
     {
-        TAS5805M_EQ_PROFILE cur_prof_l = FLAT, cur_prof_r = FLAT;
+        tas5805m_eq_profile_t cur_prof_l = FLAT, cur_prof_r = FLAT;
         if (tas5805m_get_eq_profile_channel(TAS5805M_EQ_CHANNELS_LEFT, &cur_prof_l) != ESP_OK) cur_prof_l = FLAT;
         if (tas5805m_get_eq_profile_channel(TAS5805M_EQ_CHANNELS_RIGHT, &cur_prof_r) != ESP_OK) cur_prof_r = FLAT;
 
@@ -2617,7 +2617,7 @@ esp_err_t tas5805m_settings_apply_early(void) {
     }
 
     // Apply DAC mode
-    TAS5805M_DAC_MODE dac_mode;
+    tas5805m_dac_mode_t dac_mode;
     if (tas5805m_settings_load_dac_mode(&dac_mode) == ESP_OK) {
         ESP_LOGI(TAG, "%s: Restoring DAC mode=%d", __func__, (int)dac_mode);
         if (tas5805m_set_dac_mode(dac_mode) != ESP_OK) {
@@ -2626,9 +2626,9 @@ esp_err_t tas5805m_settings_apply_early(void) {
     }
 
     // Apply modulation mode (mode, sw_freq, bd_freq)
-    TAS5805M_MOD_MODE mod_mode;
-    TAS5805M_SW_FREQ sw_freq;
-    TAS5805M_BD_FREQ bd_freq;
+    tas5805m_modulation_mode_t mod_mode;
+    tas5805m_sw_freq_t sw_freq;
+    tas5805m_bd_freq_t bd_freq;
     if (tas5805m_settings_load_modulation_mode(&mod_mode, &sw_freq, &bd_freq) == ESP_OK) {
         ESP_LOGI(TAG, "%s: Restoring modulation mode=%d, sw=%d, bd=%d", __func__, (int)mod_mode, (int)sw_freq, (int)bd_freq);
         if (tas5805m_set_modulation_mode(mod_mode, sw_freq, bd_freq) != ESP_OK) {
@@ -2650,7 +2650,7 @@ esp_err_t tas5805m_settings_apply_delayed(void) {
     tas5805m_i2s_clock_ready = true;
     
     // Apply mixer mode
-    TAS5805M_MIXER_MODE mixer_mode;
+    tas5805m_mixer_mode_t mixer_mode;
     if (tas5805m_settings_load_mixer_mode(&mixer_mode) == ESP_OK) {
         ESP_LOGI(TAG, "%s: Restoring mixer mode=%d", __func__, (int)mixer_mode);
         if (tas5805m_set_mixer_mode(mixer_mode) != ESP_OK) {
@@ -2658,7 +2658,7 @@ esp_err_t tas5805m_settings_apply_delayed(void) {
         }
     }
 
-    TAS5805M_EQ_MODE eq_mode = TAS5805M_EQ_MODE_OFF;
+    tas5805m_eq_mode_t eq_mode = TAS5805M_EQ_MODE_OFF;
     if (tas5805m_settings_load_eq_mode(&eq_mode) == ESP_OK) {
         ESP_LOGI(TAG, "%s: Restoring EQ mode=%d", __func__, (int)eq_mode);
     #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
@@ -2718,7 +2718,7 @@ esp_err_t tas5805m_settings_apply_delayed(void) {
         }
     } else if (ui_mode == TAS5805M_EQ_UI_MODE_PRESETS) {
         // Apply persisted EQ profiles for both channels
-        TAS5805M_EQ_PROFILE prof = FLAT;
+        tas5805m_eq_profile_t prof = FLAT;
         if (tas5805m_settings_load_eq_profile(TAS5805M_EQ_CHANNELS_LEFT, &prof) == ESP_OK) {
             if (tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS_LEFT, prof) != ESP_OK) {
                 ESP_LOGW(TAG, "%s: Failed to apply saved EQ profile L", __func__);
@@ -2807,15 +2807,15 @@ esp_err_t tas5805m_settings_get_dac_json(char *json_out, size_t max_len) {
     }
 
     // Get current DAC mode
-    TAS5805M_DAC_MODE dac_mode;
+    tas5805m_dac_mode_t dac_mode;
     if (tas5805m_get_dac_mode(&dac_mode) != ESP_OK) {
         dac_mode = TAS5805M_DAC_MODE_BTL;
     }
 
     // Get current modulation mode
-    TAS5805M_MOD_MODE mod_mode;
-    TAS5805M_SW_FREQ sw_freq;
-    TAS5805M_BD_FREQ bd_freq;
+    tas5805m_modulation_mode_t mod_mode;
+    tas5805m_sw_freq_t sw_freq;
+    tas5805m_bd_freq_t bd_freq;
     if (tas5805m_get_modulation_mode(&mod_mode, &sw_freq, &bd_freq) != ESP_OK) {
         mod_mode = MOD_MODE_BD;
         sw_freq = SW_FREQ_768K;
@@ -2840,7 +2840,7 @@ esp_err_t tas5805m_settings_get_dac_json(char *json_out, size_t max_len) {
     cJSON_AddNumberToObject(root, "mixer_mode", (int)dac_state.mixer_mode);
 
     // Get and add faults
-    TAS5805M_FAULT fault;
+    tas5805m_fault_t fault;
     if (tas5805m_get_faults(&fault) == ESP_OK) {
         cJSON *faults_array = tas5805m_create_faults_array(fault);
         if (faults_array) {
@@ -2890,7 +2890,7 @@ esp_err_t tas5805m_settings_get_eq_json(char *json_out, size_t max_len) {
 
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
     // Get current EQ mode
-    TAS5805M_EQ_MODE eq_mode_val = TAS5805M_EQ_MODE_OFF;
+    tas5805m_eq_mode_t eq_mode_val = TAS5805M_EQ_MODE_OFF;
     if (tas5805m_get_eq_mode(&eq_mode_val) != ESP_OK) {
         eq_mode_val = TAS5805M_EQ_MODE_OFF;
     }
@@ -2902,7 +2902,7 @@ esp_err_t tas5805m_settings_get_eq_json(char *json_out, size_t max_len) {
     cJSON_AddNumberToObject(root, "eq_ui_mode", (int)ui_mode);
 
     // Get EQ profiles
-    TAS5805M_EQ_PROFILE prof_l = FLAT, prof_r = FLAT;
+    tas5805m_eq_profile_t prof_l = FLAT, prof_r = FLAT;
     tas5805m_settings_load_eq_profile(TAS5805M_EQ_CHANNELS_LEFT, &prof_l);
     tas5805m_settings_load_eq_profile(TAS5805M_EQ_CHANNELS_RIGHT, &prof_r);
     cJSON_AddNumberToObject(root, "eq_profile_left", (int)prof_l);
@@ -3010,7 +3010,7 @@ esp_err_t tas5805m_settings_set_dac_from_json(const char *json_in) {
     // Update state if present
     cJSON *state_item = cJSON_GetObjectItem(root, "state");
     if (cJSON_IsNumber(state_item)) {
-        TAS5805M_CTRL_STATE new_state = (TAS5805M_CTRL_STATE)state_item->valueint;
+        tas5805m_ctrl_state_t new_state = (tas5805m_ctrl_state_t)state_item->valueint;
         
         // Apply to DAC (do NOT persist state - state is managed by application)
         err = tas5805m_set_state(new_state);
@@ -3057,7 +3057,7 @@ esp_err_t tas5805m_settings_set_dac_from_json(const char *json_in) {
     // Update DAC mode if present
     cJSON *dac_mode_item = cJSON_GetObjectItem(root, "dac_mode");
     if (cJSON_IsNumber(dac_mode_item)) {
-        TAS5805M_DAC_MODE mode = (TAS5805M_DAC_MODE)dac_mode_item->valueint;
+        tas5805m_dac_mode_t mode = (tas5805m_dac_mode_t)dac_mode_item->valueint;
         
         err = tas5805m_set_dac_mode(mode);
         if (err == ESP_OK) {
@@ -3078,9 +3078,9 @@ esp_err_t tas5805m_settings_set_dac_from_json(const char *json_in) {
     cJSON *bd_freq_item = cJSON_GetObjectItem(root, "bd_freq");
 
     if (cJSON_IsNumber(mod_mode_item) || cJSON_IsNumber(sw_freq_item) || cJSON_IsNumber(bd_freq_item)) {
-        TAS5805M_MOD_MODE cur_mod = MOD_MODE_BD;
-        TAS5805M_SW_FREQ cur_sw = SW_FREQ_768K;
-        TAS5805M_BD_FREQ cur_bd = SW_FREQ_80K;
+        tas5805m_modulation_mode_t cur_mod = MOD_MODE_BD;
+        tas5805m_sw_freq_t cur_sw = SW_FREQ_768K;
+        tas5805m_bd_freq_t cur_bd = SW_FREQ_80K;
 
         // Read current values where possible
         if (tas5805m_get_modulation_mode(&cur_mod, &cur_sw, &cur_bd) != ESP_OK) {
@@ -3089,13 +3089,13 @@ esp_err_t tas5805m_settings_set_dac_from_json(const char *json_in) {
 
         // Override with provided values
         if (cJSON_IsNumber(mod_mode_item)) {
-            cur_mod = (TAS5805M_MOD_MODE)mod_mode_item->valueint;
+            cur_mod = (tas5805m_modulation_mode_t)mod_mode_item->valueint;
         }
         if (cJSON_IsNumber(sw_freq_item)) {
-            cur_sw = (TAS5805M_SW_FREQ)sw_freq_item->valueint;
+            cur_sw = (tas5805m_sw_freq_t)sw_freq_item->valueint;
         }
         if (cJSON_IsNumber(bd_freq_item)) {
-            cur_bd = (TAS5805M_BD_FREQ)bd_freq_item->valueint;
+            cur_bd = (tas5805m_bd_freq_t)bd_freq_item->valueint;
         }
 
         // Apply merged settings
@@ -3113,7 +3113,7 @@ esp_err_t tas5805m_settings_set_dac_from_json(const char *json_in) {
     // Update mixer mode if present
     cJSON *mixer_mode_item = cJSON_GetObjectItem(root, "mixer_mode");
     if (cJSON_IsNumber(mixer_mode_item)) {
-        TAS5805M_MIXER_MODE mode = (TAS5805M_MIXER_MODE)mixer_mode_item->valueint;
+        tas5805m_mixer_mode_t mode = (tas5805m_mixer_mode_t)mixer_mode_item->valueint;
         err = tas5805m_set_mixer_mode(mode);
         if (err == ESP_OK) {
             ESP_LOGI(TAG, "%s: Applied mixer mode %d to DAC", __func__, (int)mode);
@@ -3168,7 +3168,7 @@ esp_err_t tas5805m_settings_set_eq_from_json(const char *json_in) {
             tas5805m_settings_save_eq_ui_mode(ui_mode);
             
             // Convert UI mode to driver mode and apply
-            TAS5805M_EQ_MODE eq_mode = TAS5805M_EQ_MODE_OFF;
+            tas5805m_eq_mode_t eq_mode = TAS5805M_EQ_MODE_OFF;
             if (ui_mode == TAS5805M_EQ_UI_MODE_OFF) {
                 eq_mode = TAS5805M_EQ_MODE_OFF;
             } else if (ui_mode == TAS5805M_EQ_UI_MODE_15_BAND) {
@@ -3205,8 +3205,8 @@ esp_err_t tas5805m_settings_set_eq_from_json(const char *json_in) {
                 }
             } else if (ui_mode == TAS5805M_EQ_UI_MODE_PRESETS) {
                 // Apply saved preset profiles
-                TAS5805M_EQ_PROFILE prof_l = FLAT;
-                TAS5805M_EQ_PROFILE prof_r = FLAT;
+                tas5805m_eq_profile_t prof_l = FLAT;
+                tas5805m_eq_profile_t prof_r = FLAT;
                 if (tas5805m_settings_load_eq_profile(TAS5805M_EQ_CHANNELS_LEFT, &prof_l) == ESP_OK) {
                     ESP_LOGI(TAG, "%s: Applying saved preset left=%d", __func__, (int)prof_l);
                     tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS_LEFT, prof_l);
@@ -3218,13 +3218,13 @@ esp_err_t tas5805m_settings_set_eq_from_json(const char *json_in) {
             } 
         }
         else if (strcmp(key, "eq_profile_l") == 0 && cJSON_IsNumber(item)) {
-            TAS5805M_EQ_PROFILE prof = (TAS5805M_EQ_PROFILE)item->valueint;
+            tas5805m_eq_profile_t prof = (tas5805m_eq_profile_t)item->valueint;
             ESP_LOGI(TAG, "%s: Setting EQ profile left to %d", __func__, (int)prof);
             tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS_LEFT, prof);
             tas5805m_settings_save_eq_profile(TAS5805M_EQ_CHANNELS_LEFT, prof);
         }
         else if (strcmp(key, "eq_profile_r") == 0 && cJSON_IsNumber(item)) {
-            TAS5805M_EQ_PROFILE prof = (TAS5805M_EQ_PROFILE)item->valueint;
+            tas5805m_eq_profile_t prof = (tas5805m_eq_profile_t)item->valueint;
             ESP_LOGI(TAG, "%s: Setting EQ profile right to %d", __func__, (int)prof);
             tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS_RIGHT, prof);
             tas5805m_settings_save_eq_profile(TAS5805M_EQ_CHANNELS_RIGHT, prof);
