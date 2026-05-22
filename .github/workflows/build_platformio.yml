@@ -62,4 +62,10 @@ jobs:
         run: pip install --quiet platformio
 
       - name: Build ${{ matrix.environment }}
-        run: platformio run --environment ${{ matrix.environment }}
+        run: |
+          # On the first completely clean build, cmake configure runs *after*
+          # extra_scripts are evaluated, so pre_build.py finds no build.ninja
+          # and skips ESP-IDF embed-file stub generation → ninja fails.
+          # The second attempt finds the freshly created build.ninja and succeeds.
+          platformio run --environment ${{ matrix.environment }} \
+            || platformio run --environment ${{ matrix.environment }}
