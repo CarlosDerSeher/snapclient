@@ -62,4 +62,4 @@ jobs:
         run: pip install --quiet platformio
 
       - name: Build ${{ matrix.environment }}
-        run: platformio run --environment ${{ matrix.environment }} --no-ansi
+        run: platformio run --environment ${{ matrix.environment }}
