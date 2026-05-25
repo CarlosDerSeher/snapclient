@@ -1,7 +1,0 @@
-# Configure static wifi settings - usefult for testing
-
-# CONFIG_ENABLE_WIFI_PROVISIONING is not set
-CONFIG_WIFI_SSID="wifi-12-private"
-CONFIG_WIFI_PASSWORD="9263777101"
-CONFIG_WIFI_AUTH_WPA_PSK=y
-CONFIG_WIFI_MAXIMUM_RETRY=0
