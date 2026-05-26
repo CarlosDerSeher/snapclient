@@ -9,5 +9,6 @@ extern const int OTA_CONNECTED_BIT;
 
 void ota_server_task(void *param);
 void ota_server_start_my(void);
+void ota_on_sc_state_changed();
 
 extern EventGroupHandle_t ota_event_group;

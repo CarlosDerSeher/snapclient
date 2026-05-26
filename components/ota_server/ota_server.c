@@ -22,12 +22,16 @@
 #include "player.h"
 
 extern TaskHandle_t t_http_get_task;
+extern void sc_stop_snapclient();
+typedef enum { STOPPED = 0, IDLE, PLAYING, PAUSED } snapclient_state_t;
+extern snapclient_state_t sc_get_snapclient_state(void);
 
 const int OTA_CONNECTED_BIT = BIT0;
 static const char *TAG = "OTA";
 EventGroupHandle_t ota_event_group;
 /*socket*/
 static int connect_socket = 0;
+static TaskHandle_t otaTaskHandle = NULL;
 
 void ota_server_task(void *param) {
   // xEventGroupWaitBits(ota_event_group, OTA_CONNECTED_BIT, false, true,
@@ -152,9 +156,41 @@ static esp_err_t create_tcp_server() {
   return ESP_OK;
 }
 
+void ota_on_sc_state_changed() {
+  if (otaTaskHandle != NULL) {
+    xTaskNotifyGive(otaTaskHandle);
+  }
+}
+
+void wait_for_sc_stopped() {
+  snapclient_state_t state = sc_get_snapclient_state();
+  if (state == STOPPED) {
+    return;
+  }
+  // drain old notifications that might have come in while waiting for connection
+  ulTaskNotifyTake(pdTRUE, 0);
+  //ESP_LOGI(TAG, "Stopping snapclient...");
+  sc_stop_snapclient();
+  bool stopped = false;
+  while(!stopped) {
+    esp_err_t ret = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10000));
+    if (ret != pdTRUE) {
+      ESP_LOGW(TAG, "wait for sc stopped: timeout");
+      vTaskDelete(t_http_get_task);
+      break;
+    }
+    state = sc_get_snapclient_state();
+    if (state == STOPPED) {
+      stopped = true;
+    }
+  }
+}
+
 void ota_server_start_my(void) {
   uint8_t percent_loaded;
   uint8_t old_percent_loaded;
+
+  otaTaskHandle = xTaskGetCurrentTaskHandle();
 
   ESP_ERROR_CHECK(create_tcp_server());
   
@@ -162,8 +198,10 @@ void ota_server_start_my(void) {
   // SuspendAllThreads();
   // KillAllThreads();
   // dsp_i2s_task_deinit();
-  vTaskDelete(t_http_get_task);
+
+  wait_for_sc_stopped();
   deinit_player();  // ensure this is called after http_task was killed
+  vTaskDelay(pdMS_TO_TICKS(200));  // short delay to ensure all resources are freed before starting OTA
 
   const esp_partition_t *update_partition =
       esp_ota_get_next_update_partition(NULL);
@@ -229,7 +267,7 @@ void ota_server_start_my(void) {
   int send_len;
   send_len = sprintf(res_buff, "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
   send(connect_socket, res_buff, send_len, 0);
-  vTaskDelay(2000 / portTICK_PERIOD_MS);
+  vTaskDelay(pdMS_TO_TICKS(2000));
   close(connect_socket);
 
   ESP_ERROR_CHECK(esp_ota_end(ota_handle));

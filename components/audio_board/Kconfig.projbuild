@@ -9,6 +9,14 @@ menu "Audio Board"
 			choice and is not exposed to menuconfig.
 			See https://github.com/schreibfaul1/ESP32-audioI2S/blob/1d9b299d0197f99fc70335295adcd226dc220f88/src/Audio.cpp#L4929
 
+	config I2S_SLOT_32BIT
+		bool
+		default n
+		help
+			Forces the I2S slot width to 32 bits regardless of sample depth. Required for DACs that only
+			support 32-bit or 24-bit frames (e.g. MA120X0P whose OTP default frame size is 32 bits).
+			The IDF zero-pads 16-bit samples to fill the 32-bit slot automatically.
+
 	choice AUDIO_BOARD
 	    prompt "Audio board"
 		default ESP32_S2_KALUGA_1_V1_2_BOARD if IDF_TARGET_ESP32S2
@@ -94,6 +102,7 @@ menu "Audio Board"
 
 	    config DAC_MA120X0
 	        bool "Infineon MA120X0 ClassD AMP"
+	        select I2S_SLOT_32BIT
 
 	    config DAC_ADAU1961
 	        bool "Analog Devices ADAU1961 DAC"
@@ -206,23 +215,48 @@ menu "Audio Board"
 	             help
 			         GPIO number to control enable/disable.
 
+	         config MA120X0_NENABLE_INVERT
+	             bool "Invert nEnable pin logic (active-low)"
+	             default n
+	             depends on MA120X0_NENABLE_PIN != -1
+	             help
+	                 When enabled, the nEnable pin is driven LOW to enable the
+	                 amplifier and HIGH to disable it (active-low, as per the
+	                 MA120x0 datasheet). When disabled, HIGH = on, LOW = off.
+
 	         config MA120X0_NMUTE_PIN
 	             int "Master mute/unmute for ma120x0"
 	             default 2
 	             help
 	                 GPIO number to controm mute/unmute.
 
-	         config MERUS_NERR_PIN
+	         config MA120X0_NERR_PIN
 	             int "NERR monitor pin"
 	             default 21
 	             help
 	                 GPIO number to monitor NERROR.
 
-	         config MERUS_NCLIP_PIN
+	         config MA120X0_NCLIP_PIN
 	             int "Clip indication pin"
 	             default 22
 	             help
 	                 GPIO number low if clip observed
+
+	         config MA120X0_VOL_MAX_DB
+	             int "Maximum volume level (dB, ≤ 0)"
+	             default 0
+	             range -144 24
+	             help
+	                 Register value at slider position 100. 0 dB is the
+	                 maximum undistorted output level of the MA120x0.
+
+	         config MA120X0_VOL_MIN_DB
+	             int "Minimum volume level (dB)"
+	             default -60
+	             range -144 24
+	             help
+	                 Register value at slider position 0. Values below -60 dB
+	                 are practically inaudible on most systems.
 	     endmenu
 
 	     menu "Merus MA120 interface Configuration"

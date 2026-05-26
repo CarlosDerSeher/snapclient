@@ -259,21 +259,11 @@ static inline int16_t float_to_int16_clamped(float value) {
 /**
  *
  */
-int dsp_processor_worker(void *p_pcmChnk, const void *p_scSet) {
+int dsp_processor_worker(char *pcmChnk, uint16_t len, uint32_t samplerate, int ch) {
   ESP_LOGV(TAG, "%s: processing audio chunk", __func__);
-  const snapcastSetting_t *scSet = (const snapcastSetting_t *)p_scSet;
-  pcm_chunk_message_t *pcmChnk = (pcm_chunk_message_t *)p_pcmChnk;
-  uint32_t samplerate = scSet->sr;
 
-  if (!pcmChnk || !pcmChnk->fragment->payload) {
+  if (!pcmChnk) {
     return -1;
-  }
-
-  int bits = scSet->bits;
-  int ch = scSet->ch;
-
-  if (bits == 0) {
-    bits = 16;
   }
 
   if (ch == 0) {
@@ -285,12 +275,11 @@ int dsp_processor_worker(void *p_pcmChnk, const void *p_scSet) {
     ESP_LOGW(TAG, "%s: Sample rate is not set, using default: %lu", __func__, (unsigned long)samplerate);
   }
 
-  int16_t len = pcmChnk->fragment->size / ((bits / 8) * ch);
   int16_t valint;
   uint16_t i;
   // volatile needed to ensure 32 bit access
   volatile uint32_t *audio_tmp =
-      (volatile uint32_t *)(pcmChnk->fragment->payload);
+      (volatile uint32_t *)(pcmChnk);
   
   // Local working copy of filter parameters
   static filterParams_t currentFilterParams = {0};

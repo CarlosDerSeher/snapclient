@@ -50,8 +50,8 @@ extern "C" {
 /* Cached state structure */
 typedef struct {
 	int8_t volume;
-	TAS5805M_CTRL_STATE state;
-	TAS5805M_MIXER_MODE mixer_mode;
+	tas5805m_ctrl_state_t state;
+	tas5805m_mixer_mode_t mixer_mode;
 
 	/* Cached per-output channel gain in dB (-24..24), default 0 dB */
 	int8_t channel_gain_l;
@@ -60,7 +60,8 @@ typedef struct {
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
 	int8_t eq_gain_l[TAS5805M_EQ_BANDS];
 	int8_t eq_gain_r[TAS5805M_EQ_BANDS];
-	TAS5805M_EQ_PROFILE eq_profile[2];
+	tas5805m_eq_profile_t eq_profile[2];
+	tas5805m_eq_mode_t eq_mode;
 #endif
 } TAS5805_STATE;
 
@@ -71,6 +72,15 @@ typedef struct {
  *     - ESP_FAIL
  */
 esp_err_t tas5805m_init();
+
+/**
+ * @brief Get the detected DAC model
+ *
+ * Valid after tas5805m_init() has been called.
+ *
+ * @return TAS5805_MODEL_TAS5805M, TAS5805_MODEL_TAS5825M, or TAS5805_MODEL_UNKNOWN
+ */
+tas5805m_model_t tas5805m_get_model(void);
 
 /**
  * @brief Deinitialize TAS5805 codec chip
@@ -161,7 +171,7 @@ esp_err_t tas5805m_get_state(TAS5805_STATE *out_state);
  * @param state: The state to set
  *
  */
-esp_err_t tas5805m_set_state(TAS5805M_CTRL_STATE state);
+esp_err_t tas5805m_set_state(tas5805m_ctrl_state_t state);
 
 /**
  * @brief  Control the TAS5805 codec chip
@@ -193,7 +203,7 @@ esp_err_t tas5805m_config_iface(audio_hal_codec_mode_t mode,
  * @param mode: Pointer to the mode variable
  *
  */
-esp_err_t tas5805m_get_dac_mode(TAS5805M_DAC_MODE *mode);
+esp_err_t tas5805m_get_dac_mode(tas5805m_dac_mode_t *mode);
 
 /**
  * @brief Set the DAC mode of the TAS5805M
@@ -201,7 +211,7 @@ esp_err_t tas5805m_get_dac_mode(TAS5805M_DAC_MODE *mode);
  * @param mode: The mode to set
  *
  */
-esp_err_t tas5805m_set_dac_mode(TAS5805M_DAC_MODE mode);
+esp_err_t tas5805m_set_dac_mode(tas5805m_dac_mode_t mode);
 
 /**
  * @brief Get the current modulation mode of the TAS5805M
@@ -214,9 +224,9 @@ esp_err_t tas5805m_set_dac_mode(TAS5805M_DAC_MODE mode);
  *     - ESP_OK
  *     - ESP_FAIL
  */
-esp_err_t tas5805m_get_modulation_mode(TAS5805M_MOD_MODE *mode,
-									   TAS5805M_SW_FREQ *freq,
-									   TAS5805M_BD_FREQ *bd_freq);
+esp_err_t tas5805m_get_modulation_mode(tas5805m_modulation_mode_t *mode,
+									   tas5805m_sw_freq_t *freq,
+									   tas5805m_bd_freq_t *bd_freq);
 
 /**
  * @brief Set the modulation mode of the TAS5805M
@@ -229,9 +239,9 @@ esp_err_t tas5805m_get_modulation_mode(TAS5805M_MOD_MODE *mode,
  *     - ESP_OK
  *     - ESP_FAIL
  */
-esp_err_t tas5805m_set_modulation_mode(TAS5805M_MOD_MODE mode,
-									   TAS5805M_SW_FREQ freq,
-									   TAS5805M_BD_FREQ bd_freq);
+esp_err_t tas5805m_set_modulation_mode(tas5805m_modulation_mode_t mode,
+									   tas5805m_sw_freq_t freq,
+									   tas5805m_bd_freq_t bd_freq);
 
 /**
  * @brief Get the analog gain of the TAS5805M
@@ -264,7 +274,7 @@ esp_err_t tas5805m_set_again(uint8_t gain);
  *     - ESP_OK
  *     - ESP_FAIL
  */
-esp_err_t tas5805m_get_mixer_mode(TAS5805M_MIXER_MODE *mode);
+esp_err_t tas5805m_get_mixer_mode(tas5805m_mixer_mode_t *mode);
 
 /**
  * @brief Set the mixer mode of the TAS5805M
@@ -275,7 +285,7 @@ esp_err_t tas5805m_get_mixer_mode(TAS5805M_MIXER_MODE *mode);
  *     - ESP_OK
  *     - ESP_FAIL
  */
-esp_err_t tas5805m_set_mixer_mode(TAS5805M_MIXER_MODE mode);
+esp_err_t tas5805m_set_mixer_mode(tas5805m_mixer_mode_t mode);
 
 /**
  * @brief Set the mixer gain of the TAS5805M
@@ -288,7 +298,7 @@ esp_err_t tas5805m_set_mixer_mode(TAS5805M_MIXER_MODE mode);
  *     - ESP_OK
  *     - ESP_FAIL
  */
-esp_err_t tas5805m_set_mixer_gain(TAS5805M_MIXER_CHANNELS channel,
+esp_err_t tas5805m_set_mixer_gain(tas5805m_mixer_chan_t channel,
 								  uint32_t gain);
 
 /**
@@ -302,11 +312,11 @@ esp_err_t tas5805m_set_mixer_gain(TAS5805M_MIXER_CHANNELS channel,
  *     - ESP_OK
  *     - ESP_FAIL
  */
-esp_err_t tas5805m_set_channel_gain(TAS5805M_EQ_CHANNELS channel,
+esp_err_t tas5805m_set_channel_gain(tas5805m_eq_chan_t channel,
 								   int8_t gain_db);
 
 /** Get cached per-output channel gain (dB) */
-esp_err_t tas5805m_get_channel_gain(TAS5805M_EQ_CHANNELS channel, int8_t *gain_db);
+esp_err_t tas5805m_get_channel_gain(tas5805m_eq_chan_t channel, int8_t *gain_db);
 
 /**
  * @brief Get the faults of the TAS5805M
@@ -317,7 +327,7 @@ esp_err_t tas5805m_get_channel_gain(TAS5805M_EQ_CHANNELS channel, int8_t *gain_d
  *     - ESP_OK
  *     - ESP_FAIL
  */
-esp_err_t tas5805m_get_faults(TAS5805M_FAULT *fault);
+esp_err_t tas5805m_get_faults(tas5805m_fault_t *fault);
 
 /**
  * @brief Clear the faults of the TAS5805M
@@ -334,7 +344,7 @@ esp_err_t tas5805m_clear_faults();
  * @param fault: The fault struct to decode
  *
  */
-void tas5805m_decode_faults(TAS5805M_FAULT fault);
+void tas5805m_decode_faults(tas5805m_fault_t fault);
 
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
 
@@ -344,7 +354,7 @@ void tas5805m_decode_faults(TAS5805M_FAULT fault);
  * @param mode: Pointer to the mode variable
  *
  */
-esp_err_t tas5805m_get_eq_mode(TAS5805M_EQ_MODE *mode);
+esp_err_t tas5805m_get_eq_mode(tas5805m_eq_mode_t *mode);
 
 /**
  * @brief Set the EQ mode of the TAS5805M
@@ -355,7 +365,7 @@ esp_err_t tas5805m_get_eq_mode(TAS5805M_EQ_MODE *mode);
  *     - ESP_OK
  *     - ESP_FAIL
  */
-esp_err_t tas5805m_set_eq_mode(TAS5805M_EQ_MODE mode);
+esp_err_t tas5805m_set_eq_mode(tas5805m_eq_mode_t mode);
 
 /**
  * @brief Get the current EQ gain of the TAS5805M for LEFT channel (applies to
@@ -378,7 +388,7 @@ esp_err_t tas5805m_get_eq_gain(int band, int *gain);
  *     - ESP_OK
  *     - ESP_FAIL
  */
-esp_err_t tas5805m_get_eq_gain_channel(TAS5805M_EQ_CHANNELS channel, int band,
+esp_err_t tas5805m_get_eq_gain_channel(tas5805m_eq_chan_t channel, int band,
 									   int *gain);
 
 /**
@@ -402,7 +412,7 @@ esp_err_t tas5805m_set_eq_gain(int band, int gain);
  *     - ESP_OK
  *     - ESP_FAIL
  */
-esp_err_t tas5805m_set_eq_gain_channel(TAS5805M_EQ_CHANNELS channel, int band,
+esp_err_t tas5805m_set_eq_gain_channel(tas5805m_eq_chan_t channel, int band,
 									   int gain);
 
 /**
@@ -414,7 +424,7 @@ esp_err_t tas5805m_set_eq_gain_channel(TAS5805M_EQ_CHANNELS channel, int band,
  *     - ESP_OK
  *     - ESP_FAIL
  */
-esp_err_t tas5805m_get_eq_profile(TAS5805M_EQ_PROFILE *profile);
+esp_err_t tas5805m_get_eq_profile(tas5805m_eq_profile_t *profile);
 
 /**
  * @brief Get the EQ profile of the TAS5805M for a specific channel
@@ -426,8 +436,8 @@ esp_err_t tas5805m_get_eq_profile(TAS5805M_EQ_PROFILE *profile);
  *     - ESP_OK
  *     - ESP_FAIL
  */
-esp_err_t tas5805m_get_eq_profile_channel(TAS5805M_EQ_CHANNELS channel,
-										  TAS5805M_EQ_PROFILE *profile);
+esp_err_t tas5805m_get_eq_profile_channel(tas5805m_eq_chan_t channel,
+										  tas5805m_eq_profile_t *profile);
 
 /**
  * @brief Set the EQ profile of the TAS5805M
@@ -438,7 +448,7 @@ esp_err_t tas5805m_get_eq_profile_channel(TAS5805M_EQ_CHANNELS channel,
  *     - ESP_OK
  *     - ESP_FAIL
  */
-esp_err_t tas5805m_set_eq_profile(TAS5805M_EQ_PROFILE profile);
+esp_err_t tas5805m_set_eq_profile(tas5805m_eq_profile_t profile);
 
 /**
  * @brief Set the EQ profile of the TAS5805M for a specific channel
@@ -450,8 +460,8 @@ esp_err_t tas5805m_set_eq_profile(TAS5805M_EQ_PROFILE profile);
  *     - ESP_OK
  *     - ESP_FAIL
  */
-esp_err_t tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS channel,
-										  TAS5805M_EQ_PROFILE profile);
+esp_err_t tas5805m_set_eq_profile_channel(tas5805m_eq_chan_t channel,
+										  tas5805m_eq_profile_t profile);
 
 /**
  * @brief Read biquad filter coefficients for a specific channel and band.
@@ -472,7 +482,7 @@ esp_err_t tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS channel,
  *     - ESP_ERR_INVALID_ARG if parameters are NULL or band is out of range
  *     - ESP_FAIL on I2C communication error
  */
-esp_err_t tas5805m_read_biquad_coefficients(TAS5805M_EQ_CHANNELS channel, int band,
+esp_err_t tas5805m_read_biquad_coefficients(tas5805m_eq_chan_t channel, int band,
                                              float *b0, float *b1, float *b2,
                                              float *a1, float *a2);
 
@@ -494,7 +504,7 @@ esp_err_t tas5805m_read_biquad_coefficients(TAS5805M_EQ_CHANNELS channel, int ba
  *     - ESP_ERR_INVALID_ARG if band is out of range
  *     - ESP_FAIL on I2C communication error
  */
-esp_err_t tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS channel, int band,
+esp_err_t tas5805m_write_biquad_coefficients(tas5805m_eq_chan_t channel, int band,
                                               float b0, float b1, float b2,
                                               float a1, float a2);
 
