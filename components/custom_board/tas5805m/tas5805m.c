@@ -930,21 +930,21 @@ void tas5805m_decode_faults(tas5805m_fault_t fault)
  */
 const tas5805m_eq_band_cfg_t tas5805m_eq_band_cfg[TAS5805M_EQ_BANDS] = {
     /* freq_hz   q      min_db  max_db  filter_type */
-    {    20,   2.0f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
-    {    32,   2.0f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
-    {    50,   1.5f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
-    {    80,   1.5f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
-    {   125,   1.0f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
-    {   200,   1.0f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
-    {   315,   0.9f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
-    {   500,   0.9f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
-    {   800,   0.8f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
-    {  1250,   0.8f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
-    {  2000,   0.7f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
-    {  3150,   0.7f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
-    {  5000,   0.6f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
-    {  8000,   0.6f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
-    { 16000,   0.5f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
+    {    20,   2.0f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
+    {    32,   2.0f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
+    {    50,   1.5f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
+    {    80,   1.5f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
+    {   125,   1.0f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
+    {   200,   1.0f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
+    {   315,   0.9f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
+    {   500,   0.9f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
+    {   800,   0.8f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
+    {  1250,   0.8f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
+    {  2000,   0.7f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
+    {  3150,   0.7f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
+    {  5000,   0.6f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
+    {  8000,   0.6f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
+    { 16000,   0.5f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
 };
 
 /*
