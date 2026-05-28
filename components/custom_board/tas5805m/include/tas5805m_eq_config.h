@@ -13,14 +13,19 @@ extern "C" {
 #define TAS5805M_EQ_BANDS    15
 
 /**
- * @brief Global gain range (dB) used by all bands unless overridden per-band.
- *
- * The LUT was generated for ±15 dB in 1 dB steps.  The macros are kept so
- * that the LUT-indexing arithmetic (gain + TAS5805M_EQ_MAX_DB) continues to
- * work without modification.
+ * @brief Global gain range (dB) for all parametric EQ bands.
  */
 #define TAS5805M_EQ_MAX_DB   15
 #define TAS5805M_EQ_MIN_DB   (-TAS5805M_EQ_MAX_DB)
+
+/** Number of biquad coefficients per band (B0, B1, B2, A1, A2). */
+#define TAS5805M_EQ_KOEF_PER_BAND  5
+
+/** Number of biquad slots used per profile (BQ1 + BQ2 + BQ3). */
+#define TAS5805M_EQ_PROFILE_BANDS  3
+
+/** DSP coefficient RAM book number (Book 0xAA). */
+#define TAS5805M_REG_BOOK_EQ       0xaa
 
 /**
  * @brief Per-band EQ configuration.

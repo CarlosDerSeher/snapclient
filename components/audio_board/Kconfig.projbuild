@@ -205,15 +205,7 @@ menu "Audio Board"
 					Equalizer configuration and runtime control remain available via
 					the device UI. Default: disabled.
 
-			config DAC_TAS5805M_EQ_BQ_CALC
-				bool "Use on-the-fly BQ coefficient calculation instead of lookup table"
-				depends on DAC_TAS5805M_EQ_SUPPORT
-				default false
-				help
-					When enabled, EQ biquad coefficients are calculated at runtime using
-					the PPC3 (Diljith) formula instead of being read from the pre-computed
-					lookup table. Useful for testing formula correctness on hardware.
-	    endmenu
+		    endmenu
 
 		menu "Merus MA120x0 interface Configuration"
 			 depends on DAC_MA120X0

@@ -977,75 +977,6 @@ const tas5805m_eq_profile_cfg_t tas5805m_eq_profile_cfg[TAS5805M_EQ_PROFILES] = 
     /* [20] HF 150 Hz */ { BQ_FILTER_HIGH_PASS,      150, 0.5f },
 };
 
-/*
- * Log a side-by-side comparison of lookup-table vs on-the-fly bq_calc
- * coefficients for the given band and gain.
- *
- * Coefficients are shown in TAS5805M convention:
- *   b0, b1, b2 — numerator (same as standard form)
- *   A1 = -a1_std, A2 = -a2_std — negated feedback denominators
- */
-static void tas5805m_log_eq_comparison(const reg_sequence_eq **eq_maps,
-                                        int band, int gain_db)
-{
-    const float freq_hz = (float)tas5805m_eq_band_cfg[band].freq_hz;
-    const float q       = tas5805m_eq_band_cfg[band].q;
-
-    /* Decode 5 coefficients from the lookup table (big-endian Q5.27) */
-    int x = gain_db + TAS5805M_EQ_MAX_DB;
-    int y = band * TAS5805M_EQ_KOEF_PER_BAND * TAS5805M_EQ_REG_PER_KOEF;
-    float tbl[TAS5805M_EQ_KOEF_PER_BAND];
-    for (int ci = 0; ci < TAS5805M_EQ_KOEF_PER_BAND; ci++) {
-        const reg_sequence_eq *r = &eq_maps[x][y + ci * TAS5805M_EQ_REG_PER_KOEF];
-        /* Assembly matches tas5805m_set_eq_gain_channel: byte0 is MSB in wire order */
-        uint32_t raw_le = (uint32_t)r[0].value        |
-                          ((uint32_t)r[1].value <<  8) |
-                          ((uint32_t)r[2].value << 16) |
-                          ((uint32_t)r[3].value << 24);
-        tbl[ci] = tas5805m_q5_27_to_float(raw_le);
-    }
-
-    /*
-     * Compute coefficients at 48 kHz and compare against the LUT.
-     */
-    bq_coeffs_t calc;
-    float calc_coeff[TAS5805M_EQ_KOEF_PER_BAND];
-    float total_err = 0.0f;
-
-    if (bq_calc(BQ_FILTER_EQ_Q_FACTOR, (double)freq_hz, (double)gain_db,
-                (double)q, BQ_SAMPLE_RATE_48K, &calc) != 0) {
-        ESP_LOGW(TAG, "%s: bq_calc failed band=%d gain=%d", __func__, band, gain_db);
-        return;
-    }
-    calc_coeff[0] = (float)calc.b0;
-    calc_coeff[1] = (float)calc.b1;
-    calc_coeff[2] = (float)calc.b2;
-    calc_coeff[3] = -(float)calc.a1;
-    calc_coeff[4] = -(float)calc.a2;
-    for (int ci = 0; ci < TAS5805M_EQ_KOEF_PER_BAND; ci++) {
-        total_err += fabsf(tbl[ci] - calc_coeff[ci]);
-    }
-
-    static const char * const coeff_names[TAS5805M_EQ_KOEF_PER_BAND] =
-        {"b0", "b1", "b2", "A1", "A2"};
-
-    ESP_LOGI(TAG, "BQ compare: band %2d (%5d Hz)  Q=%.2f  gain=%+3d dB  (err=%.6f)",
-             band, (int)freq_hz, q, gain_db, total_err);
-
-    for (int ci = 0; ci < TAS5805M_EQ_KOEF_PER_BAND; ci++) {
-        float delta = tbl[ci] - calc_coeff[ci];
-        float pct = (fabsf(tbl[ci]) > 1e-9f)
-                    ? delta / fabsf(tbl[ci]) * 100.0f : 0.0f;
-        if (fabsf(pct) > 5.0f) {
-            ESP_LOGW(TAG, "  %s:  LUT=%+.7f  CALC=%+.7f  delta=%+.7f  (%+.2f%%)",
-                     coeff_names[ci], tbl[ci], calc_coeff[ci], delta, pct);
-        } else {
-            ESP_LOGI(TAG, "  %s:  LUT=%+.7f  CALC=%+.7f  delta=%+.7f  (%+.2f%%)",
-                     coeff_names[ci], tbl[ci], calc_coeff[ci], delta, pct);
-        }
-    }
-}
-
 esp_err_t tas5805m_get_eq_mode(tas5805m_eq_mode_t *mode)
 {
   *mode = tas5805m_state.eq_mode;
@@ -1128,8 +1059,7 @@ esp_err_t tas5805m_set_eq_gain_channel(tas5805m_eq_chan_t channel, int band, int
   int ret = ESP_OK;
   ESP_LOGD(TAG, "%s: Setting EQ band %d (%d Hz) to gain %d", __func__, band, tas5805m_eq_band_cfg[band].freq_hz, gain);
 
-#if defined(CONFIG_DAC_TAS5805M_EQ_BQ_CALC)
-  /* --- On-the-fly calculation path (no LUT dependency) ---------------- */
+  /* --- On-the-fly coefficient calculation ----------------------------- */
   {
     const tas5805m_bq_band_addr_t *bq_addr =
         (tas5805m_model == TAS5805_MODEL_TAS5825M)
@@ -1169,54 +1099,6 @@ esp_err_t tas5805m_set_eq_gain_channel(tas5805m_eq_chan_t channel, int band, int
       }
     }
   }
-#else
-  /* --- Lookup-table path (original) ----------------------------------- */
-  int x = gain + TAS5805M_EQ_MAX_DB;
-  int y = band * TAS5805M_EQ_KOEF_PER_BAND * TAS5805M_EQ_REG_PER_KOEF;
-
-  const reg_sequence_eq **eq_maps;
-  if (tas5805m_model == TAS5805_MODEL_TAS5825M) {
-    eq_maps = (channel == TAS5805M_EQ_CHANNELS_RIGHT) ? tas5825m_eq_registers_right : tas5825m_eq_registers_left;
-  } else {
-    eq_maps = (channel == TAS5805M_EQ_CHANNELS_RIGHT) ? tas5805m_eq_registers_right : tas5805m_eq_registers_left;
-  }
-
-  /* Log LUT vs on-the-fly bq_calc side by side before writing to device */
-  tas5805m_log_eq_comparison(eq_maps, band, gain);
-
-  for (int i = 0; i < TAS5805M_EQ_KOEF_PER_BAND * TAS5805M_EQ_REG_PER_KOEF; i += TAS5805M_EQ_REG_PER_KOEF) 
-  { 
-      const reg_sequence_eq *reg_value0 = &eq_maps[x][y + i + 0];
-      const reg_sequence_eq *reg_value1 = &eq_maps[x][y + i + 1];
-      const reg_sequence_eq *reg_value2 = &eq_maps[x][y + i + 2];
-      const reg_sequence_eq *reg_value3 = &eq_maps[x][y + i + 3];
-
-      if (reg_value0 == NULL || reg_value1 == NULL || reg_value2 == NULL || reg_value3 == NULL) {                                        
-          ESP_LOGW(TAG, "%s: NULL pointer encountered at row[%d]", __func__, y + i); 
-          continue;                                                   
-      }                                                               
-      
-      // Assume all 4 reg values are in the same page, seems to be true for all BQ registers
-      if (reg_value0->page != current_page) {                          
-        TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_EQ, reg_value0->page); 
-        current_page = reg_value0->page;                             
-      }                                                               
-                
-      uint8_t address = reg_value0->offset;
-      uint32_t value = reg_value0->value | 
-                     (reg_value1->value << 8) | 
-                     (reg_value2->value << 16) | 
-                     (reg_value3->value << 24);
-
-      ESP_LOGV(TAG, "%s: + %d: w 0x%x 0x%x 0x%x 0x%x 0x%x -> 0x%x", __func__, i, 
-             reg_value0->offset, reg_value0->value, 
-             reg_value1->value, reg_value2->value, reg_value3->value, (unsigned int)value);
-      ret = ret | tas5805m_write_bytes(&address, 1, (uint8_t *)&value, sizeof(value));
-      if (ret != ESP_OK) { 
-          ESP_LOGE(TAG, "%s: Error writing to register 0x%x", __func__, address); 
-      }          
-  }
-#endif /* CONFIG_DAC_TAS5805M_EQ_BQ_CALC */   
   
   if (channel == TAS5805M_EQ_CHANNELS_RIGHT)
     tas5805m_state.eq_gain_r[band] = gain;
@@ -1247,8 +1129,7 @@ esp_err_t tas5805m_set_eq_profile_channel(tas5805m_eq_chan_t channel, tas5805m_e
   int ret = ESP_OK;
   ESP_LOGD(TAG, "%s: Setting EQ profile to %d on channel %d", __func__, profile, channel);
 
-#if defined(CONFIG_DAC_TAS5805M_EQ_BQ_CALC)
-  /* --- On-the-fly calculation path (no LUT dependency) ---------------- */
+  /* --- On-the-fly coefficient calculation ----------------------------- */
   {
     const tas5805m_bq_band_addr_t *bq_addr =
         (tas5805m_model == TAS5805_MODEL_TAS5825M)
@@ -1302,45 +1183,6 @@ esp_err_t tas5805m_set_eq_profile_channel(tas5805m_eq_chan_t channel, tas5805m_e
       }
     }
   }
-#else
-  /* --- Lookup-table path (original) ----------------------------------- */
-  {
-    int current_page = 0;
-    const reg_sequence_eq **eq_maps;
-    if (tas5805m_model == TAS5805_MODEL_TAS5825M) {
-      eq_maps = (channel == TAS5805M_EQ_CHANNELS_RIGHT) ? tas5825m_eq_profile_right_registers : tas5825m_eq_profile_left_registers;
-    } else {
-      eq_maps = (channel == TAS5805M_EQ_CHANNELS_RIGHT) ? tas5805m_eq_profile_right_registers : tas5805m_eq_profile_left_registers;
-    }
-
-    int x = (uint8_t)profile;
-    for (int i = 0; i < TAS5805M_EQ_PROFILE_REG_PER_STEP; i += TAS5805M_EQ_REG_PER_KOEF)
-    {
-      const reg_sequence_eq *reg_value0 = &eq_maps[x][i + 0];
-      const reg_sequence_eq *reg_value1 = &eq_maps[x][i + 1];
-      const reg_sequence_eq *reg_value2 = &eq_maps[x][i + 2];
-      const reg_sequence_eq *reg_value3 = &eq_maps[x][i + 3];
-
-      if (reg_value0 == NULL || reg_value1 == NULL || reg_value2 == NULL || reg_value3 == NULL) {
-          ESP_LOGW(TAG, "%s: NULL pointer encountered at row[%d]", __func__, i);
-          continue;
-      }
-
-      if (reg_value0->page != current_page) {
-          current_page = reg_value0->page;
-          TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_EQ, reg_value0->page);
-      }
-
-      uint8_t address = reg_value0->offset;
-      uint8_t values[4] = {reg_value0->value, reg_value1->value, reg_value2->value, reg_value3->value};
-
-      ret = ret | tas5805m_write_bytes(&address, 1, values, sizeof(values));
-      if (ret != ESP_OK) {
-          ESP_LOGE(TAG, "%s: Error writing to register 0x%x", __func__, address);
-      }
-    }
-  }
-#endif /* CONFIG_DAC_TAS5805M_EQ_BQ_CALC */
 
   // Set the EQ profile
   tas5805m_state.eq_profile[channel] = profile;
@@ -1379,22 +1221,13 @@ static esp_err_t tas5805m_get_biquad_register(tas5805m_eq_chan_t channel, int ba
     return ESP_ERR_INVALID_ARG;
   }
 
-  // Calculate position in the register map
-  // We need to look at the data tables to find the pattern
-  // From tas5805m_set_eq_gain_channel: gain 0dB is at index TAS5805M_EQ_MAX_DB
-  const reg_sequence_eq **eq_maps = (channel == TAS5805M_EQ_CHANNELS_RIGHT) ? 
-                                     tas5805m_eq_registers_right : tas5805m_eq_registers_left;
-  
-  // Use 0dB gain (middle of the range) as reference for current coefficient positions
-  int gain_index = TAS5805M_EQ_MAX_DB; // 0dB
-  int base_index = band * TAS5805M_EQ_KOEF_PER_BAND * TAS5805M_EQ_REG_PER_KOEF;
-  int coef_offset = coef_index * TAS5805M_EQ_REG_PER_KOEF;
-  int reg_index = base_index + coef_offset;
-  
-  const reg_sequence_eq *reg = &eq_maps[gain_index][reg_index];
-  *page = reg->page;
-  *offset = reg->offset;
-  
+  // Resolve (page, offset) via the compact address table
+  const tas5805m_bq_band_addr_t *bq_addr =
+      (tas5805m_model == TAS5805_MODEL_TAS5825M)
+          ? (channel == TAS5805M_EQ_CHANNELS_RIGHT ? tas5825m_bq_addr_right : tas5825m_bq_addr_left)
+          : (channel == TAS5805M_EQ_CHANNELS_RIGHT ? tas5805m_bq_addr_right : tas5805m_bq_addr_left);
+
+  tas5805m_bq_coeff_addr(&bq_addr[band], coef_index, page, offset);
   return ESP_OK;
 }
 

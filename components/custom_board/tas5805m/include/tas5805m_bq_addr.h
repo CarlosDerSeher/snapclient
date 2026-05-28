@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 
-#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT) && defined(CONFIG_DAC_TAS5805M_EQ_BQ_CALC)
+#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
 
 #ifdef __cplusplus
 extern "C" {
@@ -132,4 +132,4 @@ static const tas5805m_bq_band_addr_t tas5825m_bq_addr_right[15] = {
 }
 #endif
 
-#endif /* CONFIG_DAC_TAS5805M_EQ_SUPPORT && CONFIG_DAC_TAS5805M_EQ_BQ_CALC */
+#endif /* CONFIG_DAC_TAS5805M_EQ_SUPPORT */
