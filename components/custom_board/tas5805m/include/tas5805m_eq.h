@@ -1,6 +1,8 @@
 #pragma once
 
 #include "tas5805m_types.h"
+/* Band count, gain limits, per-band config struct and extern table live here: */
+#include "tas5805m_eq_config.h"
 
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
 
@@ -16,11 +18,10 @@ typedef struct {
 	cfg_u8 value;
 } reg_sequence_eq;
 
-#define TAS5805M_EQ_MAX_DB 15
-#define TAS5805M_EQ_MIN_DB -TAS5805M_EQ_MAX_DB
+/* TAS5805M_EQ_BANDS, TAS5805M_EQ_MAX_DB, TAS5805M_EQ_MIN_DB are defined in
+ * tas5805m_eq_config.h (included above). */
 
 #define TAS5805M_EQ_STEPS (1 + TAS5805M_EQ_MAX_DB - TAS5805M_EQ_MIN_DB)
-#define TAS5805M_EQ_BANDS 15
 #define TAS5805M_EQ_KOEF_PER_BAND 5
 #define TAS5805M_EQ_REG_PER_KOEF 4
 #define TAS5805M_EQ_REG_PER_STEP                                               \
@@ -28,11 +29,6 @@ typedef struct {
 
 // Mixer registers
 #define TAS5805M_REG_BOOK_EQ 0xaa
-
-// Frquency bands
-static const int tas5805m_eq_bands[TAS5805M_EQ_BANDS] = {
-	20,	 32,   50,	 80,   125,	 200,  315,	 500,
-	800, 1250, 2000, 3150, 5000, 8000, 16000};
 
 static const reg_sequence_eq
 	tas5805m_eq_registers_left_mf[TAS5805M_EQ_REG_PER_STEP] = {

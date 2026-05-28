@@ -922,12 +922,29 @@ void tas5805m_decode_faults(tas5805m_fault_t fault)
 #include "bq_calc.h"
 #include "tas5805m_bq_addr.h"
 
-/* Q factor for each of the 15 EQ bands, matching the lookup-table header comments. */
-static const float tas5805m_eq_band_q[TAS5805M_EQ_BANDS] = {
-    /* 20Hz  32Hz  50Hz  80Hz 125Hz 200Hz 315Hz 500Hz */
-    2.0f, 2.0f, 1.5f, 1.5f, 1.0f, 1.0f, 0.9f, 0.9f,
-    /* 800Hz 1250Hz 2000Hz 3150Hz 5000Hz 8000Hz 16kHz */
-    0.8f, 0.8f, 0.7f, 0.7f, 0.6f, 0.6f, 0.5f,
+/*
+ * EQ band configuration table — the single source of truth for all per-band
+ * parameters.  Edit this array to change frequencies, Q factors, gain limits
+ * or filter topology.  Both the DSP coefficient writer and the UI schema
+ * generator read from this table.
+ */
+const tas5805m_eq_band_cfg_t tas5805m_eq_band_cfg[TAS5805M_EQ_BANDS] = {
+    /* freq_hz   q      min_db  max_db  filter_type */
+    {    20,   2.0f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
+    {    32,   2.0f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
+    {    50,   1.5f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
+    {    80,   1.5f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
+    {   125,   1.0f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
+    {   200,   1.0f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
+    {   315,   0.9f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
+    {   500,   0.9f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
+    {   800,   0.8f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
+    {  1250,   0.8f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
+    {  2000,   0.7f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
+    {  3150,   0.7f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
+    {  5000,   0.6f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
+    {  8000,   0.6f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
+    { 16000,   0.5f,   -18,    18,   BQ_FILTER_EQ_Q_FACTOR },
 };
 
 /*
@@ -941,8 +958,8 @@ static const float tas5805m_eq_band_q[TAS5805M_EQ_BANDS] = {
 static void tas5805m_log_eq_comparison(const reg_sequence_eq **eq_maps,
                                         int band, int gain_db)
 {
-    const float freq_hz = (float)tas5805m_eq_bands[band];
-    const float q       = tas5805m_eq_band_q[band];
+    const float freq_hz = (float)tas5805m_eq_band_cfg[band].freq_hz;
+    const float q       = tas5805m_eq_band_cfg[band].q;
 
     /* Decode 5 coefficients from the lookup table (big-endian Q5.27) */
     int x = gain_db + TAS5805M_EQ_MAX_DB;
@@ -1069,15 +1086,17 @@ esp_err_t tas5805m_set_eq_gain_channel(tas5805m_eq_chan_t channel, int band, int
     return ESP_ERR_INVALID_ARG;
   }
 
-  if (gain < TAS5805M_EQ_MIN_DB || gain > TAS5805M_EQ_MAX_DB)
+  if (gain < tas5805m_eq_band_cfg[band].min_db || gain > tas5805m_eq_band_cfg[band].max_db)
   {
-    ESP_LOGE(TAG, "%s: Invalid gain %d", __func__, gain);
+    ESP_LOGE(TAG, "%s: Invalid gain %d for band %d (range %d..%d)",
+             __func__, gain, band,
+             tas5805m_eq_band_cfg[band].min_db, tas5805m_eq_band_cfg[band].max_db);
     return ESP_ERR_INVALID_ARG;
   }
 
   int current_page = 0; 
   int ret = ESP_OK;
-  ESP_LOGD(TAG, "%s: Setting EQ band %d (%d Hz) to gain %d", __func__, band, tas5805m_eq_bands[band], gain);
+  ESP_LOGD(TAG, "%s: Setting EQ band %d (%d Hz) to gain %d", __func__, band, tas5805m_eq_band_cfg[band].freq_hz, gain);
 
 #if defined(CONFIG_DAC_TAS5805M_EQ_BQ_CALC)
   /* --- On-the-fly calculation path (no LUT dependency) ---------------- */
@@ -1088,10 +1107,10 @@ esp_err_t tas5805m_set_eq_gain_channel(tas5805m_eq_chan_t channel, int band, int
             : (channel == TAS5805M_EQ_CHANNELS_RIGHT ? tas5805m_bq_addr_right : tas5805m_bq_addr_left);
 
     bq_coeffs_t calc;
-    if (bq_calc(BQ_FILTER_EQ_Q_FACTOR,
-                (double)tas5805m_eq_bands[band],
+    if (bq_calc((bq_filter_type_t)tas5805m_eq_band_cfg[band].filter_type,
+                (double)tas5805m_eq_band_cfg[band].freq_hz,
                 (double)gain,
-                (double)tas5805m_eq_band_q[band],
+                (double)tas5805m_eq_band_cfg[band].q,
                 BQ_SAMPLE_RATE_48K, &calc) != 0) {
       ESP_LOGE(TAG, "%s: bq_calc failed band=%d gain=%d", __func__, band, gain);
       return ESP_FAIL;

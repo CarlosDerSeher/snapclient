@@ -15,11 +15,9 @@
 #include "freertos/semphr.h"
 #include "cJSON.h"
 
-/* When EQ support is disabled at build time the driver headers may not
- * declare EQ-related constants such as TAS5805M_EQ_BANDS. The settings
- * module intentionally keeps persistence and UI helpers compiled even
- * when driver EQ support is disabled; provide a safe fallback value so
- * those helpers still build without pulling in the driver headers.
+/* When EQ support is disabled at build time, tas5805m_eq_config.h (pulled in
+ * transitively by tas5805m.h) is not included and TAS5805M_EQ_BANDS is
+ * undefined.  Provide a safe fallback so EQ-related helpers still compile.
  */
 #if !defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
 #ifndef TAS5805M_EQ_BANDS
@@ -1848,9 +1846,10 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
         snprintf(key_l, sizeof(key_l), "%s%d", TAS5805M_NVS_KEY_EQ_GAIN_L_PREFIX, band);
         snprintf(key_r, sizeof(key_r), "%s%d", TAS5805M_NVS_KEY_EQ_GAIN_R_PREFIX, band);
 
-        // Frequency label for this band (Hz) - use tas5805m_eq_bands
+        // Frequency label and limits from the central band config table
+        const tas5805m_eq_band_cfg_t *bcfg = &tas5805m_eq_band_cfg[band];
         char freq_label[32] = {0};
-        snprintf(freq_label, sizeof(freq_label), "%d Hz", tas5805m_eq_bands[band]);
+        snprintf(freq_label, sizeof(freq_label), "%d Hz", (int)bcfg->freq_hz);
 
         cJSON *param_l = cJSON_CreateObject();
         cJSON_AddStringToObject(param_l, "key", key_l);
@@ -1861,8 +1860,8 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
         cJSON_AddStringToObject(param_l, "layout", "vertical");
         cJSON_AddStringToObject(param_l, "channel", "L");
         cJSON_AddNumberToObject(param_l, "band", band);
-        cJSON_AddNumberToObject(param_l, "min", TAS5805M_EQ_MIN_DB);
-        cJSON_AddNumberToObject(param_l, "max", TAS5805M_EQ_MAX_DB);
+        cJSON_AddNumberToObject(param_l, "min", bcfg->min_db);
+        cJSON_AddNumberToObject(param_l, "max", bcfg->max_db);
         cJSON_AddNumberToObject(param_l, "step", 1);
         cJSON_AddNumberToObject(param_l, "default", 0);
         cJSON_AddNumberToObject(param_l, "current", cur_l);
@@ -1877,8 +1876,8 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
         cJSON_AddStringToObject(param_r, "layout", "vertical");
         cJSON_AddStringToObject(param_r, "channel", "R");
         cJSON_AddNumberToObject(param_r, "band", band);
-        cJSON_AddNumberToObject(param_r, "min", TAS5805M_EQ_MIN_DB);
-        cJSON_AddNumberToObject(param_r, "max", TAS5805M_EQ_MAX_DB);
+        cJSON_AddNumberToObject(param_r, "min", bcfg->min_db);
+        cJSON_AddNumberToObject(param_r, "max", bcfg->max_db);
         cJSON_AddNumberToObject(param_r, "step", 1);
         cJSON_AddNumberToObject(param_r, "default", 0);
         cJSON_AddNumberToObject(param_r, "current", cur_r);
@@ -2508,7 +2507,7 @@ esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
         char key[32];
         char freq_label[32];
         snprintf(key, sizeof(key), "eq_gain_l_%d", band);
-        snprintf(freq_label, sizeof(freq_label), "%d Hz", tas5805m_eq_bands[band]);
+        snprintf(freq_label, sizeof(freq_label), "%d Hz", (int)tas5805m_eq_band_cfg[band].freq_hz);
         
         cJSON_AddStringToObject(band_param, "key", key);
         cJSON_AddStringToObject(band_param, "name", freq_label);
@@ -2517,8 +2516,8 @@ esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
         cJSON_AddStringToObject(band_param, "label", freq_label);
         cJSON_AddStringToObject(band_param, "layout", "vertical");
         cJSON_AddNumberToObject(band_param, "band", band);
-        cJSON_AddNumberToObject(band_param, "min", TAS5805M_EQ_MIN_DB);
-        cJSON_AddNumberToObject(band_param, "max", TAS5805M_EQ_MAX_DB);
+        cJSON_AddNumberToObject(band_param, "min", tas5805m_eq_band_cfg[band].min_db);
+        cJSON_AddNumberToObject(band_param, "max", tas5805m_eq_band_cfg[band].max_db);
         cJSON_AddNumberToObject(band_param, "step", 1);
         cJSON_AddNumberToObject(band_param, "default", 0);
         cJSON_AddNumberToObject(band_param, "current", gain);
@@ -2551,7 +2550,7 @@ esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
         char key[32];
         char freq_label[32];
         snprintf(key, sizeof(key), "eq_gain_r_%d", band);
-        snprintf(freq_label, sizeof(freq_label), "%d Hz", tas5805m_eq_bands[band]);
+        snprintf(freq_label, sizeof(freq_label), "%d Hz", (int)tas5805m_eq_band_cfg[band].freq_hz);
         
         cJSON_AddStringToObject(band_param, "key", key);
         cJSON_AddStringToObject(band_param, "name", freq_label);
@@ -2560,8 +2559,8 @@ esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
         cJSON_AddStringToObject(band_param, "label", freq_label);
         cJSON_AddStringToObject(band_param, "layout", "vertical");
         cJSON_AddNumberToObject(band_param, "band", band);
-        cJSON_AddNumberToObject(band_param, "min", TAS5805M_EQ_MIN_DB);
-        cJSON_AddNumberToObject(band_param, "max", TAS5805M_EQ_MAX_DB);
+        cJSON_AddNumberToObject(band_param, "min", tas5805m_eq_band_cfg[band].min_db);
+        cJSON_AddNumberToObject(band_param, "max", tas5805m_eq_band_cfg[band].max_db);
         cJSON_AddNumberToObject(band_param, "step", 1);
         cJSON_AddNumberToObject(band_param, "default", 0);
         cJSON_AddNumberToObject(band_param, "current", gain);
