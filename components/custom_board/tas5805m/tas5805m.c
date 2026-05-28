@@ -920,6 +920,7 @@ void tas5805m_decode_faults(tas5805m_fault_t fault)
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
 
 #include "bq_calc.h"
+#include "tas5805m_bq_addr.h"
 
 /* Q factor for each of the 15 EQ bands, matching the lookup-table header comments. */
 static const float tas5805m_eq_band_q[TAS5805M_EQ_BANDS] = {
@@ -958,59 +959,42 @@ static void tas5805m_log_eq_comparison(const reg_sequence_eq **eq_maps,
     }
 
     /*
-     * Compute coefficients for both candidate sample rates so we can see
-     * which fs was used for LUT generation.  The bilinear transform is
-     * highly sensitive to fs near Nyquist, so even a 48k vs 44.1k difference
-     * can produce large deltas at high frequencies.
+     * Compute coefficients at 48 kHz and compare against the LUT.
      */
-    static const uint32_t fs_list[]      = { BQ_SAMPLE_RATE_48K, BQ_SAMPLE_RATE_44K1 };
-    static const char * const fs_label[] = { "48k", "44k" };
-    bq_coeffs_t calc[2];
-    float calc_coeff[2][TAS5805M_EQ_KOEF_PER_BAND];
-    float total_err[2] = { 0.0f, 0.0f };
+    bq_coeffs_t calc;
+    float calc_coeff[TAS5805M_EQ_KOEF_PER_BAND];
+    float total_err = 0.0f;
 
-    for (int fi = 0; fi < 2; fi++) {
-        if (bq_calc(BQ_FILTER_EQ_Q_FACTOR, (double)freq_hz, (double)gain_db,
-                    (double)q, fs_list[fi], &calc[fi]) != 0) {
-            ESP_LOGW(TAG, "%s: bq_calc failed band=%d gain=%d fs=%u",
-                     __func__, band, gain_db, (unsigned)fs_list[fi]);
-            return;
-        }
-        calc_coeff[fi][0] = (float)calc[fi].b0;
-        calc_coeff[fi][1] = (float)calc[fi].b1;
-        calc_coeff[fi][2] = (float)calc[fi].b2;
-        calc_coeff[fi][3] = -(float)calc[fi].a1;
-        calc_coeff[fi][4] = -(float)calc[fi].a2;
-        for (int ci = 0; ci < TAS5805M_EQ_KOEF_PER_BAND; ci++) {
-            total_err[fi] += fabsf(tbl[ci] - calc_coeff[fi][ci]);
-        }
+    if (bq_calc(BQ_FILTER_EQ_Q_FACTOR, (double)freq_hz, (double)gain_db,
+                (double)q, BQ_SAMPLE_RATE_48K, &calc) != 0) {
+        ESP_LOGW(TAG, "%s: bq_calc failed band=%d gain=%d", __func__, band, gain_db);
+        return;
     }
-
-    int best = (total_err[0] <= total_err[1]) ? 0 : 1;
+    calc_coeff[0] = (float)calc.b0;
+    calc_coeff[1] = (float)calc.b1;
+    calc_coeff[2] = (float)calc.b2;
+    calc_coeff[3] = -(float)calc.a1;
+    calc_coeff[4] = -(float)calc.a2;
+    for (int ci = 0; ci < TAS5805M_EQ_KOEF_PER_BAND; ci++) {
+        total_err += fabsf(tbl[ci] - calc_coeff[ci]);
+    }
 
     static const char * const coeff_names[TAS5805M_EQ_KOEF_PER_BAND] =
         {"b0", "b1", "b2", "A1", "A2"};
 
-    ESP_LOGI(TAG, "BQ compare: band %2d (%5d Hz)  Q=%.2f  gain=%+3d dB  "
-             "(err48k=%.6f  err44k=%.6f  best=%s)",
-             band, (int)freq_hz, q, gain_db,
-             total_err[0], total_err[1], fs_label[best]);
+    ESP_LOGI(TAG, "BQ compare: band %2d (%5d Hz)  Q=%.2f  gain=%+3d dB  (err=%.6f)",
+             band, (int)freq_hz, q, gain_db, total_err);
 
-    for (int fi = 0; fi < 2; fi++) {
-        for (int ci = 0; ci < TAS5805M_EQ_KOEF_PER_BAND; ci++) {
-            float delta = tbl[ci] - calc_coeff[fi][ci];
-            float pct = (fabsf(tbl[ci]) > 1e-9f)
-                        ? delta / fabsf(tbl[ci]) * 100.0f : 0.0f;
-            const char *marker = (fi == best) ? "*" : " ";
-            if (fabsf(pct) > 5.0f) {
-                ESP_LOGW(TAG, " %s[%s] %s:  LUT=%+.7f  CALC=%+.7f  delta=%+.7f  (%+.2f%%)",
-                         marker, fs_label[fi], coeff_names[ci],
-                         tbl[ci], calc_coeff[fi][ci], delta, pct);
-            } else {
-                ESP_LOGI(TAG, " %s[%s] %s:  LUT=%+.7f  CALC=%+.7f  delta=%+.7f  (%+.2f%%)",
-                         marker, fs_label[fi], coeff_names[ci],
-                         tbl[ci], calc_coeff[fi][ci], delta, pct);
-            }
+    for (int ci = 0; ci < TAS5805M_EQ_KOEF_PER_BAND; ci++) {
+        float delta = tbl[ci] - calc_coeff[ci];
+        float pct = (fabsf(tbl[ci]) > 1e-9f)
+                    ? delta / fabsf(tbl[ci]) * 100.0f : 0.0f;
+        if (fabsf(pct) > 5.0f) {
+            ESP_LOGW(TAG, "  %s:  LUT=%+.7f  CALC=%+.7f  delta=%+.7f  (%+.2f%%)",
+                     coeff_names[ci], tbl[ci], calc_coeff[ci], delta, pct);
+        } else {
+            ESP_LOGI(TAG, "  %s:  LUT=%+.7f  CALC=%+.7f  delta=%+.7f  (%+.2f%%)",
+                     coeff_names[ci], tbl[ci], calc_coeff[ci], delta, pct);
         }
     }
 }
@@ -1095,22 +1079,14 @@ esp_err_t tas5805m_set_eq_gain_channel(tas5805m_eq_chan_t channel, int band, int
   int ret = ESP_OK;
   ESP_LOGD(TAG, "%s: Setting EQ band %d (%d Hz) to gain %d", __func__, band, tas5805m_eq_bands[band], gain);
 
-  int x = gain + TAS5805M_EQ_MAX_DB;                                 
-  int y = band * TAS5805M_EQ_KOEF_PER_BAND * TAS5805M_EQ_REG_PER_KOEF; 
-    
-  const reg_sequence_eq **eq_maps;
-  if (tas5805m_model == TAS5805_MODEL_TAS5825M) {
-    eq_maps = (channel == TAS5805M_EQ_CHANNELS_RIGHT) ? tas5825m_eq_registers_right : tas5825m_eq_registers_left;
-  } else {
-    eq_maps = (channel == TAS5805M_EQ_CHANNELS_RIGHT) ? tas5805m_eq_registers_right : tas5805m_eq_registers_left;
-  }
-
-  /* Log LUT vs on-the-fly bq_calc side by side before writing to device */
-  tas5805m_log_eq_comparison(eq_maps, band, gain);
-
 #if defined(CONFIG_DAC_TAS5805M_EQ_BQ_CALC)
-  /* --- On-the-fly calculation path ------------------------------------ */
+  /* --- On-the-fly calculation path (no LUT dependency) ---------------- */
   {
+    const tas5805m_bq_band_addr_t *bq_addr =
+        (tas5805m_model == TAS5805_MODEL_TAS5825M)
+            ? (channel == TAS5805M_EQ_CHANNELS_RIGHT ? tas5825m_bq_addr_right : tas5825m_bq_addr_left)
+            : (channel == TAS5805M_EQ_CHANNELS_RIGHT ? tas5805m_bq_addr_right : tas5805m_bq_addr_left);
+
     bq_coeffs_t calc;
     if (bq_calc(BQ_FILTER_EQ_Q_FACTOR,
                 (double)tas5805m_eq_bands[band],
@@ -1128,16 +1104,16 @@ esp_err_t tas5805m_set_eq_gain_channel(tas5805m_eq_chan_t channel, int band, int
     };
 
     for (int ci = 0; ci < TAS5805M_EQ_KOEF_PER_BAND; ci++) {
-      /* Borrow page/offset from the LUT row; replace value with calculated Q5.27 */
-      const reg_sequence_eq *r = &eq_maps[x][y + ci * TAS5805M_EQ_REG_PER_KOEF];
-      if (r->page != current_page) {
-        TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_EQ, r->page);
-        current_page = r->page;
+      uint8_t pg, off;
+      tas5805m_bq_coeff_addr(&bq_addr[band], ci, &pg, &off);
+      if (pg != current_page) {
+        TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_EQ, pg);
+        current_page = pg;
       }
-      uint8_t address = r->offset;
+      uint8_t address = off;
       uint32_t value  = tas5805m_float_to_q5_27(coeff_f[ci]);
-      ESP_LOGV(TAG, "%s: calc ci=%d addr=0x%02x val=0x%08x (%.7f)",
-               __func__, ci, address, (unsigned)value, coeff_f[ci]);
+      ESP_LOGV(TAG, "%s: calc ci=%d pg=0x%02x off=0x%02x val=0x%08x (%.7f)",
+               __func__, ci, pg, off, (unsigned)value, coeff_f[ci]);
       ret = ret | tas5805m_write_bytes(&address, 1, (uint8_t *)&value, sizeof(value));
       if (ret != ESP_OK) {
         ESP_LOGE(TAG, "%s: Error writing to register 0x%x", __func__, address);
@@ -1146,6 +1122,19 @@ esp_err_t tas5805m_set_eq_gain_channel(tas5805m_eq_chan_t channel, int band, int
   }
 #else
   /* --- Lookup-table path (original) ----------------------------------- */
+  int x = gain + TAS5805M_EQ_MAX_DB;
+  int y = band * TAS5805M_EQ_KOEF_PER_BAND * TAS5805M_EQ_REG_PER_KOEF;
+
+  const reg_sequence_eq **eq_maps;
+  if (tas5805m_model == TAS5805_MODEL_TAS5825M) {
+    eq_maps = (channel == TAS5805M_EQ_CHANNELS_RIGHT) ? tas5825m_eq_registers_right : tas5825m_eq_registers_left;
+  } else {
+    eq_maps = (channel == TAS5805M_EQ_CHANNELS_RIGHT) ? tas5805m_eq_registers_right : tas5805m_eq_registers_left;
+  }
+
+  /* Log LUT vs on-the-fly bq_calc side by side before writing to device */
+  tas5805m_log_eq_comparison(eq_maps, band, gain);
+
   for (int i = 0; i < TAS5805M_EQ_KOEF_PER_BAND * TAS5805M_EQ_REG_PER_KOEF; i += TAS5805M_EQ_REG_PER_KOEF) 
   { 
       const reg_sequence_eq *reg_value0 = &eq_maps[x][y + i + 0];
