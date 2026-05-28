@@ -13,8 +13,10 @@ extern "C" {
  */
 typedef enum {
     BQ_FILTER_EQ_Q_FACTOR = 0, /*!< Parametric EQ (uses gain_db and q) */
-    BQ_FILTER_LOW_PASS,       /*!< Second-order low-pass  (gain_db ignored)      */
-    BQ_FILTER_HIGH_PASS,      /*!< Second-order high-pass (gain_db ignored)      */
+    BQ_FILTER_LOW_PASS,        /*!< Second-order low-pass  (gain_db ignored)     */
+    BQ_FILTER_HIGH_PASS,       /*!< Second-order high-pass  (gain_db ignored)    */
+    BQ_FILTER_HIGH_SHELF,      /*!< Second-order high-shelf (uses gain_db and q) */
+    BQ_FILTER_LOW_SHELF,       /*!< Second-order low-shelf  (uses gain_db and q) */
 } bq_filter_type_t;
 
 /** Common sample-rate constants. */

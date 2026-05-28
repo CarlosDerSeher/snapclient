@@ -112,6 +112,64 @@ int bq_calc(bq_filter_type_t type,
         break;
     }
 
+    /*
+     * Low-shelf — lowShelfCalc() from biquad.model.js.
+     *
+     * ao = (A+1) + (A-1)·cos(wo) + 2·sqrt(A)·alpha   (note: + sign before (A-1))
+     *
+     * JS returns A1/A2 in TAS5805M adding-form convention; negate for standard:
+     * a1 = -2·[(A-1) + (A+1)·cos(wo)] / ao
+     * a2 =  [(A+1) + (A-1)·cos(wo) - 2·sqrt(A)·alpha] / ao
+     */
+    case BQ_FILTER_LOW_SHELF: {
+        double A      = sqrt(pow(10.0, gain_db / 20.0));
+        double wo     = 2.0 * M_PI * freq_hz / (double)fs;
+        double cos_wo = cos(wo);
+        double sin_wo = sin(wo);
+        double alpha  = sin_wo / (2.0 * q);
+        double sqrtA  = sqrt(A);
+        double ao     = (A + 1.0) + (A - 1.0) * cos_wo + 2.0 * sqrtA * alpha;
+
+        c->b0 = A * ((A + 1.0) - (A - 1.0) * cos_wo + 2.0 * sqrtA * alpha) / ao;
+        c->b1 = 2.0 * A * ((A - 1.0) - (A + 1.0) * cos_wo) / ao;
+        c->b2 = A * ((A + 1.0) - (A - 1.0) * cos_wo - 2.0 * sqrtA * alpha) / ao;
+        c->a1 = -2.0 * ((A - 1.0) + (A + 1.0) * cos_wo) / ao;
+        c->a2 = ((A + 1.0) + (A - 1.0) * cos_wo - 2.0 * sqrtA * alpha) / ao;
+        break;
+    }
+
+    /*
+     * High-shelf — highShelfCalc() from biquad.model.js.
+     *
+     * A  = sqrt(10^(gain_db/20))
+     * wo = 2π·f/fs
+     * alpha = sin(wo) / (2·Q)
+     * ao = (A+1) - (A-1)·cos(wo) + 2·sqrt(A)·alpha
+     *
+     * JS returns A1/A2 in TAS5805M adding-form convention (+2, -1 region).
+     * JS A1 = -2·[(A-1) - (A+1)·cos(wo)] / ao
+     * JS A2 = -[(A+1) - (A-1)·cos(wo) - 2·sqrt(A)·alpha] / ao
+     * Standard form (negate JS A1, JS A2):
+     * a1 = 2·[(A-1) - (A+1)·cos(wo)] / ao
+     * a2 = [(A+1) - (A-1)·cos(wo) - 2·sqrt(A)·alpha] / ao
+     */
+    case BQ_FILTER_HIGH_SHELF: {
+        double A      = sqrt(pow(10.0, gain_db / 20.0));
+        double wo     = 2.0 * M_PI * freq_hz / (double)fs;
+        double cos_wo = cos(wo);
+        double sin_wo = sin(wo);
+        double alpha  = sin_wo / (2.0 * q);
+        double sqrtA  = sqrt(A);
+        double ao     = (A + 1.0) - (A - 1.0) * cos_wo + 2.0 * sqrtA * alpha;
+
+        c->b0 = A * ((A + 1.0) + (A - 1.0) * cos_wo + 2.0 * sqrtA * alpha) / ao;
+        c->b1 = -2.0 * A * ((A - 1.0) + (A + 1.0) * cos_wo) / ao;
+        c->b2 = A * ((A + 1.0) + (A - 1.0) * cos_wo - 2.0 * sqrtA * alpha) / ao;
+        c->a1 =  2.0 * ((A - 1.0) - (A + 1.0) * cos_wo) / ao;
+        c->a2 = ((A + 1.0) - (A - 1.0) * cos_wo - 2.0 * sqrtA * alpha) / ao;
+        break;
+    }
+
     default:
         return -1;
     }
