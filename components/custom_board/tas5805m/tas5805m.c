@@ -948,6 +948,36 @@ const tas5805m_eq_band_cfg_t tas5805m_eq_band_cfg[TAS5805M_EQ_BANDS] = {
 };
 
 /*
+ * EQ profile configuration table — maps each preset profile to its biquad
+ * filter parameters for the cascaded BQ1+BQ2 4th-order HP or LP filter.
+ * BQ3 is always written as an identity biquad.
+ */
+const tas5805m_eq_profile_cfg_t tas5805m_eq_profile_cfg[TAS5805M_EQ_PROFILES] = {
+    /* ftype                  freq   q   */
+    /* [0]  FLAT      */ { TAS5805M_EQ_PROF_BYPASS,    0, 0.0f },
+    /* [1]  LF  60 Hz */ { BQ_FILTER_LOW_PASS,        60, 0.5f },
+    /* [2]  LF  70 Hz */ { BQ_FILTER_LOW_PASS,        70, 0.5f },
+    /* [3]  LF  80 Hz */ { BQ_FILTER_LOW_PASS,        80, 0.5f },
+    /* [4]  LF  90 Hz */ { BQ_FILTER_LOW_PASS,        90, 0.5f },
+    /* [5]  LF 100 Hz */ { BQ_FILTER_LOW_PASS,       100, 0.5f },
+    /* [6]  LF 110 Hz */ { BQ_FILTER_LOW_PASS,       110, 0.5f },
+    /* [7]  LF 120 Hz */ { BQ_FILTER_LOW_PASS,       120, 0.5f },
+    /* [8]  LF 130 Hz */ { BQ_FILTER_LOW_PASS,       130, 0.5f },
+    /* [9]  LF 140 Hz */ { BQ_FILTER_LOW_PASS,       140, 0.5f },
+    /* [10] LF 150 Hz */ { BQ_FILTER_LOW_PASS,       150, 0.5f },
+    /* [11] HF  60 Hz */ { BQ_FILTER_HIGH_PASS,       60, 0.5f },
+    /* [12] HF  70 Hz */ { BQ_FILTER_HIGH_PASS,       70, 0.5f },
+    /* [13] HF  80 Hz */ { BQ_FILTER_HIGH_PASS,       80, 0.5f },
+    /* [14] HF  90 Hz */ { BQ_FILTER_HIGH_PASS,       90, 0.5f },
+    /* [15] HF 100 Hz */ { BQ_FILTER_HIGH_PASS,      100, 0.5f },
+    /* [16] HF 110 Hz */ { BQ_FILTER_HIGH_PASS,      110, 0.5f },
+    /* [17] HF 120 Hz */ { BQ_FILTER_HIGH_PASS,      120, 0.5f },
+    /* [18] HF 130 Hz */ { BQ_FILTER_HIGH_PASS,      130, 0.5f },
+    /* [19] HF 140 Hz */ { BQ_FILTER_HIGH_PASS,      140, 0.5f },
+    /* [20] HF 150 Hz */ { BQ_FILTER_HIGH_PASS,      150, 0.5f },
+};
+
+/*
  * Log a side-by-side comparison of lookup-table vs on-the-fly bq_calc
  * coefficients for the given band and gain.
  *
@@ -1214,54 +1244,108 @@ esp_err_t tas5805m_set_eq_profile(tas5805m_eq_profile_t profile) {
 
 esp_err_t tas5805m_set_eq_profile_channel(tas5805m_eq_chan_t channel, tas5805m_eq_profile_t profile)
 {
-  // Apply preset EQ gains for the selected profile
-  int current_page = 0; 
   int ret = ESP_OK;
   ESP_LOGD(TAG, "%s: Setting EQ profile to %d on channel %d", __func__, profile, channel);
-  
-  const reg_sequence_eq **eq_maps;
-  if (tas5805m_model == TAS5805_MODEL_TAS5825M) {
-    eq_maps = (channel == TAS5805M_EQ_CHANNELS_RIGHT) ? tas5825m_eq_profile_right_registers : tas5825m_eq_profile_left_registers;
-  } else {
-    eq_maps = (channel == TAS5805M_EQ_CHANNELS_RIGHT) ? tas5805m_eq_profile_right_registers : tas5805m_eq_profile_left_registers;
+
+#if defined(CONFIG_DAC_TAS5805M_EQ_BQ_CALC)
+  /* --- On-the-fly calculation path (no LUT dependency) ---------------- */
+  {
+    const tas5805m_bq_band_addr_t *bq_addr =
+        (tas5805m_model == TAS5805_MODEL_TAS5825M)
+            ? (channel == TAS5805M_EQ_CHANNELS_RIGHT ? tas5825m_bq_addr_right : tas5825m_bq_addr_left)
+            : (channel == TAS5805M_EQ_CHANNELS_RIGHT ? tas5805m_bq_addr_right : tas5805m_bq_addr_left);
+
+    const tas5805m_eq_profile_cfg_t *pcfg = &tas5805m_eq_profile_cfg[(uint8_t)profile];
+    int current_page = 0;
+
+    for (int bi = 0; bi < TAS5805M_EQ_PROFILE_BANDS; bi++) {
+      float coeff_f[TAS5805M_EQ_KOEF_PER_BAND];
+
+      /* BQ3 (bi==2) is always identity; BQ1/BQ2 use the profile config */
+      if (bi == 2 || pcfg->ftype == TAS5805M_EQ_PROF_BYPASS) {
+        /* Identity biquad: b0=1, b1=b2=a1=a2=0 */
+        coeff_f[0] = 1.0f;
+        coeff_f[1] = 0.0f;
+        coeff_f[2] = 0.0f;
+        coeff_f[3] = 0.0f;
+        coeff_f[4] = 0.0f;
+      } else {
+        bq_coeffs_t calc;
+        if (bq_calc((bq_filter_type_t)pcfg->ftype, (double)pcfg->freq_hz, 0.0,
+                    (double)pcfg->q, BQ_SAMPLE_RATE_48K, &calc) != 0) {
+          ESP_LOGE(TAG, "%s: bq_calc failed profile=%d bi=%d", __func__, profile, bi);
+          return ESP_FAIL;
+        }
+        /* TAS5805M convention: A1 = -a1_std, A2 = -a2_std */
+        coeff_f[0] = (float)calc.b0;
+        coeff_f[1] = (float)calc.b1;
+        coeff_f[2] = (float)calc.b2;
+        coeff_f[3] = -(float)calc.a1;
+        coeff_f[4] = -(float)calc.a2;
+      }
+
+      for (int ci = 0; ci < TAS5805M_EQ_KOEF_PER_BAND; ci++) {
+        uint8_t pg, off;
+        tas5805m_bq_coeff_addr(&bq_addr[bi], ci, &pg, &off);
+        if (pg != current_page) {
+          TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_EQ, pg);
+          current_page = pg;
+        }
+        uint8_t address = off;
+        uint32_t value  = tas5805m_float_to_q5_27(coeff_f[ci]);
+        ESP_LOGV(TAG, "%s: bi=%d ci=%d pg=0x%02x off=0x%02x val=0x%08x (%.7f)",
+                 __func__, bi, ci, pg, off, (unsigned)value, coeff_f[ci]);
+        ret = ret | tas5805m_write_bytes(&address, 1, (uint8_t *)&value, sizeof(value));
+        if (ret != ESP_OK) {
+          ESP_LOGE(TAG, "%s: Error writing to register 0x%x", __func__, address);
+        }
+      }
+    }
   }
+#else
+  /* --- Lookup-table path (original) ----------------------------------- */
+  {
+    int current_page = 0;
+    const reg_sequence_eq **eq_maps;
+    if (tas5805m_model == TAS5805_MODEL_TAS5825M) {
+      eq_maps = (channel == TAS5805M_EQ_CHANNELS_RIGHT) ? tas5825m_eq_profile_right_registers : tas5825m_eq_profile_left_registers;
+    } else {
+      eq_maps = (channel == TAS5805M_EQ_CHANNELS_RIGHT) ? tas5805m_eq_profile_right_registers : tas5805m_eq_profile_left_registers;
+    }
 
-  int x = (uint8_t)profile;
-  for (int i = 0; i < TAS5805M_EQ_PROFILE_REG_PER_STEP; i += TAS5805M_EQ_REG_PER_KOEF) 
-  { 
-    const reg_sequence_eq *reg_value0 = &eq_maps[x][i + 0]; 
-    const reg_sequence_eq *reg_value1 = &eq_maps[x][i + 1];
-    const reg_sequence_eq *reg_value2 = &eq_maps[x][i + 2];
-    const reg_sequence_eq *reg_value3 = &eq_maps[x][i + 3];
+    int x = (uint8_t)profile;
+    for (int i = 0; i < TAS5805M_EQ_PROFILE_REG_PER_STEP; i += TAS5805M_EQ_REG_PER_KOEF)
+    {
+      const reg_sequence_eq *reg_value0 = &eq_maps[x][i + 0];
+      const reg_sequence_eq *reg_value1 = &eq_maps[x][i + 1];
+      const reg_sequence_eq *reg_value2 = &eq_maps[x][i + 2];
+      const reg_sequence_eq *reg_value3 = &eq_maps[x][i + 3];
 
-    if (reg_value0 == NULL || reg_value1 == NULL || reg_value2 == NULL || reg_value3 == NULL) {                                        
-        ESP_LOGW(TAG, "%s: NULL pointer encountered at row[%d]", __func__, i); 
-        continue;                                                   
-    }                
-      
-    // Assume all 4 reg values are in the same page, seems to be true for all BQ registers
-    if (reg_value0->page != current_page) {                          
-        current_page = reg_value0->page;                             
-        TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_EQ, reg_value0->page); 
-    }                                                               
+      if (reg_value0 == NULL || reg_value1 == NULL || reg_value2 == NULL || reg_value3 == NULL) {
+          ESP_LOGW(TAG, "%s: NULL pointer encountered at row[%d]", __func__, i);
+          continue;
+      }
 
-    uint8_t address = reg_value0->offset;
-    uint8_t values[4] = {reg_value0->value, reg_value1->value, reg_value2->value, reg_value3->value};
-   
-    // ESP_LOGD(TAG, "%s: + %d: w 0x%x 0x%x 0x%x 0x%x 0x%x", __func__, i, 
-    //        reg_value0->offset, reg_value0->value, 
-    //        reg_value1->value, reg_value2->value, reg_value3->value);
-    ret = ret | tas5805m_write_bytes(&address, 1, values, sizeof(values));
+      if (reg_value0->page != current_page) {
+          current_page = reg_value0->page;
+          TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_EQ, reg_value0->page);
+      }
 
-    if (ret != ESP_OK) { 
-        ESP_LOGE(TAG, "%s: Error writing to register 0x%x", __func__, address); 
-    }     
+      uint8_t address = reg_value0->offset;
+      uint8_t values[4] = {reg_value0->value, reg_value1->value, reg_value2->value, reg_value3->value};
+
+      ret = ret | tas5805m_write_bytes(&address, 1, values, sizeof(values));
+      if (ret != ESP_OK) {
+          ESP_LOGE(TAG, "%s: Error writing to register 0x%x", __func__, address);
+      }
+    }
   }
+#endif /* CONFIG_DAC_TAS5805M_EQ_BQ_CALC */
 
   // Set the EQ profile
   tas5805m_state.eq_profile[channel] = profile;
 
-  TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_CONTROL_PORT, TAS5805M_REG_PAGE_ZERO); 
+  TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_CONTROL_PORT, TAS5805M_REG_PAGE_ZERO);
   return ret;
 }
 
