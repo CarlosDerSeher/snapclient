@@ -50,14 +50,19 @@ static void tas5805m_poll_for_play_task(void *arg)
         if (tas5805m_get_state(&st) == ESP_OK) {
             if ((st.state & TAS5805M_CTRL_PLAY) == TAS5805M_CTRL_PLAY) {
                 ESP_LOGI(TAG, "%s: Codec entered PLAY — applying delayed persisted settings", __func__);
-                // Call delayed apply (requires codec to be running)
+                // Call delayed apply (requires codec to be running with I2S clock)
                 esp_err_t r = tas5805m_settings_apply_delayed();
                 if (r == ESP_OK) {
                     tas5805m_settings_restored = true;
+                    break;
+                } else if (r == ESP_ERR_INVALID_STATE) {
+                    // Clock fault detected — I2S clock not yet stable.
+                    // Stay in the loop and retry after the next poll interval.
+                    ESP_LOGW(TAG, "%s: Clock not ready, will retry", __func__);
                 } else {
-                    ESP_LOGW(TAG, "%s: tas5805m_settings_apply_delayed() returned %s", __func__, esp_err_to_name(r));
+                    ESP_LOGE(TAG, "%s: tas5805m_settings_apply_delayed() returned %s", __func__, esp_err_to_name(r));
+                    break;
                 }
-                break;
             }
         }
         vTaskDelay(poll_interval);
@@ -2643,6 +2648,24 @@ esp_err_t tas5805m_settings_apply_early(void) {
 * This restores EQ mode, per-band gains, profiles and channel gains.
 */
 esp_err_t tas5805m_settings_apply_delayed(void) {
+    // Guard: verify I2S clock is actually present before touching DSP registers.
+    // The TAS5805M may report PLAY state while still buffering (no I2S clock yet);
+    // in that case the clock-fault bit (err1[2]) will be set.
+    tas5805m_fault_t fault = {0};
+    if (tas5805m_get_faults(&fault) == ESP_OK) {
+        if (fault.err1 & (1 << 2)) {
+            ESP_LOGW(TAG, "%s: Clock fault active — I2S clock not yet present, deferring", __func__);
+            // Mute the DAC to prevent any playback before settings are applied.
+            tas5805m_set_mute(true);
+            // Clear the fault so the register reflects actual state on the next poll,
+            // since the clock-fault bit does not self-clear once the clock is present.
+            tas5805m_clear_faults();
+            return ESP_ERR_INVALID_STATE;
+        }
+    } else {
+        ESP_LOGW(TAG, "%s: Could not read fault registers, proceeding anyway", __func__);
+    }
+
     ESP_LOGI(TAG, "%s: Applying delayed TAS5805M settings from NVS", __func__);
     
     // Mark I2S clock as ready (codec is running and can be queried)
@@ -2770,6 +2793,12 @@ esp_err_t tas5805m_settings_apply_delayed(void) {
         }
     }
 #endif
+
+    // Unmute the DAC now that all settings have been applied.
+    // This pairs with the mute applied on clock-fault detection.
+    if (tas5805m_set_mute(false) != ESP_OK) {
+        ESP_LOGW(TAG, "%s: Failed to unmute DAC after settings restore", __func__);
+    }
 
     ESP_LOGI(TAG, "%s: Delayed persisted settings application complete", __func__);
     return ESP_OK;
