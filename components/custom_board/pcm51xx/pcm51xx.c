@@ -33,6 +33,10 @@
 #include "pcm51xx_reg_cfg.h"
 #include "driver/gpio.h"
 
+#ifdef CONFIG_DAC_PCM51XX_EQ_SUPPORT
+static void pcm51xx_eq_test_task(void *arg);
+#endif
+
 static const char *TAG = "PCM51XX";
 
 // Volume range in percentage
@@ -70,9 +74,15 @@ static const int pcm51xx_addr = (CONFIG_DAC_I2C_ADDR << 1);
 static struct {
   int volume_percent;     // Current volume in percentage (0-100)
   bool is_muted;          // Current mute state
+#if defined(CONFIG_DAC_PCM51XX_EQ_SUPPORT)
+  int8_t eq_gain[6];      // Per-band EQ gain in dB (PCM51XX_EQ_BANDS = 6)
+#endif
 } pcm51xx_state = {
   .volume_percent = 100,  // Default to 100%
   .is_muted = true,       // Default to muted
+#if defined(CONFIG_DAC_PCM51XX_EQ_SUPPORT)
+  .eq_gain = {0, 0, 0, 0, 0, 0},
+#endif
 };
 
 /*
@@ -160,6 +170,11 @@ esp_err_t pcm51xx_init(audio_hal_codec_config_t *codec_cfg) {
       pcm51xx_init_seq, sizeof(pcm51xx_init_seq) / sizeof(pcm51xx_init_seq[0]));
 
   PCM51XX_ASSERT(ret, "Fail to iniitialize pcm51xx PA", ESP_FAIL);
+
+#if defined(CONFIG_DAC_PCM51XX_EQ_SUPPORT)
+  xTaskCreate(pcm51xx_eq_test_task, "pcm51xx_eq_test", 4096, NULL, 5, NULL);
+#endif
+
   return ret;
 }
 
@@ -294,3 +309,335 @@ esp_err_t pcm51xx_config_iface(audio_hal_codec_mode_t mode,
   // TODO
   return ESP_OK;
 }
+
+/* =========================================================================
+ * Parametric EQ — compile only when enabled in Kconfig
+ * ========================================================================= */
+#if defined(CONFIG_DAC_PCM51XX_EQ_SUPPORT)
+
+#include "bq_calc.h"
+#include "pcm51xx_bq_addr.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+/*
+ * EQ band configuration table — the single source of truth for all per-band
+ * parameters.  Edit this array to change frequencies, Q factors, gain limits
+ * or filter topology.
+ *
+ * 6 bands spread across the audio spectrum for a full-range PCM5122 system.
+ */
+const pcm51xx_eq_band_cfg_t pcm51xx_eq_band_cfg[PCM51XX_EQ_BANDS] = {
+    /* freq_hz   q      min_db  max_db  filter_type */
+    {    63,   1.5f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
+    {   250,   1.0f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
+    {  1000,   0.9f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
+    {  4000,   0.8f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
+    {  8000,   0.7f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
+    { 16000,   0.6f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
+};
+
+/*
+ * Select a DSP coefficient page on the PCM5122.
+ * Write page number to register 0x00 on page 0 first (re-select page 0),
+ * then write the target page.  PCM5122 has no "book" register — page select
+ * is always register 0x00.
+ */
+static esp_err_t pcm51xx_select_page(uint8_t page)
+{
+    uint8_t reg = PCM51XX_PAGE_SELECT_REG;
+    return i2c_bus_write_bytes(i2c_handler, pcm51xx_addr, &reg, 1, &page, 1);
+}
+
+/*
+ * Restore register context to page 0 after DSP coefficient writes.
+ */
+static esp_err_t pcm51xx_restore_page0(void)
+{
+    return pcm51xx_select_page(0x00u);
+}
+
+/*
+ * Enter standby mode before writing DSP coefficient RAM.
+ *
+ * The TI PPC3 init sequence writes all BQ coefficients while the device
+ * is in standby and exits standby only after the last coefficient write.
+ * The same hold applies to run-time EQ updates: the process flow must be
+ * paused so the DSP picks up new coefficients atomically on resume.
+ */
+static esp_err_t pcm51xx_enter_standby(void)
+{
+    uint8_t reg = PCM51XX_REG_PMOD;
+    uint8_t val = PCM51XX_PMOD_STANDBY;
+    esp_err_t ret = i2c_bus_write_bytes(i2c_handler, pcm51xx_addr,
+                                        &reg, 1, &val, 1);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "%s: failed", __func__);
+    }
+    return ret;
+}
+
+/*
+ * Exit standby mode after DSP coefficient RAM writes are complete.
+ */
+static esp_err_t pcm51xx_exit_standby(void)
+{
+    uint8_t reg = PCM51XX_REG_PMOD;
+    uint8_t val = PCM51XX_PMOD_NORMAL;
+    esp_err_t ret = i2c_bus_write_bytes(i2c_handler, pcm51xx_addr,
+                                        &reg, 1, &val, 1);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "%s: failed", __func__);
+    }
+    return ret;
+}
+
+/*
+ * Write all 5 coefficients of one biquad band to the PCM5122 DSP RAM.
+ * Expects coefficients already in PCM5122 register format:
+ *   [b0, b1/2, b2, −a1/2, −a2]  (Q1.23, range [−1, +1)).
+ * Internal A/B bank switching is automatic — we write to a single bank.
+ */
+static esp_err_t pcm51xx_write_band(int band,
+                                     const float coeff_f[PCM51XX_EQ_KOEF_PER_BAND])
+{
+    esp_err_t ret = ESP_OK;
+    uint8_t current_page = 0xFF; /* sentinel — force first page select */
+
+    for (int ci = 0; ci < PCM51XX_EQ_KOEF_PER_BAND; ci++) {
+        uint8_t pg, off;
+        pcm51xx_bq_coeff_addr(&pcm51xx_bq_addr[band], ci, &pg, &off);
+
+        if (pg != current_page) {
+            ret = pcm51xx_select_page(pg);
+            if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "%s: page select 0x%02x failed", __func__, pg);
+                return ret;
+            }
+            current_page = pg;
+        }
+
+        uint32_t value = pcm51xx_float_to_q1_23(coeff_f[ci]);
+        ESP_LOGD(TAG, "%s: band=%d ci=%d pg=0x%02x off=0x%02x val=0x%08x (%.7f)",
+                 __func__, band, ci, pg, off, (unsigned)value, coeff_f[ci]);
+
+        ret = i2c_bus_write_bytes(i2c_handler, pcm51xx_addr, &off, 1,
+                                  (uint8_t *)&value, sizeof(value));
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "%s: write failed band=%d ci=%d off=0x%02x", __func__, band, ci, off);
+            return ret;
+        }
+    }
+    return ret;
+}
+
+/* --------------------------------------------------------------------------
+ * Public EQ API
+ * -------------------------------------------------------------------------- */
+
+esp_err_t pcm51xx_get_eq_gain(int band, int *gain)
+{
+    if (band < 0 || band >= PCM51XX_EQ_BANDS || gain == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *gain = pcm51xx_state.eq_gain[band];
+    return ESP_OK;
+}
+
+esp_err_t pcm51xx_set_eq_gain(int band, int gain)
+{
+    if (band < 0 || band >= PCM51XX_EQ_BANDS) {
+        ESP_LOGE(TAG, "%s: invalid band %d", __func__, band);
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (gain < PCM51XX_EQ_MIN_DB || gain > PCM51XX_EQ_MAX_DB) {
+        ESP_LOGE(TAG, "%s: gain %d out of range [%d, %d]", __func__, gain,
+                 PCM51XX_EQ_MIN_DB, PCM51XX_EQ_MAX_DB);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ESP_LOGD(TAG, "%s: band=%d (%d Hz) gain=%d dB",
+             __func__, band, pcm51xx_eq_band_cfg[band].freq_hz, gain);
+
+    /* Compute biquad coefficients using the Audio EQ Cookbook. */
+    bq_coeffs_t calc;
+    if (bq_calc((bq_filter_type_t)pcm51xx_eq_band_cfg[band].filter_type,
+                (double)pcm51xx_eq_band_cfg[band].freq_hz,
+                (double)gain,
+                (double)pcm51xx_eq_band_cfg[band].q,
+                BQ_SAMPLE_RATE_48K, &calc) != 0) {
+        ESP_LOGE(TAG, "%s: bq_calc failed band=%d gain=%d", __func__, band, gain);
+        return ESP_FAIL;
+    }
+
+    /*
+     * PCM5122 register encoding (verified against TI PPC app output):
+     *
+     *  Register  | Stored value        | Why
+     *  ----------|---------------------|---------------------------------------------
+     *  b0        | b0                  | as-is; Q1.23 clips to ≤1.0 at high gains
+     *  b1        | b1 / 2              | hardware multiplies by 2; fits Q1.23 [-1,+1)
+     *  b2        | b2                  | as-is
+     *  a1        | −a1 / 2             | negated (same as TAS5805M) AND halved
+     *  a2        | −a2                 | negated only (same as TAS5805M)
+     *
+     * bq_calc output convention: y[n] = b0·x − b1·y[n-1] − b2·y[n-2]  (standard form)
+     * so a1 ≈ −2, a2 ≈ +1 for typical low-frequency filters.
+     */
+    const float coeff_f[PCM51XX_EQ_KOEF_PER_BAND] = {
+        (float) calc.b0,          /* b0 */
+        (float)(calc.b1 * 0.5),   /* b1/2 */
+        (float) calc.b2,          /* b2 */
+        (float)(-calc.a1 * 0.5),  /* −a1/2 */
+        (float)(-calc.a2),        /* −a2 */
+    };
+
+    esp_err_t ret = pcm51xx_enter_standby();
+    if (ret != ESP_OK) { return ret; }
+
+    ret = pcm51xx_write_band(band, coeff_f);
+    pcm51xx_restore_page0();
+
+    esp_err_t ret2 = pcm51xx_exit_standby();
+    if (ret == ESP_OK) { ret = ret2; }
+
+    if (ret == ESP_OK) {
+        pcm51xx_state.eq_gain[band] = (int8_t)gain;
+    }
+    return ret;
+}
+
+esp_err_t pcm51xx_read_biquad_coefficients(int band, uint32_t coeffs[PCM51XX_EQ_KOEF_PER_BAND])
+{
+    if (band < 0 || band >= PCM51XX_EQ_BANDS || coeffs == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ESP_LOGD(TAG, "%s: band=%d", __func__, band);
+
+    esp_err_t ret = ESP_OK;
+    uint8_t current_page = 0xFF;
+
+    for (int ci = 0; ci < PCM51XX_EQ_KOEF_PER_BAND; ci++) {
+        uint8_t pg, off;
+        pcm51xx_bq_coeff_addr(&pcm51xx_bq_addr[band], ci, &pg, &off);
+
+        if (pg != current_page) {
+            ret = pcm51xx_select_page(pg);
+            if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "%s: page select 0x%02x failed", __func__, pg);
+                pcm51xx_restore_page0();
+                return ret;
+            }
+            current_page = pg;
+        }
+
+        ret = i2c_bus_read_bytes(i2c_handler, pcm51xx_addr, &off, 1,
+                                 (uint8_t *)&coeffs[ci], sizeof(coeffs[ci]));
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "%s: read failed band=%d ci=%d", __func__, band, ci);
+            break;
+        }
+        ESP_LOGD(TAG, "%s: band=%d ci=%d = 0x%08x (%.7f)",
+                 __func__, band, ci, (unsigned)coeffs[ci],
+                 pcm51xx_q1_23_to_float(coeffs[ci]));
+    }
+
+    pcm51xx_restore_page0();
+    return ret;
+}
+
+esp_err_t pcm51xx_write_biquad_coefficients(int band, const uint32_t coeffs[PCM51XX_EQ_KOEF_PER_BAND])
+{
+    if (band < 0 || band >= PCM51XX_EQ_BANDS || coeffs == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ESP_LOGD(TAG, "%s: band=%d", __func__, band);
+
+    /* Convert raw wire-format values to float for the shared write helper. */
+    float coeff_f[PCM51XX_EQ_KOEF_PER_BAND];
+    for (int ci = 0; ci < PCM51XX_EQ_KOEF_PER_BAND; ci++) {
+        coeff_f[ci] = pcm51xx_q1_23_to_float(coeffs[ci]);
+    }
+
+    esp_err_t ret = pcm51xx_enter_standby();
+    if (ret != ESP_OK) { return ret; }
+
+    ret = pcm51xx_write_band(band, coeff_f);
+    pcm51xx_restore_page0();
+
+    esp_err_t ret2 = pcm51xx_exit_standby();
+    if (ret == ESP_OK) { ret = ret2; }
+    return ret;
+}
+
+/* --------------------------------------------------------------------------
+ * Q1.23 coefficient format conversions
+ *
+ * PCM5122 coefficient format: 24-bit two's complement Q1.23 stored in the
+ * upper 3 bytes of a 4-byte big-endian word; the LSByte is always 0x00.
+ * i2c_bus_write_bytes writes bytes in memory order (little-endian), so the
+ * uint32_t returned here has byte[0]=MSB of coefficient, byte[3]=0x00.
+ * -------------------------------------------------------------------------- */
+
+uint32_t pcm51xx_float_to_q1_23(float value)
+{
+    if (value >  0.9999999f) value =  0.9999999f;
+    if (value < -1.0f)       value = -1.0f;
+
+    int32_t q = (int32_t)(value * (float)(1 << 23));
+
+    /* Pack as little-endian uint32_t so that when read byte-by-byte the
+     * sequence is [MSByte, MidByte, LSByte, 0x00]. */
+    uint32_t le_val = (uint32_t)(
+        ((uint32_t)((q >> 16) & 0xFF)      ) |
+        ((uint32_t)((q >>  8) & 0xFF) <<  8) |
+        ((uint32_t)( q        & 0xFF) << 16)
+        /* byte 3 is 0x00 — implicit */
+    );
+    return le_val;
+}
+
+/* --------------------------------------------------------------------------
+ * TEST TASK — temporary, remove after EQ validation
+ * -------------------------------------------------------------------------- */
+static void pcm51xx_eq_test_task(void *arg)
+{
+    vTaskDelay(pdMS_TO_TICKS(5000));
+    ESP_LOGI(TAG, "[EQ TEST] setting band 6 (16 kHz) to +12 dB");
+    esp_err_t ret = pcm51xx_set_eq_gain(5, 12);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "[EQ TEST] pcm51xx_set_eq_gain failed: %d", ret);
+    } else {
+        ESP_LOGI(TAG, "[EQ TEST] band 6 gain set to +12 dB OK");
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(5000));
+    ESP_LOGI(TAG, "[EQ TEST] restoring band 6 (16 kHz) to 0 dB");
+    ret = pcm51xx_set_eq_gain(5, 0);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "[EQ TEST] pcm51xx_set_eq_gain failed: %d", ret);
+    } else {
+        ESP_LOGI(TAG, "[EQ TEST] band 6 gain restored to 0 dB OK");
+    }
+
+    vTaskDelete(NULL);
+}
+
+float pcm51xx_q1_23_to_float(uint32_t raw)
+{
+    /* Reconstruct the 24-bit signed value from little-endian layout. */
+    uint32_t b0 = (raw      ) & 0xFF;  /* MSByte of coefficient */
+    uint32_t b1 = (raw >>  8) & 0xFF;
+    uint32_t b2 = (raw >> 16) & 0xFF;  /* LSByte of coefficient */
+
+    int32_t q = (int32_t)((b0 << 16) | (b1 << 8) | b2);
+    /* Sign-extend from 24 bits to 32 bits. */
+    if (q & 0x800000) {
+        q |= (int32_t)0xFF000000;
+    }
+    return (float)q / (float)(1 << 23);
+}
+
+#endif /* CONFIG_DAC_PCM51XX_EQ_SUPPORT */

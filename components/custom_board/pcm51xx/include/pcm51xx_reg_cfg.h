@@ -27,6 +27,8 @@
 #ifndef _PCM51XX_REG_CFG_
 #define _PCM51XX_REG_CFG_
 
+#include "pcm51xx.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -39,14 +41,15 @@ typedef struct {
 static const pcm51xx_cfg_reg_t pcm51xx_init_seq[] = {
 
     // EXIT SHUTDOWN STATE
-    {0x00, 0x00},  // SELECT PAGE 0
-    {0x03, 0x00},  // UNMUTE
-    {0x2a, 0x11},  // DAC DATA PATH L->ch1, R->ch2
-    {0x02, 0x00},  // DISABLE STBY
-    {0x0d, 0x10},  // BCK as SRC for PLL
-    {0x25, 0x08},  // IGNORE MISSING MCLK
-    {0x3d, 0x30},  // DIGITAL VOLUME L
-    {0x3e, 0x30},  // DIGITAL VOLUME R
+    {PCM51XX_BOOK_00, PCM51XX_PAGE_00},  // SELECT PAGE 0
+    {PCM51XX_REG_MUTE, 0x00},  // UNMUTE
+    {PCM51XX_REG_DATA_PATH, 0x11},  // DAC DATA PATH L->ch1, R->ch2
+    {PCM51XX_REG_PMOD, PCM51XX_PMOD_NORMAL},  // DISABLE STBY
+    {PCM51XX_REG_PLL, 0x10},  // BCK as SRC for PLL
+    {PCM51XX_REG_CLKDET, 0x08},  // IGNORE MISSING MCLK
+//    {PCM51XX_REG_PROCESS_FLOW, PCM51XX_PROC_FLOW_5},  
+    {PCM51XX_REG_VOL_L, 0x30},  // DIGITAL VOLUME L
+    {PCM51XX_REG_VOL_R, 0x30},  // DIGITAL VOLUME R
 };
 
 #ifdef __cplusplus

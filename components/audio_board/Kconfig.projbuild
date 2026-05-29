@@ -312,6 +312,19 @@ menu "Audio Board"
 	                This is in addition to the I2C register-based mute control.
 	    endmenu
 
+		menu "PCM51XX DSP Support"
+			depends on DAC_PCM51XX
+
+			config DAC_PCM51XX_EQ_SUPPORT
+				bool "Enable PCM51XX equalizer support"
+				default n
+				help
+					Enable parametric EQ support for PCM51XX/PCM5122 DACs.
+					Provides 6-band on-the-fly biquad coefficient calculation
+					using the bq_calc library and writes coefficients to the
+					PCM5122 DSP coefficient RAM (A-buffer and B-buffer).
+		endmenu
+
 	    menu "MAX98357 interface Configuration"
 	        depends on DAC_MAX98357
 
