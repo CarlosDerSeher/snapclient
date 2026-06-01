@@ -198,28 +198,27 @@ esp_err_t pcm51xx_config_iface(audio_hal_codec_mode_t mode,
 #include "pcm51xx_eq_config.h"
 
 /**
- * @brief Convert a floating-point coefficient to PCM5122 Q1.23 DSP format.
+ * @brief Convert a floating-point coefficient to PCM5122 Q3.23 DSP format.
  *
- * The PCM5122 stores biquad coefficients as 24-bit two's complement values
- * in Q1.23 format (range −1.0 to +0.9999...), packed into a 32-bit word
- * with the MSByte first and the LSByte always 0x00 (hardware ignores lower
- * 8 bits).  This function returns a little-endian uint32_t suitable for
- * direct write via i2c_bus_write_bytes.
- *
- * Format: Q2.30, range [-2, +2).  Multiplier: 2^30.
+ * The PCM5122 stores biquad coefficients as 32-bit two’s complement values
+ * as 32-bit words where bits [31:8] hold a 24-bit signed integer (range
+ * approximately (-1, +1)); bits [7:0] are always 0x00 (hardware ignores them).
+ * float = bits[31:8] / 2^23; unity b0 ≈ 0x7FFFFF00 (= 0.9999999, closest
+ * representable value to 1.0).  The returned uint32_t can be written directly
+ * via i2c_bus_write_bytes with big-endian byte extraction.
  *
  * @param value  Floating-point coefficient value.
- * @return       PCM5122 I2C-ready 32-bit representation.
+ * @return       PCM5122 I2C-ready 32-bit Q3.23 representation.
  */
-uint32_t pcm51xx_float_to_q2_30(float value);
+uint32_t pcm51xx_float_to_q3_23(float value);
 
 /**
- * @brief Convert a PCM5122 raw Q2.30 register word back to float.
+ * @brief Convert a PCM5122 raw Q3.23 register word back to float.
  *
- * @param raw  Little-endian uint32_t as returned by i2c_bus_read_bytes.
+ * @param raw  uint32_t as returned by pcm51xx_read_biquad_coefficients.
  * @return     Floating-point coefficient value.
  */
-float pcm51xx_q2_30_to_float(uint32_t raw);
+float pcm51xx_q3_23_to_float(uint32_t raw);
 
 /**
  * @brief Get the current parametric EQ gain for a band.

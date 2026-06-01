@@ -86,8 +86,8 @@ static const pcm51xx_bq_band_addr_t pcm51xx_drc_bq_addr[PCM51XX_DRC_BQ_BANDS] = 
     /* band  7 (DRC BQ2) */ {0x2D, 0x44},  /* c45..c49, page 45 reg 0x44 */
     /* band  8 (DRC BQ3) */ {0x2D, 0x58},  /* c50..c54, page 45 reg 0x58 */
     /* band  9 (DRC BQ4) */ {0x2D, 0x6C},  /* c55..c59, page 45 reg 0x6C */
-    /* band 10 (DRC BQ5) */ {0x2D, 0x80},  /* c60..c64, page 46 reg 0x08 (page crossing) */
-    /* band 11 (DRC BQ6) */ {0x2D, 0x94},  /* c65..c69, page 46 reg 0x1C (page crossing) */
+    /* band 10 (DRC BQ5) */ {0x2E, 0x08},  /* c60..c64, page 46 reg 0x08 */
+    /* band 11 (DRC BQ6) */ {0x2E, 0x1C},  /* c65..c69, page 46 reg 0x1C */
 };
 
 /* Page-0 register used to select the coefficient page on the PCM5122. */
