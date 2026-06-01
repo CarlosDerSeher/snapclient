@@ -198,6 +198,21 @@ esp_err_t pcm51xx_config_iface(audio_hal_codec_mode_t mode,
 #include "pcm51xx_eq_config.h"
 
 /**
+ * @brief Initialise the PCM5122 DSP and write identity coefficients to all EQ bands.
+ *
+ * Selects process flow 5 (fixed biquad path, c10–c39 active), disables x16
+ * interpolation, and writes pass-through (identity) coefficients to every BQ
+ * section.  Must be called once after the I2S clock is stable so that the PLL
+ * can re-lock correctly when the device exits standby.
+ *
+ * Typically called by pcm51xx_settings_apply_delayed() once the audio
+ * subsystem is running.
+ *
+ * @return ESP_OK on success.
+ */
+esp_err_t pcm51xx_dsp_start(void);
+
+/**
  * @brief Convert a floating-point coefficient to PCM5122 Q3.23 DSP format.
  *
  * The PCM5122 stores biquad coefficients as 32-bit two’s complement values

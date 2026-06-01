@@ -543,6 +543,11 @@ static esp_err_t pcm51xx_dsp_init(void)
     return ret;
 }
 
+esp_err_t pcm51xx_dsp_start(void)
+{
+    return pcm51xx_dsp_init();
+}
+
 esp_err_t pcm51xx_get_eq_gain(int band, int *gain)
 {
     if (band < 0 || band >= PCM51XX_EQ_BANDS || gain == NULL) {
