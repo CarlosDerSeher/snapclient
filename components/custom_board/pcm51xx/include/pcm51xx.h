@@ -36,10 +36,11 @@ extern "C" {
 #endif
 
 #define PCM51XX_REG_00 0x00
+#define PCM51XX_REG_RESET 0x01
 #define PCM51XX_REG_PMOD 0x02
 #define PCM51XX_REG_MUTE 0x03
 #define PCM51XX_REG_PLL 0x0d
-#define PCM51XX_REG_24 0x24
+#define PCM51XX_REG_X16INTP 0x22
 #define PCM51XX_REG_CLKDET 0x25
 #define PCM51XX_REG_26 0x26
 #define PCM51XX_REG_27 0x27
@@ -201,21 +202,24 @@ esp_err_t pcm51xx_config_iface(audio_hal_codec_mode_t mode,
  *
  * The PCM5122 stores biquad coefficients as 24-bit two's complement values
  * in Q1.23 format (range −1.0 to +0.9999...), packed into a 32-bit word
- * with the MSByte first and the LSByte always 0x00.  This function returns
- * a little-endian uint32_t suitable for direct write via i2c_bus_write_bytes.
+ * with the MSByte first and the LSByte always 0x00 (hardware ignores lower
+ * 8 bits).  This function returns a little-endian uint32_t suitable for
+ * direct write via i2c_bus_write_bytes.
+ *
+ * Format: Q2.30, range [-2, +2).  Multiplier: 2^30.
  *
  * @param value  Floating-point coefficient value.
  * @return       PCM5122 I2C-ready 32-bit representation.
  */
-uint32_t pcm51xx_float_to_q1_23(float value);
+uint32_t pcm51xx_float_to_q2_30(float value);
 
 /**
- * @brief Convert a PCM5122 raw Q1.23 register word back to float.
+ * @brief Convert a PCM5122 raw Q2.30 register word back to float.
  *
  * @param raw  Little-endian uint32_t as returned by i2c_bus_read_bytes.
  * @return     Floating-point coefficient value.
  */
-float pcm51xx_q1_23_to_float(uint32_t raw);
+float pcm51xx_q2_30_to_float(uint32_t raw);
 
 /**
  * @brief Get the current parametric EQ gain for a band.
