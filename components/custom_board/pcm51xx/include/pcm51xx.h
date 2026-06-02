@@ -213,6 +213,20 @@ esp_err_t pcm51xx_config_iface(audio_hal_codec_mode_t mode,
 esp_err_t pcm51xx_dsp_start(void);
 
 /**
+ * @brief Select the DSP process flow without modifying BQ coefficients.
+ *
+ * Enters standby, writes the PCM51XX_REG_PROCESS_FLOW register, then exits
+ * standby.  Use this to switch to flows 1, 2, 3, or 7 where the parametric
+ * BQ sections are bypassed.  For flow 5 (parametric EQ active), prefer
+ * pcm51xx_dsp_start() which also writes identity coefficients and disables
+ * x16 interpolation.
+ *
+ * @param flow  Process flow value (PCM51XX_PROC_FLOW_1 … PCM51XX_PROC_FLOW_7).
+ * @return ESP_OK on success.
+ */
+esp_err_t pcm51xx_set_process_flow(uint8_t flow);
+
+/**
  * @brief Convert a floating-point coefficient to PCM5122 Q3.23 DSP format.
  *
  * The PCM5122 stores biquad coefficients as 32-bit two’s complement values

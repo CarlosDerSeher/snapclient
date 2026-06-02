@@ -27,25 +27,48 @@ def generate_embedded_stubs():
               "skipping stub generation; retry the build to succeed.")
         return
 
-    # Find all *.S targets produced by CUSTOM_COMMAND (the embed stubs).
-    # In build.ninja they appear as:
-    #   build foo.ico.S | ...: CUSTOM_COMMAND ...
-    stub_pattern = re.compile(r"^build ([^|:\s]+\.S)(?:\s*\|[^:]*)?:\s*CUSTOM_COMMAND")
-    stubs = []
+    # Find all *.S targets produced by CUSTOM_COMMAND (the embed stubs) along
+    # with their source data file.  In build.ninja they appear as:
+    #   build foo.ico.S | ...: CUSTOM_COMMAND /abs/path/to/foo.ico /abs/.../embed_asm.cmake || ...
+    # The explicit dependency that is NOT the cmake helper script is the
+    # original asset, so we can compare its mtime against the generated stub.
+    stub_pattern = re.compile(
+        r"^build ([^|:\s]+\.S)(?:\s*\|[^:]*)?:\s*CUSTOM_COMMAND\s+(.*?)(?:\s*\|\||$)"
+    )
+    stubs = []  # list of (stub_relpath, source_abspath_or_None)
     with open(ninja_file) as f:
         for line in f:
             m = stub_pattern.match(line)
-            if m:
-                stubs.append(m.group(1))
+            if not m:
+                continue
+            deps = m.group(2).split()
+            source = next(
+                (d for d in deps if not d.endswith(".cmake") and os.path.isfile(d)),
+                None,
+            )
+            stubs.append((m.group(1), source))
 
     if not stubs:
         return
 
-    for stub in stubs:
+    for stub, source in stubs:
         full_path = os.path.join(build_dir, stub)
+
+        # Regenerate when the stub is missing, or when its source asset has
+        # been edited since the stub was last generated.  PlatformIO does not
+        # re-run the embed CUSTOM_COMMANDs on its own, so without this check an
+        # edited HTML/JS/CSS asset would silently keep linking a stale copy.
         if os.path.isfile(full_path):
-            continue  # already generated, skip
-        print(f"pre_build.py: generating {stub} ...")
+            if source is None:
+                continue  # can't determine freshness; leave existing stub
+            if os.path.getmtime(source) <= os.path.getmtime(full_path):
+                continue  # stub is up to date
+            # Source is newer — drop the stale stub so cmake/ninja rebuilds it.
+            print(f"pre_build.py: {stub} is stale (source changed) — regenerating ...")
+            os.remove(full_path)
+        else:
+            print(f"pre_build.py: generating {stub} ...")
+
         result = subprocess.run(
             ["cmake", "--build", ".", "--target", stub],
             cwd=build_dir,

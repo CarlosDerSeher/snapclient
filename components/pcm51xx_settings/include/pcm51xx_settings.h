@@ -15,7 +15,7 @@
 #ifndef __PCM51XX_SETTINGS_H__
 #define __PCM51XX_SETTINGS_H__
 
-#include <stdbool.h>
+#include <stdint.h>
 #include <stddef.h>
 #include "esp_err.h"
 
@@ -30,8 +30,12 @@ extern "C" {
 /** NVS namespace used by this module. */
 #define PCM51XX_NVS_NAMESPACE          "pcm51xx_cfg"
 
-/** NVS key: EQ enable flag (uint8, 0 = disabled, 1 = enabled). */
-#define PCM51XX_NVS_KEY_EQ_ENABLED     "eq_enabled"
+/**
+ * NVS key: DSP process flow selection (uint8).
+ * Valid values: PCM51XX_PROC_FLOW_1 … PCM51XX_PROC_FLOW_5 (from pcm51xx.h).
+ * Default is PCM51XX_PROC_FLOW_5 (parametric EQ active).
+ */
+#define PCM51XX_NVS_KEY_PROC_FLOW      "proc_flow"
 
 /**
  * NVS key prefix for per-band EQ gain.
@@ -82,25 +86,25 @@ void pcm51xx_settings_notify_i2s_ready(void);
 esp_err_t pcm51xx_settings_apply_delayed(void);
 
 /* -------------------------------------------------------------------------
- * EQ enable
+ * Process flow selection
  * ------------------------------------------------------------------------- */
 
 /**
- * @brief Persist the EQ enable state to NVS.
+ * @brief Persist the DSP process flow selection to NVS.
  *
- * @param enabled  true to enable the EQ, false to disable.
+ * @param flow  Process flow value (e.g. PCM51XX_PROC_FLOW_5 for parametric EQ).
  * @return ESP_OK on success.
  */
-esp_err_t pcm51xx_settings_save_eq_enabled(bool enabled);
+esp_err_t pcm51xx_settings_save_process_flow(uint8_t flow);
 
 /**
- * @brief Load the EQ enable state from NVS.
+ * @brief Load the DSP process flow selection from NVS.
  *
- * @param[out] enabled  Receives the stored value.  Defaults to true if not
- *                      previously saved.
+ * @param[out] flow  Receives the stored value.  Defaults to PCM51XX_PROC_FLOW_5
+ *                   if not previously saved.
  * @return ESP_OK on success, ESP_ERR_NVS_NOT_FOUND if not yet stored.
  */
-esp_err_t pcm51xx_settings_load_eq_enabled(bool *enabled);
+esp_err_t pcm51xx_settings_load_process_flow(uint8_t *flow);
 
 /* -------------------------------------------------------------------------
  * Per-band EQ gain
@@ -135,7 +139,7 @@ esp_err_t pcm51xx_settings_load_eq_gain(int band, int *gain_db);
  * Output format:
  * @code{.json}
  * {
- *   "eq_enabled": true,
+ *   "proc_flow": 5,
  *   "eq_gain_0": 0,
  *   "eq_gain_1": 0,
  *   ...

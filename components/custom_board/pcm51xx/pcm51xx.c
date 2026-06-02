@@ -548,6 +548,23 @@ esp_err_t pcm51xx_dsp_start(void)
     return pcm51xx_dsp_init();
 }
 
+esp_err_t pcm51xx_set_process_flow(uint8_t flow)
+{
+    ESP_LOGI(TAG, "%s: flow=%d", __func__, (int)flow);
+    esp_err_t ret = pcm51xx_enter_standby();
+    if (ret != ESP_OK) return ret;
+
+    uint8_t reg = PCM51XX_REG_PROCESS_FLOW;
+    ret = i2c_bus_write_bytes(i2c_handler, pcm51xx_addr, &reg, 1, &flow, 1);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "%s: write failed: %s", __func__, esp_err_to_name(ret));
+    }
+
+    esp_err_t ret2 = pcm51xx_exit_standby();
+    if (ret == ESP_OK) ret = ret2;
+    return ret;
+}
+
 esp_err_t pcm51xx_get_eq_gain(int band, int *gain)
 {
     if (band < 0 || band >= PCM51XX_EQ_BANDS || gain == NULL) {
@@ -836,7 +853,7 @@ static void pcm51xx_eq_test_task(void *arg)
     // ESP_LOGW(TAG, "Starting PCM51XX EQ test task — dumping default coefficients");
     // pcm51xx_dump_bq_coefficients("after dsp_init (expect identity)");
     
-    vTaskDelay(pdMS_TO_TICKS(10000));
+    vTaskDelay(pdMS_TO_TICKS(5000));
 
     ESP_LOGW(TAG, "===========================");
     ESP_LOGW(TAG, "Writing default DSP RAM sequence");
@@ -847,27 +864,27 @@ static void pcm51xx_eq_test_task(void *arg)
     }
     pcm51xx_dump_bq_coefficients("after PPC init sequence");
     
-    vTaskDelay(pdMS_TO_TICKS(10000));
-    ESP_LOGW(TAG, "===========================");
-    ESP_LOGW(TAG, "Setting default BQ coefficients");
-    ret = pcm51xx_dsp_init();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "PCM51XX DSP init failed: %d", ret);
-    }
-    pcm51xx_dump_bq_coefficients("after pcm51xx_dsp_init (expect identity)");
+    // vTaskDelay(pdMS_TO_TICKS(10000));
+    // ESP_LOGW(TAG, "===========================");
+    // ESP_LOGW(TAG, "Setting default BQ coefficients");
+    // ret = pcm51xx_dsp_init();
+    // if (ret != ESP_OK) {
+    //     ESP_LOGE(TAG, "PCM51XX DSP init failed: %d", ret);
+    // }
+    // pcm51xx_dump_bq_coefficients("after pcm51xx_dsp_init (expect identity)");
 
-    vTaskDelay(pdMS_TO_TICKS(5000));
-    ESP_LOGW(TAG, "===========================");
-    ESP_LOGW(TAG, "Bumping up EQ band 0 in 3 dB steps");
-    for (uint8_t db = 0; db <= 3; db += 3) {
-        ESP_LOGI(TAG, "Setting band 0 gain to %d dB", db);
-        ret = pcm51xx_set_eq_gain(0, db);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to set EQ gain: %d", ret);
-        }
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
-    pcm51xx_dump_bq_coefficients("after EQ changes (expect non-identity)");
+    // vTaskDelay(pdMS_TO_TICKS(5000));
+    // ESP_LOGW(TAG, "===========================");
+    // ESP_LOGW(TAG, "Bumping up EQ band 0 in 3 dB steps");
+    // for (uint8_t db = 0; db <= 3; db += 3) {
+    //     ESP_LOGI(TAG, "Setting band 0 gain to %d dB", db);
+    //     ret = pcm51xx_set_eq_gain(0, db);
+    //     if (ret != ESP_OK) {
+    //         ESP_LOGE(TAG, "Failed to set EQ gain: %d", ret);
+    //     }
+    //     vTaskDelay(pdMS_TO_TICKS(1000));
+    // }
+    // pcm51xx_dump_bq_coefficients("after EQ changes (expect non-identity)");
 
     // vTaskDelay(pdMS_TO_TICKS(10000));
     // ESP_LOGW(TAG, "===========================");
