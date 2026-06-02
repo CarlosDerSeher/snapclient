@@ -81,7 +81,7 @@ static void make_gain_key(int band, char *buf, size_t buf_len)
  * notification sent by pcm51xx_settings_notify_i2s_ready(), then call
  * pcm51xx_settings_apply_delayed().
  */
-#define PCM51XX_SETTINGS_CLK_WAIT_MS  30000
+#define PCM51XX_SETTINGS_CLK_WAIT_MS  500
 
 static void pcm51xx_settings_poll_task(void *arg)
 {
@@ -172,15 +172,15 @@ esp_err_t pcm51xx_settings_apply_delayed(void)
     uint8_t flow = PCM51XX_PROC_FLOW_5;
     pcm51xx_settings_load_process_flow(&flow);
 
-    if (flow == PCM51XX_PROC_FLOW_5) {
+    // if (flow == PCM51XX_PROC_FLOW_5) {
         /* EQ active path: init DSP (flow 5 + identity BQ + x16 disable),
          * then restore per-band gains from NVS. */
-        esp_err_t ret = pcm51xx_dsp_start();
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "%s: pcm51xx_dsp_start() failed: %s",
-                     __func__, esp_err_to_name(ret));
-            return ret;
-        }
+        // esp_err_t ret = pcm51xx_dsp_start();
+        // if (ret != ESP_OK) {
+        //     ESP_LOGE(TAG, "%s: pcm51xx_dsp_start() failed: %s",
+        //              __func__, esp_err_to_name(ret));
+        //     return ret;
+        // }
 
         for (int band = 0; band < PCM51XX_EQ_BANDS; band++) {
             int gain_db = 0;
@@ -207,7 +207,7 @@ esp_err_t pcm51xx_settings_apply_delayed(void)
                          __func__, band, (int)pcm51xx_eq_band_cfg[band].freq_hz, gain_db);
             }
         }
-    } else {
+    // } else {
         /* Non-EQ flow: just switch the process flow register.  No BQ writes. */
         esp_err_t ret = pcm51xx_set_process_flow(flow);
         if (ret != ESP_OK) {
@@ -215,7 +215,7 @@ esp_err_t pcm51xx_settings_apply_delayed(void)
                      __func__, (int)flow, esp_err_to_name(ret));
             return ret;
         }
-    }
+    // }
 
     ESP_LOGI(TAG, "%s: Done (flow=%d)", __func__, (int)flow);
     return ESP_OK;
@@ -486,11 +486,11 @@ esp_err_t pcm51xx_settings_set_eq_from_json(const char *json_in)
 
         /* Apply immediately if DSP is already initialised. */
         if (s_settings_applied) {
-            if (flow == PCM51XX_PROC_FLOW_5) {
-                ret = pcm51xx_dsp_start();
-            } else {
+            // if (flow == PCM51XX_PROC_FLOW_5) {
+            //     ret = pcm51xx_dsp_start();
+            // } else {
                 ret = pcm51xx_set_process_flow(flow);
-            }
+            // }
             if (ret != ESP_OK) {
                 ESP_LOGW(TAG, "%s: live flow apply failed: %s",
                          __func__, esp_err_to_name(ret));
