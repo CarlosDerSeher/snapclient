@@ -344,12 +344,12 @@ esp_err_t pcm51xx_config_iface(audio_hal_codec_mode_t mode,
  */
 const pcm51xx_eq_band_cfg_t pcm51xx_eq_band_cfg[PCM51XX_EQ_BANDS] = {
     /* freq_hz   q      min_db  max_db  filter_type */
-    {    63,   1.5f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
+    {    63,   1.5f,   -15,    15,   BQ_FILTER_LOW_SHELF },
     {   250,   1.0f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
     {  1000,   0.9f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
     {  4000,   0.8f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
     {  8000,   0.7f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
-    { 16000,   0.6f,   -15,    15,   BQ_FILTER_EQ_Q_FACTOR },
+    { 16000,   0.6f,   -15,    15,   BQ_FILTER_HIGH_SHELF },
 };
 
 /*

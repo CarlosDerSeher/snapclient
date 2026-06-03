@@ -99,10 +99,7 @@ esp_err_t pcm51xx_settings_init(void)
                      __func__, band, esp_err_to_name(load_ret));
             continue;
         }
-        if (gain_db == 0) {
-            /* Identity — dsp_start already wrote unity coefficients. */
-            continue;
-        }
+
         esp_err_t set_ret = pcm51xx_set_eq_gain(band, gain_db);
         if (set_ret != ESP_OK) {
             ESP_LOGW(TAG, "%s: band %d: pcm51xx_set_eq_gain(%d) failed: %s",

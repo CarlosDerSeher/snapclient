@@ -115,572 +115,572 @@ static const pcm51xx_cfg_reg_t pcm51xx_dsp_init_seq[] = {
     // { 0x2D, 0xFF },              /* (Bit 23-16) */
     // { 0x2E, 0xFF },              /* (Bit 15-8) */
     // { 0x2F, 0x00 },              /* (Bit 7-0) */
-    { 0x30, 0x7F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 10 */
+    { 0x30, 0x7F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 10 BQ1 */
     { 0x31, 0xff },              /* (Bit 23-16) */
     { 0x32, 0xff },              /* (Bit 15-8) */
     { 0x33, 0x00 },              /* (Bit 7-0) */
-    { 0x34, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 11 */
+    { 0x34, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 11 BQ1 */
     { 0x35, 0x00 },              /* (Bit 23-16) */
     { 0x36, 0x00 },              /* (Bit 15-8) */
     { 0x37, 0x00 },              /* (Bit 7-0) */
-    { 0x38, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 12 */
+    { 0x38, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 12 BQ1 */
     { 0x39, 0x00 },              /* (Bit 23-16) */
     { 0x3A, 0x00 },              /* (Bit 15-8) */
     { 0x3B, 0x00 },              /* (Bit 7-0) */
-    { 0x3C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 13 */
+    { 0x3C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 13 BQ1 */
     { 0x3D, 0x00 },              /* (Bit 23-16) */
     { 0x3E, 0x00 },              /* (Bit 15-8) */
     { 0x3F, 0x00 },              /* (Bit 7-0) */
-    { 0x40, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 14 */
+    { 0x40, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 14 BQ1 */
     { 0x41, 0x00 },              /* (Bit 23-16) */
     { 0x42, 0x00 },              /* (Bit 15-8) */
     { 0x43, 0x00 },              /* (Bit 7-0) */
-    { 0x44, 0x7f },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 15 */
+    { 0x44, 0x7f },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 15 BQ2 */
     { 0x45, 0xff },              /* (Bit 23-16) */
     { 0x46, 0xff },              /* (Bit 15-8) */
     { 0x47, 0x00 },              /* (Bit 7-0) */
-    { 0x48, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 16 */
+    { 0x48, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 16 BQ2 */
     { 0x49, 0x00 },              /* (Bit 23-16) */
     { 0x4A, 0x00 },              /* (Bit 15-8) */
     { 0x4B, 0x00 },              /* (Bit 7-0) */
-    { 0x4C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 17 */
+    { 0x4C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 17 BQ2 */
     { 0x4D, 0x00 },              /* (Bit 23-16) */
     { 0x4E, 0x00 },              /* (Bit 15-8) */
     { 0x4F, 0x00 },              /* (Bit 7-0) */
-    { 0x50, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 18 */
+    { 0x50, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 18 BQ2 */
     { 0x51, 0x00 },              /* (Bit 23-16) */
     { 0x52, 0x00 },              /* (Bit 15-8) */
     { 0x53, 0x00 },              /* (Bit 7-0) */
-    { 0x54, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 19 */
+    { 0x54, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 19 BQ2 */
     { 0x55, 0x00 },              /* (Bit 23-16) */
     { 0x56, 0x00 },              /* (Bit 15-8) */
     { 0x57, 0x00 },              /* (Bit 7-0) */
-    { 0x58, 0x7F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 20 */
+    { 0x58, 0x7F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 20 BQ3 */
     { 0x59, 0xff },              /* (Bit 23-16) */
     { 0x5A, 0xff },              /* (Bit 15-8) */
     { 0x5B, 0x00 },              /* (Bit 7-0) */
-    { 0x5C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 21 */
+    { 0x5C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 21 BQ3 */
     { 0x5D, 0x00 },              /* (Bit 23-16) */
     { 0x5E, 0x00 },              /* (Bit 15-8) */
     { 0x5F, 0x00 },              /* (Bit 7-0) */
-    { 0x60, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 22 */
+    { 0x60, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 22 BQ3 */
     { 0x61, 0x00 },              /* (Bit 23-16) */
     { 0x62, 0x00 },              /* (Bit 15-8) */
     { 0x63, 0x00 },              /* (Bit 7-0) */
-    { 0x64, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 23 */
+    { 0x64, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 23 BQ3 */
     { 0x65, 0x00 },              /* (Bit 23-16) */
     { 0x66, 0x00 },              /* (Bit 15-8) */
     { 0x67, 0x00 },              /* (Bit 7-0) */
-    { 0x68, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 24 */
+    { 0x68, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 24 BQ3 */
     { 0x69, 0x00 },              /* (Bit 23-16) */
     { 0x6A, 0x00 },              /* (Bit 15-8) */
     { 0x6B, 0x00 },              /* (Bit 7-0) */
-    { 0x6C, 0x7f },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 25 */
+    { 0x6C, 0x7f },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 25 BQ4 */
     { 0x6D, 0xff },              /* (Bit 23-16) */
     { 0x6E, 0xff },              /* (Bit 15-8) */
     { 0x6F, 0x00 },              /* (Bit 7-0) */
-    { 0x70, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 26 */
+    { 0x70, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 26 BQ4 */
     { 0x71, 0x00 },              /* (Bit 23-16) */
     { 0x72, 0x00 },              /* (Bit 15-8) */
     { 0x73, 0x00 },              /* (Bit 7-0) */
-    { 0x74, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 27 */
+    { 0x74, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 27 BQ4 */
     { 0x75, 0x00 },              /* (Bit 23-16) */
     { 0x76, 0x00 },              /* (Bit 15-8) */
     { 0x77, 0x00 },              /* (Bit 7-0) */
-    { 0x78, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 28 */
+    { 0x78, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 28 BQ4 */
     { 0x79, 0x00 },              /* (Bit 23-16) */
     { 0x7A, 0x00 },              /* (Bit 15-8) */
     { 0x7B, 0x00 },              /* (Bit 7-0) */
-    { 0x7C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 29 */
+    { 0x7C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 29 BQ4 */
     { 0x7D, 0x00 },              /* (Bit 23-16) */
     { 0x7E, 0x00 },              /* (Bit 15-8) */
     { 0x7F, 0x00 },              /* (Bit 7-0) */
     { 0x00, 0x2D },              /* ----------- Page 45 --------------------------------------... */
-    { 0x08, 0x7f },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 30 */
+    { 0x08, 0x7f },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 30 BQ5 */
     { 0x09, 0xff },              /* (Bit 23-16) */
     { 0x0A, 0xff },              /* (Bit 15-8) */
     { 0x0B, 0x00 },              /* (Bit 7-0) */
-    { 0x0C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 31 */
+    { 0x0C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 31 BQ5 */
     { 0x0D, 0x00 },              /* (Bit 23-16) */
     { 0x0E, 0x00 },              /* (Bit 15-8) */
     { 0x0F, 0x00 },              /* (Bit 7-0) */
-    { 0x10, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 32 */
+    { 0x10, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 32 BQ5 */
     { 0x11, 0x00 },              /* (Bit 23-16) */
     { 0x12, 0x00 },              /* (Bit 15-8) */
     { 0x13, 0x00 },              /* (Bit 7-0) */
-    { 0x14, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 33 */
+    { 0x14, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 33 BQ5 */
     { 0x15, 0x00 },              /* (Bit 23-16) */
     { 0x16, 0x00 },              /* (Bit 15-8) */
     { 0x17, 0x00 },              /* (Bit 7-0) */
-    { 0x18, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 34 */
+    { 0x18, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 34 BQ5 */
     { 0x19, 0x00 },              /* (Bit 23-16) */
     { 0x1A, 0x00 },              /* (Bit 15-8) */
     { 0x1B, 0x00 },              /* (Bit 7-0) */
-    { 0x1C, 0x7f },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 35 */
+    { 0x1C, 0x7f },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 35 BQ6 */
     { 0x1D, 0xff },              /* (Bit 23-16) */
     { 0x1E, 0xff },              /* (Bit 15-8) */
     { 0x1F, 0x00 },              /* (Bit 7-0) */
-    { 0x20, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 36 */
+    { 0x20, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 36 BQ6 */
     { 0x21, 0x00 },              /* (Bit 23-16) */
     { 0x22, 0x00 },              /* (Bit 15-8) */
     { 0x23, 0x00 },              /* (Bit 7-0) */
-    { 0x24, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 37 */
+    { 0x24, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 37 BQ6 */
     { 0x25, 0x00 },              /* (Bit 23-16) */
     { 0x26, 0x00 },              /* (Bit 15-8) */
     { 0x27, 0x00 },              /* (Bit 7-0) */
-    { 0x28, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 38 */
+    { 0x28, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 38 BQ6 */
     { 0x29, 0x00 },              /* (Bit 23-16) */
     { 0x2A, 0x00 },              /* (Bit 15-8) */
     { 0x2B, 0x00 },              /* (Bit 7-0) */
-    { 0x2C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 39 */
+    { 0x2C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 39 BQ6 */
     { 0x2D, 0x00 },              /* (Bit 23-16) */
     { 0x2E, 0x00 },              /* (Bit 15-8) */
     { 0x2F, 0x00 },              /* (Bit 7-0) */
-    { 0x30, 0x7f },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 40 */
+    { 0x30, 0x7f },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 40 DRC BQ1 */
     { 0x31, 0xff },              /* (Bit 23-16) */
     { 0x32, 0xff },              /* (Bit 15-8) */
     { 0x33, 0x00 },              /* (Bit 7-0) */
-    { 0x34, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 41 */
+    { 0x34, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 41 DRC BQ1 */
     { 0x35, 0x00 },              /* (Bit 23-16) */
     { 0x36, 0x00 },              /* (Bit 15-8) */
     { 0x37, 0x00 },              /* (Bit 7-0) */
-    { 0x38, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 42 */
+    { 0x38, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 42 DRC BQ1 */
     { 0x39, 0x00 },              /* (Bit 23-16) */
     { 0x3A, 0x00 },              /* (Bit 15-8) */
     { 0x3B, 0x00 },              /* (Bit 7-0) */
-    { 0x3C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 43 */
+    { 0x3C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 43 DRC BQ1 */
     { 0x3D, 0x00 },              /* (Bit 23-16) */
     { 0x3E, 0x00 },              /* (Bit 15-8) */
     { 0x3F, 0x00 },              /* (Bit 7-0) */
-    { 0x40, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 44 */
+    { 0x40, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 44 DRC BQ1 */
     { 0x41, 0x00 },              /* (Bit 23-16) */
     { 0x42, 0x00 },              /* (Bit 15-8) */
     { 0x43, 0x00 },              /* (Bit 7-0) */
-    { 0x44, 0x7f },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 45 */
+    { 0x44, 0x7f },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 45 DRC BQ2 */
     { 0x45, 0xff },              /* (Bit 23-16) */
     { 0x46, 0xff },              /* (Bit 15-8) */
     { 0x47, 0x00 },              /* (Bit 7-0) */
-    { 0x48, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 46 */
+    { 0x48, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 46 DRC BQ2 */
     { 0x49, 0x00 },              /* (Bit 23-16) */
     { 0x4A, 0x00 },              /* (Bit 15-8) */
     { 0x4B, 0x00 },              /* (Bit 7-0) */
-    { 0x4C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 47 */
+    { 0x4C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 47 DRC BQ2 */
     { 0x4D, 0x00 },              /* (Bit 23-16) */
     { 0x4E, 0x00 },              /* (Bit 15-8) */
     { 0x4F, 0x00 },              /* (Bit 7-0) */
-    { 0x50, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 48 */
+    { 0x50, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 48 DRC BQ2 */
     { 0x51, 0x00 },              /* (Bit 23-16) */
     { 0x52, 0x00 },              /* (Bit 15-8) */
     { 0x53, 0x00 },              /* (Bit 7-0) */
-    { 0x54, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 49 */
+    { 0x54, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 49 DRC BQ2 */
     { 0x55, 0x00 },              /* (Bit 23-16) */
     { 0x56, 0x00 },              /* (Bit 15-8) */
     { 0x57, 0x00 },              /* (Bit 7-0) */
-    { 0x58, 0x7f },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 50 */
+    { 0x58, 0x7f },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 50 DRC BQ3 */
     { 0x59, 0xff },              /* (Bit 23-16) */
     { 0x5A, 0xff },              /* (Bit 15-8) */
     { 0x5B, 0x00 },              /* (Bit 7-0) */
-    { 0x5C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 51 */
+    { 0x5C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 51 DRC BQ3 */
     { 0x5D, 0x00 },              /* (Bit 23-16) */
     { 0x5E, 0x00 },              /* (Bit 15-8) */
     { 0x5F, 0x00 },              /* (Bit 7-0) */
-    { 0x60, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 52 */
+    { 0x60, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 52 DRC BQ3 */
     { 0x61, 0x00 },              /* (Bit 23-16) */
     { 0x62, 0x00 },              /* (Bit 15-8) */
     { 0x63, 0x00 },              /* (Bit 7-0) */
-    { 0x64, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 53 */
+    { 0x64, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 53 DRC BQ3 */
     { 0x65, 0x00 },              /* (Bit 23-16) */
     { 0x66, 0x00 },              /* (Bit 15-8) */
     { 0x67, 0x00 },              /* (Bit 7-0) */
-    { 0x68, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 54 */
+    { 0x68, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 54 DRC BQ3 */
     { 0x69, 0x00 },              /* (Bit 23-16) */
     { 0x6A, 0x00 },              /* (Bit 15-8) */
     { 0x6B, 0x00 },              /* (Bit 7-0) */
-    { 0x6C, 0x7f },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 55 */
+    { 0x6C, 0x7f },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 55 DRC BQ4 */
     { 0x6D, 0xff },              /* (Bit 23-16) */
     { 0x6E, 0xff },              /* (Bit 15-8) */
     { 0x6F, 0x00 },              /* (Bit 7-0) */
-    { 0x70, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 56 */
+    { 0x70, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 56 DRC BQ4 */
     { 0x71, 0x00 },              /* (Bit 23-16) */
     { 0x72, 0x00 },              /* (Bit 15-8) */
     { 0x73, 0x00 },              /* (Bit 7-0) */
-    { 0x74, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 57 */
+    { 0x74, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 57 DRC BQ4 */
     { 0x75, 0x00 },              /* (Bit 23-16) */
     { 0x76, 0x00 },              /* (Bit 15-8) */
     { 0x77, 0x00 },              /* (Bit 7-0) */
-    { 0x78, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 58 */
+    { 0x78, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 58 DRC BQ4 */
     { 0x79, 0x00 },              /* (Bit 23-16) */
     { 0x7A, 0x00 },              /* (Bit 15-8) */
     { 0x7B, 0x00 },              /* (Bit 7-0) */
-    { 0x7C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 59 */
+    { 0x7C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 59 DRC BQ4 */
     { 0x7D, 0x00 },              /* (Bit 23-16) */
     { 0x7E, 0x00 },              /* (Bit 15-8) */
     { 0x7F, 0x00 },              /* (Bit 7-0) */
     { 0x00, 0x2E },              /* ----------- Page 46 ----------------------------------------... */
-    { 0x08, 0x7f },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 60 */
+    { 0x08, 0x7f },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 60 DRC BQ5 */
     { 0x09, 0xff },              /* (Bit 23-16) */
     { 0x0A, 0xff },              /* (Bit 15-8) */
     { 0x0B, 0x00 },              /* (Bit 7-0) */
-    { 0x0C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 61 */
+    { 0x0C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 61 DRC BQ5 */
     { 0x0D, 0x00 },              /* (Bit 23-16) */
     { 0x0E, 0x00 },              /* (Bit 15-8) */
     { 0x0F, 0x00 },              /* (Bit 7-0) */
-    { 0x10, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 62 */
+    { 0x10, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 62 DRC BQ5 */
     { 0x11, 0x00 },              /* (Bit 23-16) */
     { 0x12, 0x00 },              /* (Bit 15-8) */
     { 0x13, 0x00 },              /* (Bit 7-0) */
-    { 0x14, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 63 */
+    { 0x14, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 63 DRC BQ5 */
     { 0x15, 0x00 },              /* (Bit 23-16) */
     { 0x16, 0x00 },              /* (Bit 15-8) */
     { 0x17, 0x00 },              /* (Bit 7-0) */
-    { 0x18, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 64 */
+    { 0x18, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 64 DRC BQ5 */
     { 0x19, 0x00 },              /* (Bit 23-16) */
     { 0x1A, 0x00 },              /* (Bit 15-8) */
     { 0x1B, 0x00 },              /* (Bit 7-0) */
-    { 0x1C, 0x7f },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 65 */
+    { 0x1C, 0x7f },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 65 DRC BQ6 */
     { 0x1D, 0xff },              /* (Bit 23-16) */
     { 0x1E, 0xff },              /* (Bit 15-8) */
     { 0x1F, 0x00 },              /* (Bit 7-0) */
-    { 0x20, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 66 */
+    { 0x20, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 66 DRC BQ6 */
     { 0x21, 0x00 },              /* (Bit 23-16) */
     { 0x22, 0x00 },              /* (Bit 15-8) */
     { 0x23, 0x00 },              /* (Bit 7-0) */
-    { 0x24, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 67 */
+    { 0x24, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 67 DRC BQ6 */
     { 0x25, 0x00 },              /* (Bit 23-16) */
     { 0x26, 0x00 },              /* (Bit 15-8) */
     { 0x27, 0x00 },              /* (Bit 7-0) */
-    { 0x28, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 68 */
+    { 0x28, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 68 DRC BQ6 */
     { 0x29, 0x00 },              /* (Bit 23-16) */
     { 0x2A, 0x00 },              /* (Bit 15-8) */
     { 0x2B, 0x00 },              /* (Bit 7-0) */
-    { 0x2C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 69 */
+    { 0x2C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 69 DRC BQ6 */    
     { 0x2D, 0x00 },              /* (Bit 23-16) */
     { 0x2E, 0x00 },              /* (Bit 15-8) */
     { 0x2F, 0x00 },              /* (Bit 7-0) */
-    { 0x30, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 70 */
+    { 0x30, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 70 DRC_MB_1_DRC_1_DRCAE  */
     { 0x31, 0x00 },              /* (Bit 23-16) */
     { 0x32, 0xAF },              /* (Bit 15-8) */
     { 0x33, 0x00 },              /* (Bit 7-0) */
-    { 0x34, 0x7F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 71 */
+    { 0x34, 0x7F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 71 DRC_MB_1_DRC_1_DRC1AE */
     { 0x35, 0xFF },              /* (Bit 23-16) */
     { 0x36, 0x51 },              /* (Bit 15-8) */
     { 0x37, 0x00 },              /* (Bit 7-0) */
-    { 0x38, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 72 */
+    { 0x38, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 72 DRC_MB_1_DRC_1_DRCAA */
     { 0x39, 0x02 },              /* (Bit 23-16) */
     { 0x3A, 0xBB },              /* (Bit 15-8) */
     { 0x3B, 0x00 },              /* (Bit 7-0) */
-    { 0x3C, 0x7F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 73 */
+    { 0x3C, 0x7F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 73 DRC_MB_1_DRC_1_DRC1AA */
     { 0x3D, 0xFD },              /* (Bit 23-16) */
     { 0x3E, 0x45 },              /* (Bit 15-8) */
     { 0x3F, 0x00 },              /* (Bit 7-0) */
-    { 0x40, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 74 */
+    { 0x40, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 74 DRC_MB_1_DRC_1_DRCAD */
     { 0x41, 0x00 },              /* (Bit 23-16) */
     { 0x42, 0x57 },              /* (Bit 15-8) */
     { 0x43, 0x00 },              /* (Bit 7-0) */
-    { 0x44, 0x7F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 75 */
+    { 0x44, 0x7F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 75 DRC_MB_1_DRC_1_DRC1AD */
     { 0x45, 0xFF },              /* (Bit 23-16) */
     { 0x46, 0xA9 },              /* (Bit 15-8) */
     { 0x47, 0x00 },              /* (Bit 7-0) */
-    { 0x48, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 76 */
+    { 0x48, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 76 DRC_MB_1_DRC_2_DRCAE */
     { 0x49, 0x06 },              /* (Bit 23-16) */
     { 0x4A, 0xD3 },              /* (Bit 15-8) */
     { 0x4B, 0x00 },              /* (Bit 7-0) */
-    { 0x4C, 0x7F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 77 */
+    { 0x4C, 0x7F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 77 DRC_MB_1_DRC_2_DRC1AE */
     { 0x4D, 0xF9 },              /* (Bit 23-16) */
     { 0x4E, 0x2D },              /* (Bit 15-8) */
     { 0x4F, 0x00 },              /* (Bit 7-0) */
-    { 0x50, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 78 */
+    { 0x50, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 78 DRC_MB_1_DRC_2_DRCAA*/
     { 0x51, 0x1B },              /* (Bit 23-16) */
     { 0x52, 0x4C },              /* (Bit 15-8) */
     { 0x53, 0x00 },              /* (Bit 7-0) */
-    { 0x54, 0x7F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 79 */
+    { 0x54, 0x7F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 79 DRC_MB_1_DRC_2_DRC1AA */
     { 0x55, 0xE4 },              /* (Bit 23-16) */
     { 0x56, 0xB4 },              /* (Bit 15-8) */
     { 0x57, 0x00 },              /* (Bit 7-0) */
-    { 0x58, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 80 */
+    { 0x58, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 80 DRC_MB_1_DRC_2_DRCAD*/
     { 0x59, 0x03 },              /* (Bit 23-16) */
     { 0x5A, 0x6A },              /* (Bit 15-8) */
     { 0x5B, 0x00 },              /* (Bit 7-0) */
-    { 0x5C, 0x7F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 81 */
+    { 0x5C, 0x7F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 81 DRC_MB_1_DRC_2_DRC1AD */
     { 0x5D, 0xFC },              /* (Bit 23-16) */
     { 0x5E, 0x96 },              /* (Bit 15-8) */
     { 0x5F, 0x00 },              /* (Bit 7-0) */
-    { 0x60, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 82 */
+    { 0x60, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 82 DRC_MB_1_DRC_3_DRCAE */
     { 0x61, 0x44 },              /* (Bit 23-16) */
     { 0x62, 0x32 },              /* (Bit 15-8) */
     { 0x63, 0x00 },              /* (Bit 7-0) */
-    { 0x64, 0x7F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 83 */
+    { 0x64, 0x7F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 83 DRC_MB_1_DRC_3_DRC1AE */
     { 0x65, 0xBB },              /* (Bit 23-16) */
     { 0x66, 0xCE },              /* (Bit 15-8) */
     { 0x67, 0x00 },              /* (Bit 7-0) */
-    { 0x68, 0x01 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 84 */
+    { 0x68, 0x01 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 84 DRC_MB_1_DRC_3_DRCAA */
     { 0x69, 0x0F },              /* (Bit 23-16) */
     { 0x6A, 0xEF },              /* (Bit 15-8) */
     { 0x6B, 0x00 },              /* (Bit 7-0) */
-    { 0x6C, 0x7E },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 85 */
+    { 0x6C, 0x7E },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 85 DRC_MB_1_DRC_3_DRC1AA */
     { 0x6D, 0xF0 },              /* (Bit 23-16) */
     { 0x6E, 0x11 },              /* (Bit 15-8) */
     { 0x6F, 0x00 },              /* (Bit 7-0) */
-    { 0x70, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 86 */
+    { 0x70, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 86 DRC_MB_1_DRC_3_DRCAD */
     { 0x71, 0x22 },              /* (Bit 23-16) */
     { 0x72, 0x1E },              /* (Bit 15-8) */
     { 0x73, 0x00 },              /* (Bit 7-0) */
-    { 0x74, 0x7F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 87 */
+    { 0x74, 0x7F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 87 DRC_MB_1_DRC_3_DRC1AD */
     { 0x75, 0xDD },              /* (Bit 23-16) */
     { 0x76, 0xE2 },              /* (Bit 15-8) */
     { 0x77, 0x00 },              /* (Bit 7-0) */
-    { 0x78, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 88 */
+    { 0x78, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 88 DRC_MB_1_DRC_DRCK0 */
     { 0x79, 0x00 },              /* (Bit 23-16) */
     { 0x7A, 0x00 },              /* (Bit 15-8) */
     { 0x7B, 0x00 },              /* (Bit 7-0) */
-    { 0x7C, 0xF0 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 89 */
+    { 0x7C, 0xF0 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 89 DRC_MB_1_DRC_DRCK1 */
     { 0x7D, 0x00 },              /* (Bit 23-16) */
     { 0x7E, 0x00 },              /* (Bit 15-8) */
     { 0x7F, 0x00 },              /* (Bit 7-0) */
     { 0x00, 0x2F },              /* ------------ Page 47 --------------------------------------... */
-    { 0x08, 0xE4 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 90 */
+    { 0x08, 0xE4 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 90 DRC_MB_1_DRC_DRCK2 */
     { 0x09, 0x00 },              /* (Bit 23-16) */
     { 0x0A, 0x00 },              /* (Bit 15-8) */
     { 0x0B, 0x00 },              /* (Bit 7-0) */
-    { 0x0C, 0x32 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 91 */
+    { 0x0C, /* 0x32 */ 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 91 DRC_MB_1_DRC_DRCMT1 */
     { 0x0D, 0x00 },              /* (Bit 23-16) */
     { 0x0E, 0x00 },              /* (Bit 15-8) */
     { 0x0F, 0x00 },              /* (Bit 7-0) */
-    { 0x10, 0x14 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 92 */
+    { 0x10, /* 0x14 */ 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 92 DRC_MB_1_DRC_DRCMT2 */
     { 0x11, 0x00 },              /* (Bit 23-16) */
     { 0x12, 0x00 },              /* (Bit 15-8) */
     { 0x13, 0x00 },              /* (Bit 7-0) */
-    { 0x14, 0xFF },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 93 */
+    { 0x14, 0xFF },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 93 DRC_MB_1_DRC_DRCOFF1 */
     { 0x15, 0x00 },              /* (Bit 23-16) */
     { 0x16, 0x00 },              /* (Bit 15-8) */
     { 0x17, 0x00 },              /* (Bit 7-0) */
-    { 0x18, 0xF0 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 94 */
+    { 0x18, 0xF0 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 94 DRC_MB_1_DRC_DRCOFF2 */
     { 0x19, 0x00 },              /* (Bit 23-16) */
     { 0x1A, 0x00 },              /* (Bit 15-8) */
     { 0x1B, 0x00 },              /* (Bit 7-0) */
-    { 0x1C, 0xC0 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 95 */
+    { 0x1C, 0xC0 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 95 DRC_MB_1_MinusOne_Q22 */
     { 0x1D, 0x00 },              /* (Bit 23-16) */
     { 0x1E, 0x00 },              /* (Bit 15-8) */
     { 0x1F, 0x00 },              /* (Bit 7-0) */
-    { 0x20, 0x80 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 96 */
+    { 0x20, 0x80 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 96 DRC_MB_1_MinusTwo_Q22 */
     { 0x21, 0x00 },              /* (Bit 23-16) */
     { 0x22, 0x00 },              /* (Bit 15-8) */
     { 0x23, 0x00 },              /* (Bit 7-0) */
-    { 0x24, 0x40 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 97 */
+    { 0x24, 0x40 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 97 DRC_MB_1_One_M2 */
     { 0x25, 0x00 },              /* (Bit 23-16) */
     { 0x26, 0x00 },              /* (Bit 15-8) */
     { 0x27, 0x00 },              /* (Bit 7-0) */
-    { 0x28, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 98 */
+    { 0x28, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. DRC_MB_1_Zero 98 */
     { 0x29, 0x00 },              /* (Bit 23-16) */
     { 0x2A, 0x00 },              /* (Bit 15-8) */
     { 0x2B, 0x00 },              /* (Bit 7-0) */
-    { 0x2C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 99 */
+    { 0x2C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 99 DRC_MB_1_En_dB */
     { 0x2D, 0x00 },              /* (Bit 23-16) */
     { 0x2E, 0x00 },              /* (Bit 15-8) */
     { 0x2F, 0x00 },              /* (Bit 7-0) */
-    { 0x30, 0xD7 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 100 */
+    { 0x30, 0xD7 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 100 DRC_MB_1_Minus__Zero_dB */
     { 0x31, 0x41 },              /* (Bit 23-16) */
     { 0x32, 0xA0 },              /* (Bit 15-8) */
     { 0x33, 0x00 },              /* (Bit 7-0) */
-    { 0x34, 0xFF },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 101 */
+    { 0x34, 0xFF },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 101 DRC_MB_1_60_dB */
     { 0x35, 0xF0 },              /* (Bit 23-16) */
     { 0x36, 0x00 },              /* (Bit 15-8) */
     { 0x37, 0x00 },              /* (Bit 7-0) */
-    { 0x38, 0x88 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 102 */
+    { 0x38, 0x88 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 102 DRC_MB_1_Minus_60_dB */
     { 0x39, 0x00 },              /* (Bit 23-16) */
     { 0x3A, 0x00 },              /* (Bit 15-8) */
     { 0x3B, 0x00 },              /* (Bit 7-0) */
-    { 0x3C, 0x18 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 103 */
+    { 0x3C, 0x18 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 103 DRC_MB_1_12_dB */
     { 0x3D, 0x00 },              /* (Bit 23-16) */
     { 0x3E, 0x00 },              /* (Bit 15-8) */
     { 0x3F, 0x00 },              /* (Bit 7-0) */
-    { 0x40, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 104 */
+    { 0x40, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 104 DRC_MB_1_Offset */
     { 0x41, 0x00 },              /* (Bit 23-16) */
     { 0x42, 0x00 },              /* (Bit 15-8) */
     { 0x43, 0x00 },              /* (Bit 7-0) */
-    { 0x44, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 105 */
+    { 0x44, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 105 DRC_MB_1_K */
     { 0x45, 0x00 },              /* (Bit 23-16) */
     { 0x46, 0x00 },              /* (Bit 15-8) */
     { 0x47, 0x00 },              /* (Bit 7-0) */
-    { 0x48, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 106 */
+    { 0x48, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 106 DRC_MB_1_x / DRC_MB_1_DRC */
     { 0x49, 0x00 },              /* (Bit 23-16) */
     { 0x4A, 0x00 },              /* (Bit 15-8) */
     { 0x4B, 0x00 },              /* (Bit 7-0) */
-    { 0x4C, 0x30 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 107 */
+    { 0x4C, 0x30 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 107 DRC_MB_1_48_dB */
     { 0x4D, 0x00 },              /* (Bit 23-16) */
     { 0x4E, 0x00 },              /* (Bit 15-8) */
     { 0x4F, 0x00 },              /* (Bit 7-0) */
-    { 0x50, 0xD0 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 108 */
+    { 0x50, 0xD0 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 108 DRC_MB_1_Minus_48_dB */
     { 0x51, 0x00 },              /* (Bit 23-16) */
     { 0x52, 0x00 },              /* (Bit 15-8) */
     { 0x53, 0x00 },              /* (Bit 7-0) */
-    { 0x54, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 109 */
+    { 0x54, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 109 DRC_MB_1_c1_3 */
     { 0x55, 0x03 },              /* (Bit 23-16) */
     { 0x56, 0x84 },              /* (Bit 15-8) */
     { 0x57, 0x00 },              /* (Bit 7-0) */
-    { 0x58, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 110 */
+    { 0x58, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 110 DRC_MB_1_c1_2 */
     { 0x59, 0xB2 },              /* (Bit 23-16) */
     { 0x5A, 0x55 },              /* (Bit 15-8) */
     { 0x5B, 0x00 },              /* (Bit 7-0) */
-    { 0x5C, 0x0E },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 111 */
+    { 0x5C, 0x0E },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 111 DRC_MB_1_c1_1 */
     { 0x5D, 0x5B },              /* (Bit 23-16) */
     { 0x5E, 0xDE },              /* (Bit 15-8) */
     { 0x5F, 0x00 },              /* (Bit 7-0) */
-    { 0x60, 0x7F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 112 */
+    { 0x60, 0x7F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 112 DRC_MB_1_c1_0 */
     { 0x61, 0xFF },              /* (Bit 23-16) */
     { 0x62, 0xFF },              /* (Bit 15-8) */
     { 0x63, 0x00 },              /* (Bit 7-0) */
-    { 0x64, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 113 */
+    { 0x64, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 113 DRC_MB_1_O1_1 */
     { 0x65, 0x00 },              /* (Bit 23-16) */
     { 0x66, 0x00 },              /* (Bit 15-8) */
     { 0x67, 0x00 },              /* (Bit 7-0) */
-    { 0x68, 0x02 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 114 */
+    { 0x68, 0x02 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 114 DRC_MB_1_S1_1 */
     { 0x69, 0x00 },              /* (Bit 23-16) */
     { 0x6A, 0x00 },              /* (Bit 15-8) */
     { 0x6B, 0x00 },              /* (Bit 7-0) */
-    { 0x6C, 0x20 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 115 */
+    { 0x6C, 0x20 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 115 DRC_MB_1_O1_2 */
     { 0x6D, 0x00 },              /* (Bit 23-16) */
     { 0x6E, 0x00 },              /* (Bit 15-8) */
     { 0x6F, 0x00 },              /* (Bit 7-0) */
-    { 0x70, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 116 */
+    { 0x70, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 116 DRC_MB_1_S1_2 */
     { 0x71, 0x51 },              /* (Bit 23-16) */
     { 0x72, 0x26 },              /* (Bit 15-8) */
     { 0x73, 0x00 },              /* (Bit 7-0) */
-    { 0x74, 0x40 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 117 */
+    { 0x74, 0x40 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 117 DRC_MB_1_O1_3*/
     { 0x75, 0x00 },              /* (Bit 23-16) */
     { 0x76, 0x00 },              /* (Bit 15-8) */
     { 0x77, 0x00 },              /* (Bit 7-0) */
-    { 0x78, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 118 */
+    { 0x78, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 118 DRC_MB_1_S1_3 */
     { 0x79, 0x0C },              /* (Bit 23-16) */
     { 0x7A, 0xDC },              /* (Bit 15-8) */
     { 0x7B, 0x00 },              /* (Bit 7-0) */
-    { 0x7C, 0x02 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 119 */
+    { 0x7C, 0x02 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 119 DRC_MB_1_One_1_Q17 */
     { 0x7D, 0x00 },              /* (Bit 23-16) */
     { 0x7E, 0x00 },              /* (Bit 15-8) */
     { 0x7F, 0x00 },              /* (Bit 7-0) */
     { 0x00, 0x30 },              /* ------------- Page 48--------------------------------------... */
-    { 0x08, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 120 */
+    { 0x08, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 120 DRC_MB_1_Scale1 */
     { 0x09, 0x00 },              /* (Bit 23-16) */
     { 0x0A, 0x00 },              /* (Bit 15-8) */
     { 0x0B, 0x00 },              /* (Bit 7-0) */
-    { 0x0C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 121 */
+    { 0x0C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 121 DRC_MB_1_x1Coeff */
     { 0x0D, 0x00 },              /* (Bit 23-16) */
     { 0x0E, 0x00 },              /* (Bit 15-8) */
     { 0x0F, 0x00 },              /* (Bit 7-0) */
-    { 0x10, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 122 */
+    { 0x10, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 122 DRC_MB_1_c2_3 */
     { 0x11, 0x16 },              /* (Bit 23-16) */
     { 0x12, 0x5A },              /* (Bit 15-8) */
     { 0x13, 0x00 },              /* (Bit 7-0) */
-    { 0x14, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 123 */
+    { 0x14, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 123 DRC_MB_1_c2_2 */
     { 0x15, 0x37 },              /* (Bit 23-16) */
     { 0x16, 0x56 },              /* (Bit 15-8) */
     { 0x17, 0x00 },              /* (Bit 7-0) */
-    { 0x18, 0x10 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 124 */
+    { 0x18, 0x10 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 124 DRC_MB_1_c2_1 */
     { 0x19, 0xA9 },              /* (Bit 23-16) */
     { 0x1A, 0xBF },              /* (Bit 15-8) */
     { 0x1B, 0x00 },              /* (Bit 7-0) */
-    { 0x1C, 0x7F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 125 */
+    { 0x1C, 0x7F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 125 DRC_MB_1_c2_0 */
     { 0x1D, 0xFF },              /* (Bit 23-16) */
     { 0x1E, 0xFF },              /* (Bit 15-8) */
     { 0x1F, 0x00 },              /* (Bit 7-0) */
-    { 0x20, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 126 */
+    { 0x20, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 126 DRC_MB_1_O2_1 */
     { 0x21, 0x00 },              /* (Bit 23-16) */
     { 0x22, 0x00 },              /* (Bit 15-8) */
     { 0x23, 0x00 },              /* (Bit 7-0) */
-    { 0x24, 0x02 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 127 */
+    { 0x24, 0x02 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 127 DRC_MB_1_S2_1 */
     { 0x25, 0x00 },              /* (Bit 23-16) */
     { 0x26, 0x00 },              /* (Bit 15-8) */
     { 0x27, 0x00 },              /* (Bit 7-0) */
-    { 0x28, 0xE0 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 128 */
+    { 0x28, 0xE0 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 128 DRC_MB_1_O2_2 */
     { 0x29, 0x00 },              /* (Bit 23-16) */
     { 0x2A, 0x00 },              /* (Bit 15-8) */
     { 0x2B, 0x00 },              /* (Bit 7-0) */
-    { 0x2C, 0x0C },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 129 */
+    { 0x2C, 0x0C },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 129 DRC_MB_1_S2_2 */
     { 0x2D, 0x9E },              /* (Bit 23-16) */
     { 0x2E, 0x80 },              /* (Bit 15-8) */
     { 0x2F, 0x00 },              /* (Bit 7-0) */
-    { 0x30, 0xC0 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 130 */
+    { 0x30, 0xC0 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 130 DRC_MB_1_O2_3 */
     { 0x31, 0x00 },              /* (Bit 23-16) */
     { 0x32, 0x00 },              /* (Bit 15-8) */
     { 0x33, 0x00 },              /* (Bit 7-0) */
-    { 0x34, 0x4F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 131 */
+    { 0x34, 0x4F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 131 DRC_MB_1_S2_3 */
     { 0x35, 0x9F },              /* (Bit 23-16) */
     { 0x36, 0x16 },              /* (Bit 15-8) */
     { 0x37, 0x00 },              /* (Bit 7-0) */
-    { 0x38, 0x02 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 132 */
+    { 0x38, 0x02 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 132 DRC_MB_1_One_2_Q17 */
     { 0x39, 0x00 },              /* (Bit 23-16) */
     { 0x3A, 0x00 },              /* (Bit 15-8) */
     { 0x3B, 0x00 },              /* (Bit 7-0) */
-    { 0x3C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 133 */
+    { 0x3C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 133 DRC_MB_1_Scale2 */
     { 0x3D, 0x00 },              /* (Bit 23-16) */
     { 0x3E, 0x00 },              /* (Bit 15-8) */
     { 0x3F, 0x00 },              /* (Bit 7-0) */
-    { 0x40, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 134 */
+    { 0x40, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 134 DRC_MB_1_x2Coeff */
     { 0x41, 0x00 },              /* (Bit 23-16) */
     { 0x42, 0x00 },              /* (Bit 15-8) */
     { 0x43, 0x00 },              /* (Bit 7-0) */
-    { 0x44, 0x20 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 135 */
+    { 0x44, 0x20 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 135 DRC_MB_1_R1_1 */
     { 0x45, 0x00 },              /* (Bit 23-16) */
     { 0x46, 0x00 },              /* (Bit 15-8) */
     { 0x47, 0x00 },              /* (Bit 7-0) */
-    { 0x48, 0x40 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 136 */
+    { 0x48, 0x40 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 136 DRC_MB_1_R1_2 */
     { 0x49, 0x00 },              /* (Bit 23-16) */
     { 0x4A, 0x00 },              /* (Bit 15-8) */
     { 0x4B, 0x00 },              /* (Bit 7-0) */
-    { 0x4C, 0xE0 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 137 */
+    { 0x4C, 0xE0 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 137 DRC_MB_1_R2_1 */
     { 0x4D, 0x00 },              /* (Bit 23-16) */
     { 0x4E, 0x00 },              /* (Bit 15-8) */
     { 0x4F, 0x00 },              /* (Bit 7-0) */
-    { 0x50, 0xC0 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 138 */
+    { 0x50, 0xC0 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 138 DRC_MB_1_R2_2 */
     { 0x51, 0x00 },              /* (Bit 23-16) */
     { 0x52, 0x00 },              /* (Bit 15-8) */
     { 0x53, 0x00 },              /* (Bit 7-0) */
-    { 0x54, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 139 */
+    { 0x54, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 139 DRC_MB_1_Band1_GainC */
     { 0x55, 0x00 },              /* (Bit 23-16) */
     { 0x56, 0x00 },              /* (Bit 15-8) */
     { 0x57, 0x00 },              /* (Bit 7-0) */
-    { 0x58, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 140 */
+    { 0x58, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 140 DRC_MB_1_Band2_GainC */
     { 0x59, 0x00 },              /* (Bit 23-16) */
     { 0x5A, 0x00 },              /* (Bit 15-8) */
     { 0x5B, 0x00 },              /* (Bit 7-0) */
-    { 0x5C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 141 */
+    { 0x5C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 141 DRC_MB_1_Band3_GainC */
     { 0x5D, 0x00 },              /* (Bit 23-16) */
     { 0x5E, 0x00 },              /* (Bit 15-8) */
     { 0x5F, 0x00 },              /* (Bit 7-0) */
-    { 0x60, 0x80 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 142 */
+    { 0x60, 0x80 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 142 DRC_MB_1_MinusOne_M1 */
     { 0x61, 0x00 },              /* (Bit 23-16) */
     { 0x62, 0x00 },              /* (Bit 15-8) */
     { 0x63, 0x00 },              /* (Bit 7-0) */
-    { 0x64, 0x7F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 143 */
+    { 0x64, 0x7F },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 143 DRC_MB_1_One_M1 */
     { 0x65, 0xFF },              /* (Bit 23-16) */
     { 0x66, 0xFF },              /* (Bit 15-8) */
     { 0x67, 0x00 },              /* (Bit 7-0) */
-    { 0x68, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 144 */
+    { 0x68, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 144 DRC_MB_1_Band1_GainE */
     { 0x69, 0x00 },              /* (Bit 23-16) */
     { 0x6A, 0x00 },              /* (Bit 15-8) */
     { 0x6B, 0x00 },              /* (Bit 7-0) */
-    { 0x6C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 145 */
+    { 0x6C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 145 DRC_MB_1_Band2_GainE */
     { 0x6D, 0x00 },              /* (Bit 23-16) */
     { 0x6E, 0x00 },              /* (Bit 15-8) */
     { 0x6F, 0x00 },              /* (Bit 7-0) */
-    { 0x70, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 146 */
+    { 0x70, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 146 DRC_MB_1_Band3_GainE */
     { 0x71, 0x00 },              /* (Bit 23-16) */
     { 0x72, 0x00 },              /* (Bit 15-8) */
     { 0x73, 0x00 },              /* (Bit 7-0) */
-    { 0x74, 0xC0 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 147 */
+    { 0x74, 0xC0 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 147 DRC_MB_1_minus_One_M2 */
     { 0x75, 0x00 },              /* (Bit 23-16) */
     { 0x76, 0x00 },              /* (Bit 15-8) */
     { 0x77, 0x00 },              /* (Bit 7-0) */
-    { 0x78, 0x4C },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 148 */
+    { 0x78, 0x4C },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 148 Stereo_Mixer_1_MixGain1 */
     { 0x79, 0xCC },              /* (Bit 23-16) */
     { 0x7A, 0xCD },              /* (Bit 15-8) */
     { 0x7B, 0x00 },              /* (Bit 7-0) */
-    { 0x7C, 0x4C },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 149 */
+    { 0x7C, 0x4C },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 149 Stereo_Mixer_1_MixGain2 */
     { 0x7D, 0xCC },              /* (Bit 23-16) */
     { 0x7E, 0xCD },              /* (Bit 15-8) */
     { 0x7F, 0x00 },              /* (Bit 7-0) */
     { 0x00, 0x31 },              /* ------------- Page 49 -------------------------------------... */
-    { 0x08, 0x4C },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 150 */
+    { 0x08, 0x4C },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 150 Stereo_Mixer_1_MixGain3 */
     { 0x09, 0xCC },              /* (Bit 23-16) */
     { 0x0A, 0xCD },              /* (Bit 15-8) */
     { 0x0B, 0x00 },              /* (Bit 7-0) */
@@ -688,19 +688,19 @@ static const pcm51xx_cfg_reg_t pcm51xx_dsp_init_seq[] = {
     { 0x0D, 0x00 },              /* (Bit 23-16) */
     { 0x0E, 0x00 },              /* (Bit 15-8) */
     { 0x0F, 0x00 },              /* (Bit 7-0) */
-    { 0x10, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 152 */
+    { 0x10, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 152 Stereo_Mux_1_MuxSelect */
     { 0x11, 0x00 },              /* (Bit 23-16) */
     { 0x12, 0x01 },              /* (Bit 15-8) */
     { 0x13, 0x00 },              /* (Bit 7-0) */
-    { 0x14, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 153 */
+    { 0x14, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 153 C_to_D_1_Coefval, C_to_D_2_Coefval */
     { 0x15, 0x00 },              /* (Bit 23-16) */
     { 0x16, 0x00 },              /* (Bit 15-8) */
     { 0x17, 0x00 },              /* (Bit 7-0) */
-    { 0x18, 0x40 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 154 */
+    { 0x18, 0x40 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 154 Mono_Mixer_1_MixGain1 */
     { 0x19, 0x00 },              /* (Bit 23-16) */
     { 0x1A, 0x00 },              /* (Bit 15-8) */
     { 0x1B, 0x00 },              /* (Bit 7-0) */
-    { 0x1C, 0x40 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 155 */
+    { 0x1C, 0x40 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 155 Mono_Mixer_1_MixGain2 */
     { 0x1D, 0x00 },              /* (Bit 23-16) */
     { 0x1E, 0x00 },              /* (Bit 15-8) */
     { 0x1F, 0x00 },              /* (Bit 7-0) */
@@ -708,103 +708,104 @@ static const pcm51xx_cfg_reg_t pcm51xx_dsp_init_seq[] = {
     { 0x21, 0x80 },              /* (Bit 23-16) */
     { 0x22, 0x00 },              /* (Bit 15-8) */
     { 0x23, 0x00 },              /* (Bit 7-0) */
-    { 0x28, 0x20 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 158 */
+    { 0x28, 0x20 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 158 Volume_ZeroX_1_volcmd */
     { 0x29, 0x13 },              /* (Bit 23-16) */
     { 0x2A, 0x73 },              /* (Bit 15-8) */
     { 0x2B, 0x00 },              /* (Bit 7-0) */
-    { 0x2C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 159 */
+    { 0x2C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 159 Volume_ZeroX_1_volout */
     { 0x2D, 0x00 },              /* (Bit 23-16) */
     { 0x2E, 0x00 },              /* (Bit 15-8) */
     { 0x2F, 0x00 },              /* (Bit 7-0) */
-    { 0x30, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 160 */
+    { 0x30, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 160 Volume_ZeroX_1_volout_loudness */
     { 0x31, 0x00 },              /* (Bit 23-16) */
     { 0x32, 0x00 },              /* (Bit 15-8) */
     { 0x33, 0x00 },              /* (Bit 7-0) */
-    { 0x34, 0xC0 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 161 */
+    { 0x34, 0xC0 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 161 Volume_ZeroX_1_MinusOne_M2 */
     { 0x35, 0x00 },              /* (Bit 23-16) */
     { 0x36, 0x00 },              /* (Bit 15-8) */
     { 0x37, 0x00 },              /* (Bit 7-0) */
-    { 0x38, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 162 */
+    { 0x38, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 162 Volume_ZeroX_1_workingval_1_pre_CRAM */
     { 0x39, 0x00 },              /* (Bit 23-16) */
     { 0x3A, 0x00 },              /* (Bit 15-8) */
     { 0x3B, 0x00 },              /* (Bit 7-0) */
-    { 0x3C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 163 */
+    { 0x3C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 163 Volume_ZeroX_1_volout_pre1 */
     { 0x3D, 0x00 },              /* (Bit 23-16) */
     { 0x3E, 0x00 },              /* (Bit 15-8) */
     { 0x3F, 0x00 },              /* (Bit 7-0) */
-    { 0x40, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 164 */
+    { 0x40, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 164 Volume_ZeroX_1_workingval_2_pre_CRAM */
     { 0x41, 0x00 },              /* (Bit 23-16) */
     { 0x42, 0x00 },              /* (Bit 15-8) */
     { 0x43, 0x00 },              /* (Bit 7-0) */
-    { 0x44, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 165 */
+    { 0x44, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 165 Volume_ZeroX_1_volout_pre2 */
     { 0x45, 0x00 },              /* (Bit 23-16) */
     { 0x46, 0x00 },              /* (Bit 15-8) */
     { 0x47, 0x00 },              /* (Bit 7-0) */
-    { 0x48, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 166 */
+    { 0x48, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 166 Volume_ZeroX_1_workingval_3_pre_CRAM */
     { 0x49, 0x00 },              /* (Bit 23-16) */
     { 0x4A, 0x00 },              /* (Bit 15-8) */
     { 0x4B, 0x00 },              /* (Bit 7-0) */
-    { 0x4C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 167 */
+    { 0x4C, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 167 Volume_ZeroX_1_volout_pre3 */
     { 0x4D, 0x00 },              /* (Bit 23-16) */
     { 0x4E, 0x00 },              /* (Bit 15-8) */
     { 0x4F, 0x00 },              /* (Bit 7-0) */
-    { 0x50, 0x40 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 168 */
+    { 0x50, 0x40 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 168 Volume_ZeroX_1_One_M2 */
     { 0x51, 0x00 },              /* (Bit 23-16) */
     { 0x52, 0x00 },              /* (Bit 15-8) */
     { 0x53, 0x00 },              /* (Bit 7-0) */
-    { 0x54, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 169 */
+    { 0x54, 0x00 },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 169 Volume_ZeroX_1_Zero */
     { 0x55, 0x00 },              /* (Bit 23-16) */
     { 0x56, 0x00 },              /* (Bit 15-8) */
     { 0x57, 0x00 },              /* (Bit 7-0) */
-    { 0x58, 0xFF },              /* Send 0xFFFFFF ------------ MSB DAC COEFF No. 170 */
+    { 0x58, 0xFF },              /* Send 0xFFFFFF ------------ MSB DAC COEFF No. 170 MinusOne_Int */
     { 0x59, 0xFF },
     { 0x5A, 0xFF },
     { 0x5B, 0x00 },
-    { 0x5C, 0x80 },              /* Send 0x800000 ------------ MSB DAC COEFF No. 171 */
+    { 0x5C, 0x80 },              /* Send 0x800000 ------------ MSB DAC COEFF No. 171 MinusOne_M1 */
     { 0x5D, 0x00 },
     { 0x5E, 0x00 },
     { 0x5F, 0x00 },
-    { 0x60, 0x40 },              /* Send 0x400000 ------------ MSB DAC COEFF No. 172 */
+    { 0x60, 0x40 },              /* Send 0x400000 ------------ MSB DAC COEFF No. 172 One_M2  */
     { 0x61, 0x00 },
     { 0x62, 0x00 },
     { 0x63, 0x00 },
-    { 0x64, 0x7F },              /* Send 0x7FFFFF ------------ MSB DAC COEFF No. 173 */
+    { 0x64, 0x7F },              /* Send 0x7FFFFF ------------ MSB DAC COEFF No. 173 One_M1 */
     { 0x65, 0xFF },
     { 0x66, 0xFF },
     { 0x67, 0x00 },
-    { 0x68, 0x00 },              /* Send 0x000000 ------------ MSB DAC COEFF No. 174 */
+    { 0x68, 0x00 },              /* Send 0x000000 ------------ MSB DAC COEFF No. 174 Zero */
     { 0x69, 0x00 },
     { 0x6A, 0x00 },
     { 0x6B, 0x00 },
-    { 0x6C, 0x1A },              /* Send 0x1A0000 ------------ MSB DAC COEFF No. 175 */
+    { 0x6C, 0x1A },              /* Send 0x1A0000 ------------ MSB DAC COEFF No. 175 DRC_MB_1_DataBlock */
     { 0x6D, 0x00 },
     { 0x6E, 0x00 },
     { 0x6F, 0x00 },
-    { 0x70, 0x11 },              /* Send 0x118000 ------------ MSB DAC COEFF No. 176 */
+    { 0x70, 0x11 },              /* Send 0x118000 ------------ MSB DAC COEFF No. 176 DRC_MB_1_CoeffBlock */
     { 0x71, 0x80 },
     { 0x72, 0x00 },
     { 0x73, 0x00 },
-    { 0x74, 0x28 },              /* Send 0x280000 ------------ MSB DAC COEFF No. 177 */
+    { 0x74, 0x28 },              /* Send 0x280000 ------------ MSB DAC COEFF No. 177 Volume_ZeroX_1_DataBlock */
     { 0x75, 0x00 },
     { 0x76, 0x00 },
     { 0x77, 0x00 },
-    { 0x78, 0x27 },              /* Send 0x278000 ------------ MSB DAC COEFF No. 178 */
+    { 0x78, 0x27 },              /* Send 0x278000 ------------ MSB DAC COEFF No. 178 Volume_ZeroX_1_CoeffBlock */
     { 0x79, 0x80 },
     { 0x7A, 0x00 },
     { 0x7B, 0x00 },
-    { 0x7C, 0x7F },              /* Send 0x7FFFFF ------------ MSB DAC COEFF No. 179 */
+    { 0x7C, 0x7F },              /* Send 0x7FFFFF ------------ MSB DAC COEFF No. 179 plus_one */
     { 0x7D, 0xFF },
     { 0x7E, 0xFF },
     { 0x7F, 0x00 },
-    { 0x00, 0x32 },              /* ------ Page 50 (?) ----------------------------------... */
-    { 0x08, 0x2E },              /* Send 0x2E0000 */
+    { 0x00, 0x32 },              /* ------ Page 50 ----------------------------------... */
+    { 0x08, 0x2E },              /* Send 0x2E0000 ------------ MSB DAC COEFF No. 180  ADD_OF_filter_in_L */
     { 0x09, 0x00 },
     { 0x0A, 0x00 },
     { 0x0B, 0x00 },
-    { 0x0C, 0x41 },              /* Send 0x418000 */
+    { 0x0C, 0x41 },              /* Send 0x418000  ------------ MSB DAC COEFF No. 181  ADD_OF_filter_in_R */
     { 0x0D, 0x80 },
     { 0x0E, 0x00 },
     { 0x0F, 0x00 },
+    
     // { 0x00, 0x3E },              /* LOAD B BUFFER  ------------------------------------------... */
     // { 0x08, 0xFF },              /* (Bit 31-24) ------------ MSB DAC COEFF No. 256 */
     // { 0x09, 0xFF },              /* (Bit 23-16) */
