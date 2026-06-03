@@ -34,10 +34,6 @@
 #include "pcm51xx_reg_cfg.h"
 #include "driver/gpio.h"
 
-#ifdef CONFIG_DAC_PCM51XX_EQ_SUPPORT
-static void pcm51xx_eq_test_task(void *arg);
-#endif
-
 static const char *TAG = "PCM51XX";
 
 // Volume range in percentage
@@ -187,14 +183,11 @@ esp_err_t pcm51xx_init(audio_hal_codec_config_t *codec_cfg) {
   PCM51XX_ASSERT(ret, "Fail to iniitialize pcm51xx PA", ESP_FAIL);
 
 #if defined(CONFIG_DAC_PCM51XX_EQ_SUPPORT)
-  xTaskCreate(pcm51xx_eq_test_task, "pcm51xx_eq_test", 4096, NULL, 5, NULL);
-  
   ret |= pcm51xx_transmit_registers(
       pcm51xx_dsp_init_seq, sizeof(pcm51xx_dsp_init_seq) / sizeof(pcm51xx_dsp_init_seq[0]));
       
       ESP_LOGI(TAG, "%s: start DSP by writing %d registers", __func__,
         sizeof(pcm51xx_dsp_init_seq) / sizeof(pcm51xx_dsp_init_seq[0]));
-        
 #endif
 
   return ret;
@@ -513,57 +506,6 @@ static esp_err_t pcm51xx_write_all_bq_defaults(void)
     return ESP_OK;
 }
 
-/*
- * One-time DSP initialisation:
- *   1. Enter standby
- *   4. Write safe defaults to all 12 BQ sections (6 EQ + 6 DRC)
- *   2. Select process flow 5 (fixed flow with configurable BQ parameters)
- *   3. Disable x16 interpolation
- *   5. Restore page 0
- *   6. Exit standby
- */
-// static esp_err_t pcm51xx_dsp_init(void)
-// {
-//     ESP_LOGI(TAG, "%s: configuring DSP + zeroing all BQ bands", __func__);
-
-//     esp_err_t ret = pcm51xx_enter_standby();
-//     if (ret != ESP_OK) return ret;
-
-//     ret = pcm51xx_write_all_bq_defaults();
-//     pcm51xx_restore_page0();
-
-//     uint8_t reg, val;
-//     reg = PCM51XX_REG_PROCESS_FLOW;  val = PCM51XX_PROC_FLOW_5;
-//     ret = i2c_bus_write_bytes(i2c_handler, pcm51xx_addr, &reg, 1, &val, 1);
-//     if (ret != ESP_OK) { pcm51xx_exit_standby(); return ret; }
-
-//     reg = PCM51XX_REG_X16INTP;  val = 0x00;
-//     ret = i2c_bus_write_bytes(i2c_handler, pcm51xx_addr, &reg, 1, &val, 1);
-//     if (ret != ESP_OK) { pcm51xx_exit_standby(); return ret; }
-
-//     esp_err_t ret2 = pcm51xx_exit_standby();
-//     if (ret == ESP_OK) ret = ret2;
-
-//     if (ret == ESP_OK) {
-//         ESP_LOGI(TAG, "%s: done (process flow 5, all BQ at identity)", __func__);
-//     }
-//     return ret;
-// }
-
-esp_err_t pcm51xx_dsp_start(void)
-{
-    /// Temporarily replace with writing pcm51xx_dsp_init_seq
-    // return pcm51xx_dsp_init();
-
-    esp_err_t ret = pcm51xx_transmit_registers(
-        pcm51xx_dsp_init_seq, sizeof(pcm51xx_dsp_init_seq) / sizeof(pcm51xx_dsp_init_seq[0]));
-    
-    ESP_LOGI(TAG, "%s: start DSP by writing %d registers", __func__,
-             sizeof(pcm51xx_dsp_init_seq) / sizeof(pcm51xx_dsp_init_seq[0]));
-    
-    return ret;
-}
-
 esp_err_t pcm51xx_set_process_flow(uint8_t flow)
 {
     ESP_LOGI(TAG, "%s: flow=%d", __func__, (int)flow);
@@ -857,65 +799,6 @@ static void pcm51xx_dump_bq_coefficients(const char *label)
     }
 
     ESP_LOGI(TAG, "=== end dump: %s ===", label);
-}
-
-/* --------------------------------------------------------------------------
- * TEST TASK — temporary, remove after EQ validation
- * -------------------------------------------------------------------------- */
-static void pcm51xx_eq_test_task(void *arg)
-{
-    esp_err_t ret = 0;
-    // ESP_LOGW(TAG, "===========================");
-    // ESP_LOGW(TAG, "Starting PCM51XX EQ test task — dumping default coefficients");
-    // pcm51xx_dump_bq_coefficients("after dsp_init (expect identity)");
-    
-    // vTaskDelay(pdMS_TO_TICKS(5000));
-
-    // ESP_LOGW(TAG, "===========================");
-    // ESP_LOGW(TAG, "Writing default DSP RAM sequence");
-    // ret = pcm51xx_transmit_registers(
-    //     pcm51xx_dsp_init_seq, sizeof(pcm51xx_dsp_init_seq) / sizeof(pcm51xx_dsp_init_seq[0]));
-    // if (ret != ESP_OK) {
-    //     ESP_LOGE(TAG, "PCM51XX register init sequence failed: %d", ret);
-    // }
-    // pcm51xx_dump_bq_coefficients("after PPC init sequence");
-    
-    // vTaskDelay(pdMS_TO_TICKS(10000));
-    // ESP_LOGW(TAG, "===========================");
-    // ESP_LOGW(TAG, "Setting default BQ coefficients");
-    // ret = pcm51xx_dsp_init();
-    // if (ret != ESP_OK) {
-    //     ESP_LOGE(TAG, "PCM51XX DSP init failed: %d", ret);
-    // }
-    // pcm51xx_dump_bq_coefficients("after pcm51xx_dsp_init (expect identity)");
-
-    // vTaskDelay(pdMS_TO_TICKS(5000));
-    // ESP_LOGW(TAG, "===========================");
-    // ESP_LOGW(TAG, "Bumping up EQ band 0 in 3 dB steps");
-    // for (uint8_t db = 0; db <= 3; db += 3) {
-    //     ESP_LOGI(TAG, "Setting band 0 gain to %d dB", db);
-    //     ret = pcm51xx_set_eq_gain(0, db);
-    //     if (ret != ESP_OK) {
-    //         ESP_LOGE(TAG, "Failed to set EQ gain: %d", ret);
-    //     }
-    //     vTaskDelay(pdMS_TO_TICKS(1000));
-    // }
-    // pcm51xx_dump_bq_coefficients("after EQ changes (expect non-identity)");
-
-    // vTaskDelay(pdMS_TO_TICKS(10000));
-    // ESP_LOGW(TAG, "===========================");
-    // ESP_LOGW(TAG, "Restoring Process flow 1");
-
-    // pcm51xx_enter_standby();
-    // uint8_t reg = PCM51XX_REG_PROCESS_FLOW;
-    // uint8_t val = PCM51XX_PROC_FLOW_1;
-    // ret = i2c_bus_write_bytes(i2c_handler, pcm51xx_addr, &reg, 1, &val, 1);
-    // if (ret != ESP_OK) {
-    //     ESP_LOGE(TAG, "Failed to set process flow 1: %d", ret);
-    // }
-    // pcm51xx_exit_standby();
-
-    vTaskDelete(NULL);
 }
 
 float pcm51xx_q3_23_to_float(uint32_t raw)

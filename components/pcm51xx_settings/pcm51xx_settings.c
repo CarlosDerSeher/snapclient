@@ -4,20 +4,10 @@
  *
  * Mirrors the tas5805m_settings architecture:
  *
- *   1. pcm51xx_settings_init() — called once at boot after pcm51xx_init().
- *      Creates a mutex, loads NVS defaults, and starts a background task
- *      that waits for the I2S clock to become stable.
+ *   -- pcm51xx_settings_init() — called once at boot after pcm51xx_init().
+ *      Creates a mutex, loads NVS defaults, initialises the DSP with identity
+ *      BQ coefficients, restores the persisted process flow and per-band gains.
  *
- *   2. pcm51xx_settings_notify_i2s_ready() — called by the audio subsystem
- *      when I2S BCK is running.  Unblocks the background task immediately.
- *      If the notification never arrives, the task applies settings after a
- *      30-second safety timeout so a hard-coded delay can never stall the
- *      system permanently.
- *
- *   3. pcm51xx_settings_apply_delayed() — executed by the background task
- *      (or explicitly by the caller).  Calls pcm51xx_dsp_start() to configure
- *      process flow 5 and zero all EQ bands, then restores every per-band gain
- *      persisted in NVS.
  */
 
 #include "pcm51xx_settings.h"
@@ -50,10 +40,7 @@ static const char *TAG = "pcm51xx_settings";
 /** Mutex protecting all NVS operations. */
 static SemaphoreHandle_t s_mutex = NULL;
 
-/** Handle of the background polling / delay task (NULL when not running). */
-static TaskHandle_t s_poll_task_handle = NULL;
-
-/** Set to true once apply_delayed() has run successfully at least once. */
+/** Set to true once init has applied settings successfully at least once. */
 static bool s_settings_applied = false;
 
 /* -------------------------------------------------------------------------
@@ -73,49 +60,6 @@ static void make_gain_key(int band, char *buf, size_t buf_len)
 }
 
 /* -------------------------------------------------------------------------
- * Background task — waits for I2S clock notification, then applies settings
- * ------------------------------------------------------------------------- */
-
-/**
- * Wait up to PCM51XX_SETTINGS_CLK_WAIT_MS milliseconds for the I2S-ready
- * notification sent by pcm51xx_settings_notify_i2s_ready(), then call
- * pcm51xx_settings_apply_delayed().
- */
-#define PCM51XX_SETTINGS_CLK_WAIT_MS  500
-
-static void pcm51xx_settings_poll_task(void *arg)
-{
-    (void)arg;
-
-    ESP_LOGI(TAG, "%s: Waiting up to %d s for I2S clock", __func__,
-             PCM51XX_SETTINGS_CLK_WAIT_MS / 1000);
-
-    /* Block until the audio subsystem sends a notification or the timeout
-     * expires.  Either way we apply settings — the timeout is a safety net
-     * so a missed notification can never permanently defer EQ restore. */
-    uint32_t notif_value = 0;
-    BaseType_t notified = xTaskNotifyWait(0, ULONG_MAX, &notif_value,
-                                          pdMS_TO_TICKS(PCM51XX_SETTINGS_CLK_WAIT_MS));
-
-    if (notified == pdTRUE) {
-        ESP_LOGI(TAG, "%s: I2S clock ready — applying persisted EQ settings", __func__);
-    } else {
-        ESP_LOGW(TAG, "%s: Timeout waiting for I2S clock — applying settings anyway", __func__);
-    }
-
-    esp_err_t ret = pcm51xx_settings_apply_delayed();
-    if (ret == ESP_OK) {
-        s_settings_applied = true;
-    } else {
-        ESP_LOGE(TAG, "%s: pcm51xx_settings_apply_delayed() failed: %s",
-                 __func__, esp_err_to_name(ret));
-    }
-
-    s_poll_task_handle = NULL;
-    vTaskDelete(NULL);
-}
-
-/* -------------------------------------------------------------------------
  * Public API — lifecycle
  * ------------------------------------------------------------------------- */
 
@@ -129,94 +73,47 @@ esp_err_t pcm51xx_settings_init(void)
         }
     }
 
-    ESP_LOGI(TAG, "%s: PCM5122 settings manager initialised", __func__);
+    ESP_LOGI(TAG, "%s: Applying PCM5122 settings from NVS", __func__);
 
-    /* Start the background task that waits for I2S clock then applies EQ. */
-    if (!s_settings_applied && s_poll_task_handle == NULL) {
-        BaseType_t ret = xTaskCreate(pcm51xx_settings_poll_task,
-                                     "pcm51xx_settings",
-                                     4096,
-                                     NULL,
-                                     tskIDLE_PRIORITY + 2,
-                                     &s_poll_task_handle);
-        if (ret == pdPASS) {
-            ESP_LOGD(TAG, "%s: Started background settings task", __func__);
-        } else {
-            ESP_LOGW(TAG, "%s: Failed to start background task; call "
-                     "pcm51xx_settings_apply_delayed() manually", __func__);
-        }
-    }
-
-    return ESP_OK;
-}
-
-/**
- * @brief Notify the settings module that the I2S clock is now stable.
- *
- * Unblocks the background task started by pcm51xx_settings_init() so that
- * DSP initialisation and EQ restore happen immediately rather than waiting
- * for the safety timeout.  Safe to call from any context including ISR.
- */
-void pcm51xx_settings_notify_i2s_ready(void)
-{
-    if (s_poll_task_handle != NULL) {
-        xTaskNotify(s_poll_task_handle, 1, eSetBits);
-    }
-}
-
-esp_err_t pcm51xx_settings_apply_delayed(void)
-{
-    ESP_LOGI(TAG, "%s: Applying delayed PCM5122 settings from NVS", __func__);
-
-    /* Load the persisted process flow. Default to flow 5 (parametric EQ). */
-    uint8_t flow = PCM51XX_PROC_FLOW_5;
+    /* Load the persisted process flow. Default to flow 1 (bypass). */
+    uint8_t flow = PCM51XX_PROC_FLOW_1;
     pcm51xx_settings_load_process_flow(&flow);
 
-    // if (flow == PCM51XX_PROC_FLOW_5) {
-        /* EQ active path: init DSP (flow 5 + identity BQ + x16 disable),
-         * then restore per-band gains from NVS. */
-        // esp_err_t ret = pcm51xx_dsp_start();
-        // if (ret != ESP_OK) {
-        //     ESP_LOGE(TAG, "%s: pcm51xx_dsp_start() failed: %s",
-        //              __func__, esp_err_to_name(ret));
-        //     return ret;
-        // }
+    esp_err_t ret = pcm51xx_set_process_flow(flow);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "%s: pcm51xx_set_process_flow(%d) failed: %s",
+                    __func__, (int)flow, esp_err_to_name(ret));
+        return ret;
+    }
 
-        for (int band = 0; band < PCM51XX_EQ_BANDS; band++) {
-            int gain_db = 0;
-            esp_err_t load_ret = pcm51xx_settings_load_eq_gain(band, &gain_db);
-            if (load_ret == ESP_ERR_NVS_NOT_FOUND) {
-                ESP_LOGD(TAG, "%s: band %d: no saved gain, using 0 dB", __func__, band);
-                continue;
-            }
-            if (load_ret != ESP_OK) {
-                ESP_LOGW(TAG, "%s: band %d: NVS load error: %s",
-                         __func__, band, esp_err_to_name(load_ret));
-                continue;
-            }
-            if (gain_db == 0) {
-                /* Identity — dsp_start already wrote unity coefficients. */
-                continue;
-            }
-            esp_err_t set_ret = pcm51xx_set_eq_gain(band, gain_db);
-            if (set_ret != ESP_OK) {
-                ESP_LOGW(TAG, "%s: band %d: pcm51xx_set_eq_gain(%d) failed: %s",
-                         __func__, band, gain_db, esp_err_to_name(set_ret));
-            } else {
-                ESP_LOGD(TAG, "%s: band %d (%d Hz): gain=%d dB",
-                         __func__, band, (int)pcm51xx_eq_band_cfg[band].freq_hz, gain_db);
-            }
+    /* Restore per-band gains from NVS. */
+    for (int band = 0; band < PCM51XX_EQ_BANDS; band++) {
+        int gain_db = 0;
+        esp_err_t load_ret = pcm51xx_settings_load_eq_gain(band, &gain_db);
+        if (load_ret == ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGD(TAG, "%s: band %d: no saved gain, using 0 dB", __func__, band);
+            continue;
         }
-    // } else {
-        /* Non-EQ flow: just switch the process flow register.  No BQ writes. */
-        esp_err_t ret = pcm51xx_set_process_flow(flow);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "%s: pcm51xx_set_process_flow(%d) failed: %s",
-                     __func__, (int)flow, esp_err_to_name(ret));
-            return ret;
+        if (load_ret != ESP_OK) {
+            ESP_LOGW(TAG, "%s: band %d: NVS load error: %s",
+                     __func__, band, esp_err_to_name(load_ret));
+            continue;
         }
-    // }
+        if (gain_db == 0) {
+            /* Identity — dsp_start already wrote unity coefficients. */
+            continue;
+        }
+        esp_err_t set_ret = pcm51xx_set_eq_gain(band, gain_db);
+        if (set_ret != ESP_OK) {
+            ESP_LOGW(TAG, "%s: band %d: pcm51xx_set_eq_gain(%d) failed: %s",
+                     __func__, band, gain_db, esp_err_to_name(set_ret));
+        } else {
+            ESP_LOGD(TAG, "%s: band %d (%d Hz): gain=%d dB",
+                     __func__, band, (int)pcm51xx_eq_band_cfg[band].freq_hz, gain_db);
+        }
+    }
 
+    s_settings_applied = true;
     ESP_LOGI(TAG, "%s: Done (flow=%d)", __func__, (int)flow);
     return ESP_OK;
 }
@@ -484,13 +381,9 @@ esp_err_t pcm51xx_settings_set_eq_from_json(const char *json_in)
         esp_err_t ret = pcm51xx_settings_save_process_flow(flow);
         if (ret != ESP_OK) result = ret;
 
-        /* Apply immediately if DSP is already initialised. */
+        /* Apply immediately if settings have been applied once. */
         if (s_settings_applied) {
-            // if (flow == PCM51XX_PROC_FLOW_5) {
-            //     ret = pcm51xx_dsp_start();
-            // } else {
-                ret = pcm51xx_set_process_flow(flow);
-            // }
+            ret = pcm51xx_set_process_flow(flow);
             if (ret != ESP_OK) {
                 ESP_LOGW(TAG, "%s: live flow apply failed: %s",
                          __func__, esp_err_to_name(ret));
@@ -518,7 +411,7 @@ esp_err_t pcm51xx_settings_set_eq_from_json(const char *json_in)
             continue;
         }
 
-        /* Apply immediately if DSP is already initialised. */
+        /* Apply immediately if settings have been applied once. */
         if (s_settings_applied) {
             ret = pcm51xx_set_eq_gain(band, gain_db);
             if (ret != ESP_OK) {

@@ -198,28 +198,11 @@ esp_err_t pcm51xx_config_iface(audio_hal_codec_mode_t mode,
 #include "pcm51xx_eq_config.h"
 
 /**
- * @brief Initialise the PCM5122 DSP and write identity coefficients to all EQ bands.
- *
- * Selects process flow 5 (fixed biquad path, c10–c39 active), disables x16
- * interpolation, and writes pass-through (identity) coefficients to every BQ
- * section.  Must be called once after the I2S clock is stable so that the PLL
- * can re-lock correctly when the device exits standby.
- *
- * Typically called by pcm51xx_settings_apply_delayed() once the audio
- * subsystem is running.
- *
- * @return ESP_OK on success.
- */
-esp_err_t pcm51xx_dsp_start(void);
-
-/**
  * @brief Select the DSP process flow without modifying BQ coefficients.
  *
  * Enters standby, writes the PCM51XX_REG_PROCESS_FLOW register, then exits
  * standby.  Use this to switch to flows 1, 2, 3, or 7 where the parametric
- * BQ sections are bypassed.  For flow 5 (parametric EQ active), prefer
- * pcm51xx_dsp_start() which also writes identity coefficients and disables
- * x16 interpolation.
+ * BQ sections are bypassed.
  *
  * @param flow  Process flow value (PCM51XX_PROC_FLOW_1 … PCM51XX_PROC_FLOW_7).
  * @return ESP_OK on success.

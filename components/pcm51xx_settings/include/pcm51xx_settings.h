@@ -5,11 +5,10 @@
  * Manages NVS persistence for PCM5122 parametric EQ settings and provides
  * a JSON API for the HTTP configuration interface.
  *
- * Delayed initialisation:
- *   DSP coefficient RAM writes require the I2S clock to be stable so the
- *   PCM5122 PLL can re-lock after exiting standby.  Call
- *   pcm51xx_settings_init() once at boot (after pcm51xx_init()), then
- *   pcm51xx_settings_apply_delayed() once the I2S/audio subsystem is running.
+ * All settings are applied eagerly from pcm51xx_settings_init() — the
+ * PCM5122 does not require the I2S clock to be present for DSP coefficient
+ * RAM or process-flow register writes.  Call pcm51xx_settings_init() once
+ * at boot after pcm51xx_init().
  */
 
 #ifndef __PCM51XX_SETTINGS_H__
@@ -49,41 +48,18 @@ extern "C" {
  * ------------------------------------------------------------------------- */
 
 /**
- * @brief Initialise the PCM5122 settings manager.
+ * @brief Initialise the PCM5122 settings manager and apply persisted settings.
  *
- * Creates the thread-safety mutex and starts a background polling task
- * that waits for the PCM5122 to be clocked (I2S clock stable) before
- * applying persisted settings via pcm51xx_settings_apply_delayed().
+ * Creates the thread-safety mutex, initialises the DSP (identity BQ
+ * coefficients + process flow 5), and then restores the persisted process
+ * flow and per-band EQ gains from NVS.
  *
  * Must be called once after pcm51xx_init().
  *
- * @return ESP_OK on success, ESP_ERR_NO_MEM if mutex creation fails.
+ * @return ESP_OK on success, ESP_ERR_NO_MEM if mutex creation fails,
+ *         or an error from pcm51xx_set_process_flow().
  */
 esp_err_t pcm51xx_settings_init(void);
-
-/**
- * @brief Notify the settings module that the I2S clock is now stable.
- *
- * Unblocks the background task started by pcm51xx_settings_init() so that
- * DSP initialisation and EQ restore happen immediately rather than waiting
- * for the 30-second safety timeout.
- *
- * Call this from the audio subsystem (e.g. main.c) once the I2S peripheral
- * has been configured and the BCK clock is running.
- */
-void pcm51xx_settings_notify_i2s_ready(void);
-
-/**
- * @brief Apply all settings that require the I2S clock to be present.
- *
- * Calls pcm51xx_dsp_start() to configure process flow 5 and reset all EQ
- * bands to identity, then restores every per-band gain persisted in NVS.
- *
- * Safe to call more than once; re-applies settings on each call.
- *
- * @return ESP_OK on success.
- */
-esp_err_t pcm51xx_settings_apply_delayed(void);
 
 /* -------------------------------------------------------------------------
  * Process flow selection

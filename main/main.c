@@ -1805,7 +1805,7 @@ void app_main(void) {
   #endif
 
   #if defined(CONFIG_DAC_PCM51XX) && defined(CONFIG_DAC_PCM51XX_EQ_SUPPORT)
-  // Start PCM5122 settings manager; DSP init is deferred until I2S clock is present
+  // Apply persisted PCM5122 DSP settings (process flow + per-band EQ gains)
   if (pcm51xx_settings_init() != ESP_OK) {
     ESP_LOGW(TAG, "Failed to init persisted PCM5122 EQ settings");
   }
@@ -1886,10 +1886,6 @@ void app_main(void) {
           audio_hal_ctrl_codec(board_handle->audio_hal,
                                 AUDIO_HAL_CODEC_MODE_DECODE,
                                 AUDIO_HAL_CTRL_START);
-          #if defined(CONFIG_DAC_PCM51XX) && defined(CONFIG_DAC_PCM51XX_EQ_SUPPORT)
-          // Notify pcm51xx_settings that I2S clock is now stable so DSP init can proceed
-          pcm51xx_settings_notify_i2s_ready();
-          #endif
         } else if (state == PLAYING) {
           audio_hal_ctrl_codec(board_handle->audio_hal,
                                 AUDIO_HAL_CODEC_MODE_DECODE,
