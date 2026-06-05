@@ -1,5 +1,6 @@
 
 
+#include <math.h>
 #include <stdint.h>
 #include <string.h>
 #include <sys/time.h>
@@ -48,6 +49,36 @@ static dsp_all_params_t all_params;
 static ptype_t *filter = NULL;
 
 static double dynamic_vol = 1.0;
+static double last_slider_position = 1.0;
+
+// Exponential volume curve: y = curve_a * expf(curve_b * x)
+// where curve_a = 10^(-dB_range/20) and curve_b = -log(curve_a).
+// When db_range == 0 the curve is bypassed (linear passthrough).
+// Near-zero uses a linear ramp up to VOLUME_CURVE_ROLLOFF_THRESHOLD
+// to guarantee true silence at slider = 0.
+#ifndef CONFIG_SNAPCLIENT_VOLUME_CURVE_DB_RANGE
+#define CONFIG_SNAPCLIENT_VOLUME_CURVE_DB_RANGE 60
+#endif
+#define VOLUME_CURVE_ROLLOFF_THRESHOLD 0.1f
+
+static float volume_curve_db_range = (float)CONFIG_SNAPCLIENT_VOLUME_CURVE_DB_RANGE;
+static float curve_a;
+static float curve_b;
+static float curve_threshold_val;
+
+static void compute_curve(void) {
+  curve_a = powf(10.0f, -volume_curve_db_range / 20.0f);
+  curve_b = -logf(curve_a);
+  curve_threshold_val = curve_a * expf(curve_b * VOLUME_CURVE_ROLLOFF_THRESHOLD);
+}
+
+static double apply_volume_curve(double x) {
+  if (volume_curve_db_range == 0.0f)
+    return x;
+  if (x <= VOLUME_CURVE_ROLLOFF_THRESHOLD)
+    return x / VOLUME_CURVE_ROLLOFF_THRESHOLD * curve_threshold_val;
+  return curve_a * expf((float)x * curve_b);
+}
 
 static bool init = false;
 
@@ -92,6 +123,9 @@ void dsp_processor_init(void) {
   // Note: Do not read settings here to avoid circular dependency. The
   // dsp_processor_settings component will call dsp_processor_set_params_for_flow()
   // and dsp_processor_switch_flow() during its init to apply saved settings.
+
+  // Use Kconfig default; saved value is loaded by dsp_settings_init() later.
+  compute_curve();
 
   if (params_mutex == NULL) {
     params_mutex = xSemaphoreCreateMutex();
@@ -778,10 +812,30 @@ int dsp_processor_worker(char *pcmChnk, uint16_t len, uint32_t samplerate, int c
 void dsp_processor_set_volome(double volume) {
   ESP_LOGD(TAG, "%s: volume=%f", __func__, volume);
   if (volume >= 0 && volume <= 1.0) {
-    ESP_LOGI(TAG, "Set volume to %f", volume);
-    dynamic_vol = volume;
+    last_slider_position = volume;
+    double curve = apply_volume_curve(volume);
+    ESP_LOGI(TAG, "Set volume to %f (raw %f, range=%.0f dB)", curve, volume,
+             volume_curve_db_range);
+    dynamic_vol = curve;
   }
 }
+
+void dsp_processor_set_volume_curve_db_range(float db_range) {
+  if (db_range < 0.0f || db_range > 90.0f) {
+    ESP_LOGW(TAG, "%s: db_range %f out of range (0-90), clamping", __func__, db_range);
+    db_range = fminf(fmaxf(db_range, 0.0f), 90.0f);
+  }
+  if (db_range != volume_curve_db_range) {
+    float old_db_range = volume_curve_db_range;
+    volume_curve_db_range = db_range;
+    compute_curve();
+    double new_curve = apply_volume_curve(last_slider_position);
+    ESP_LOGI(TAG, "Volume curve updated: %.0f->%.0f dB, dynamic_vol: %f->%f",
+             old_db_range, volume_curve_db_range, dynamic_vol, new_curve);
+    dynamic_vol = new_curve;
+  }
+}
+
 /**
  * Set parameters for a specific flow (without switching to it)
  */
