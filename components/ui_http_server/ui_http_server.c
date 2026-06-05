@@ -1251,6 +1251,21 @@ static void http_server_task(void *pvParameters) {
 			continue;
 		}
 
+		// Handle channel mode (global, not flow-specific)
+		if (strcmp(urlBuf.key, "channel_mode") == 0) {
+#if CONFIG_USE_DSP_PROCESSOR
+			char json[32];
+			snprintf(json, sizeof(json), "{\"channel_mode\":%ld}",
+					 (long)urlBuf.int_value);
+			esp_err_t e = dsp_settings_set_from_json(json);
+			if (e != ESP_OK) {
+				ESP_LOGW(TAG, "%s: channel_mode set failed: %s", __func__,
+						 esp_err_to_name(e));
+			}
+#endif
+			continue;
+		}
+
 		// Handle parameter updates for current flow
 		bool param_recognized = false;
 

@@ -140,6 +140,20 @@
       color: #666;
       font-style: italic;
     }
+    .global-settings {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+
+    .parameter-control select {
+      padding: 8px 12px;
+      font-size: 16px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      width: 100%;
+    }
   </style>
 </head>
 <body>
@@ -176,12 +190,30 @@
       }
     }
 
+    // Handle channel mode dropdown
+    function handleChannelModeChange(value) {
+      setParameter('channel_mode', parseInt(value, 10));
+    }
+
     // Render the complete UI based on capabilities
     async function renderUI() {
       const app = document.getElementById('app');
-      
+
+      // Global settings
+      const chMode = capabilities.channel_mode !== undefined ? capabilities.channel_mode : 0;
+      let html = '<div class="global-settings">';
+      html += '<div class="parameter-control">';
+      html += '<div class="param-info"><span class="param-name">Channel Mode</span></div>';
+      html += '<select id="channel_mode" onchange="handleChannelModeChange(this.value)" aria-label="Channel Mode">';
+      html += `<option value="0" ${chMode === 0 ? 'selected' : ''}>Stereo</option>`;
+      html += `<option value="1" ${chMode === 1 ? 'selected' : ''}>Left Only</option>`;
+      html += `<option value="2" ${chMode === 2 ? 'selected' : ''}>Right Only</option>`;
+      html += '</select>';
+      html += '</div>';
+      html += '</div>';
+
       // Create flow selector
-      let html = '<div class="flow-selector">';
+      html += '<div class="flow-selector">';
       html += '<label for="flow-select">DSP Mode:</label>';
       html += '<select id="flow-select" onchange="handleFlowChange(this.value)">';
       
