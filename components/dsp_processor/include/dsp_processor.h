@@ -33,6 +33,7 @@ void dsp_processor_set_volome(double volume);
 // Set the volume curve dB range (0 = linear, 60 = standard, 90 = max).
 // Maps slider [0,1] to amplitude [10^(-dB/20), 1.0].
 // Takes effect immediately; caller is responsible for persisting to NVS.
+float dsp_processor_get_volume_curve_db_range(void);
 void dsp_processor_set_volume_curve_db_range(float db_range);
 
 /**

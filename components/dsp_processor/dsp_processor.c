@@ -820,6 +820,10 @@ void dsp_processor_set_volome(double volume) {
   }
 }
 
+float dsp_processor_get_volume_curve_db_range(void) {
+  return volume_curve_db_range;
+}
+
 void dsp_processor_set_volume_curve_db_range(float db_range) {
   if (db_range < 0.0f || db_range > 90.0f) {
     ESP_LOGW(TAG, "%s: db_range %f out of range (0-90), clamping", __func__, db_range);

@@ -278,11 +278,13 @@ esp_err_t dsp_settings_get_json(char *json_out, size_t max_len) {
 	(void)dsp_settings_load_active_flow(&active_flow);
 	cJSON_AddNumberToObject(root, "active_flow", (int)active_flow);
 
-	// Add volume curve dB range if a saved value exists
+	// Always emit the current in-memory value; NVS value takes precedence if present
+	float vol_curve = dsp_processor_get_volume_curve_db_range();
 	float saved_vol_curve = -1.0f;
 	if (dsp_settings_load_volume_curve_db_range(&saved_vol_curve) == ESP_OK) {
-		cJSON_AddNumberToObject(root, "volume_curve_db_range", saved_vol_curve);
+		vol_curve = saved_vol_curve;
 	}
+	cJSON_AddNumberToObject(root, "volume_curve_db_range", vol_curve);
 
 	// Add flow schema with current values
 	cJSON *schema = cJSON_CreateArray();
