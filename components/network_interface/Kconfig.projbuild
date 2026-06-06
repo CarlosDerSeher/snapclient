@@ -305,4 +305,13 @@ menu "Wifi Configuration"
         help
             Set the Maximum retry to avoid station reconnecting to the AP unlimited when the AP is really inexistent.
             Set to 0 if unlimited reconnections are preferred.
+
+    config SNAPCLIENT_WIFI_TX_POWER_CONTROL
+        bool "Enable WiFi TX power control"
+        default n
+        help
+            Expose a configurable WiFi transmit power setting (8.5–20 dBm).
+            The value is persisted to NVS and applied at boot. On some boards,
+            WiFi TX interferes with RX, so reducing TX power can improve
+            reception.
 endmenu

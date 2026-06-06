@@ -255,16 +255,18 @@
       html += '</div>';
       html += '</div>'; // .setting-control.setting-section
 
-      // WiFi TX power slider
-      html += '<div class="setting-control">';
-      html += '<label for="wifi-tx-power">WiFi TX Power</label>';
-      html += '<div class="description">Reduce transmit power to limit interference. Default (20 dBm) gives maximum range. Takes effect immediately.</div>';
-      html += '<div class="param-info" style="display:flex;justify-content:space-between;margin-bottom:6px;">';
-      html += `<span id="wifi-tx-power-value" style="font-weight:bold;">${(currentTxPower / 4).toFixed(1)} dBm</span>`;
-      html += '</div>';
-      html += `<input type="range" id="wifi-tx-power" min="34" max="80" step="2" value="${currentTxPower}" oninput="handleTxPowerChange(this.value)" style="width:100%;" aria-label="WiFi TX Power">`;
-      html += '<div style="display:flex;justify-content:space-between;font-size:12px;color:#888;margin-top:4px;"><span>8.5 dBm</span><span>20.0 dBm (default)</span></div>';
-      html += '</div>';
+      // WiFi TX power slider (only shown when firmware was built with TX power control)
+      if (capabilities.wifi_tx_power !== undefined) {
+        html += '<div class="setting-control">';
+        html += '<label for="wifi-tx-power">WiFi TX Power</label>';
+        html += '<div class="description">Reduce transmit power to limit interference. Default (20 dBm) gives maximum range. Takes effect immediately.</div>';
+        html += '<div class="param-info" style="display:flex;justify-content:space-between;margin-bottom:6px;">';
+        html += `<span id="wifi-tx-power-value" style="font-weight:bold;">${(currentTxPower / 4).toFixed(1)} dBm</span>`;
+        html += '</div>';
+        html += `<input type="range" id="wifi-tx-power" min="34" max="80" step="2" value="${currentTxPower}" oninput="handleTxPowerChange(this.value)" style="width:100%;" aria-label="WiFi TX Power">`;
+        html += '<div style="display:flex;justify-content:space-between;font-size:12px;color:#888;margin-top:4px;"><span>8.5 dBm</span><span>20.0 dBm (default)</span></div>';
+        html += '</div>';
+      }
 
       html += '</div>';
 

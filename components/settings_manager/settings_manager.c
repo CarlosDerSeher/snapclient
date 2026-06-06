@@ -470,6 +470,7 @@ esp_err_t settings_clear_server_port(void) {
     return err;
 }
 
+#ifdef CONFIG_SNAPCLIENT_WIFI_TX_POWER_CONTROL
 esp_err_t settings_get_wifi_tx_power(int32_t *power_dbm) {
     ESP_LOGD(TAG, "%s: entered", __func__);
     if (!power_dbm) return ESP_ERR_INVALID_ARG;
@@ -521,6 +522,7 @@ esp_err_t settings_set_wifi_tx_power(int32_t power_dbm) {
     }
     return err;
 }
+#endif // CONFIG_SNAPCLIENT_WIFI_TX_POWER_CONTROL
 
 esp_err_t settings_get_json(char *json_out, size_t max_len) {
     ESP_LOGD(TAG, "%s: entered", __func__);
@@ -557,11 +559,13 @@ esp_err_t settings_get_json(char *json_out, size_t max_len) {
         cJSON_AddNumberToObject(root, "server_port", port);
     }
 
+#ifdef CONFIG_SNAPCLIENT_WIFI_TX_POWER_CONTROL
     // Get WiFi TX power (raw ESP-IDF units, 0.25 dBm each)
     int32_t tx_power = 80;
     if (settings_get_wifi_tx_power(&tx_power) == ESP_OK) {
         cJSON_AddNumberToObject(root, "wifi_tx_power", tx_power);
     }
+#endif
 
     // Add DSP availability flag
 #if CONFIG_USE_DSP_PROCESSOR

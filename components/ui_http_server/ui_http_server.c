@@ -1252,6 +1252,7 @@ static void http_server_task(void *pvParameters) {
 			continue;
 		}
 
+#ifdef CONFIG_SNAPCLIENT_WIFI_TX_POWER_CONTROL
 		if (strcmp(urlBuf.key, "wifi_tx_power") == 0) {
 			int32_t raw = urlBuf.int_value;
 			if (raw < 34) raw = 34; // floor: 8.5 dBm
@@ -1262,6 +1263,7 @@ static void http_server_task(void *pvParameters) {
 					 __func__, (float)raw / 4.0f, (long)raw);
 			continue;
 		}
+#endif
 
 
 		// Handle parameter updates for current flow
