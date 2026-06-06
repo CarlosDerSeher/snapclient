@@ -182,7 +182,8 @@
     let currentSnapUseMDNS = true;
     let currentSnapHost = '';
     let currentSnapPort = '';
-    let currentTxPower = 20;
+    let currentTxPower = 80;
+    let hasTxPowerControl = false;
     let needsRestart = false; // Track if device needs restart
     let isDirty = false;
 
@@ -203,7 +204,8 @@
         currentSnapUseMDNS = capabilities.mdns_enabled !== undefined ? capabilities.mdns_enabled : true;
         currentSnapHost = capabilities.server_host || '';
         currentSnapPort = capabilities.server_port || '';
-        currentTxPower = capabilities.wifi_tx_power !== undefined ? capabilities.wifi_tx_power : 80;
+        hasTxPowerControl = capabilities.wifi_tx_power !== undefined;
+        currentTxPower = hasTxPowerControl ? capabilities.wifi_tx_power : 80;
         
         renderUI();
       } catch (error) {
@@ -256,7 +258,7 @@
       html += '</div>'; // .setting-control.setting-section
 
       // WiFi TX power slider (only shown when firmware was built with TX power control)
-      if (capabilities.wifi_tx_power !== undefined) {
+      if (hasTxPowerControl) {
         html += '<div class="setting-control">';
         html += '<label for="wifi-tx-power">WiFi TX Power</label>';
         html += '<div class="description">Reduce transmit power to limit interference. Default (20 dBm) gives maximum range. Takes effect immediately.</div>';
