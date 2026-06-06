@@ -23,6 +23,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "settings_manager.h"
+#include "esp_wifi.h"
 
 #if CONFIG_DAC_TAS5805M
 #include "tas5805m_settings.h"
@@ -1250,6 +1251,18 @@ static void http_server_task(void *pvParameters) {
 #endif
 			continue;
 		}
+
+		if (strcmp(urlBuf.key, "wifi_tx_power") == 0) {
+			int32_t raw = urlBuf.int_value;
+			if (raw < 34) raw = 34; // floor: 8.5 dBm
+			if (raw > 80) raw = 80; // ceiling: 20 dBm
+			settings_set_wifi_tx_power(raw);
+			esp_wifi_set_max_tx_power((int8_t)raw);
+			ESP_LOGI(TAG, "%s: wifi_tx_power set to %.2f dBm (raw %ld)",
+					 __func__, (float)raw / 4.0f, (long)raw);
+			continue;
+		}
+
 
 		// Handle parameter updates for current flow
 		bool param_recognized = false;
