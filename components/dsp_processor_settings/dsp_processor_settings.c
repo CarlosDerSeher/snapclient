@@ -45,6 +45,7 @@ esp_err_t dsp_settings_init(void) {
 
 	ESP_LOGI(TAG, "%s: DSP settings manager initialized", __func__);
 
+#ifdef CONFIG_SNAPCLIENT_USE_SOFT_VOL
 	// Load volume curve from NVS now that the mutex exists, before
 	// restoring DSP params. This must happen here (not in dsp_processor_init)
 	// because the NVS helpers require dsp_settings_mutex.
@@ -57,6 +58,7 @@ esp_err_t dsp_settings_init(void) {
 		ESP_LOGI(TAG, "No saved volume curve in NVS, using default (%.0f dB)",
 				 (float)CONFIG_SNAPCLIENT_VOLUME_CURVE_DB_RANGE);
 	}
+#endif
 
 	// Restore DSP parameters into dsp_processor so the processor has the
 	// persisted configuration after both modules are initialized.
@@ -278,6 +280,7 @@ esp_err_t dsp_settings_get_json(char *json_out, size_t max_len) {
 	(void)dsp_settings_load_active_flow(&active_flow);
 	cJSON_AddNumberToObject(root, "active_flow", (int)active_flow);
 
+#ifdef CONFIG_SNAPCLIENT_USE_SOFT_VOL
 	// Always emit the current in-memory value; NVS value takes precedence if present
 	float vol_curve = dsp_processor_get_volume_curve_db_range();
 	float saved_vol_curve = -1.0f;
@@ -285,6 +288,7 @@ esp_err_t dsp_settings_get_json(char *json_out, size_t max_len) {
 		vol_curve = saved_vol_curve;
 	}
 	cJSON_AddNumberToObject(root, "volume_curve_db_range", vol_curve);
+#endif
 
 	// Add flow schema with current values
 	cJSON *schema = cJSON_CreateArray();
@@ -527,6 +531,7 @@ esp_err_t dsp_settings_set_from_json(const char *json_in) {
 		}
 	}
 
+#ifdef CONFIG_SNAPCLIENT_USE_SOFT_VOL
 	// Handle volume curve dB range
 	cJSON *vol_curve = cJSON_GetObjectItem(root, "volume_curve_db_range");
 	if (cJSON_IsNumber(vol_curve)) {
@@ -540,6 +545,7 @@ esp_err_t dsp_settings_set_from_json(const char *json_in) {
 				err = save_err;
 		}
 	}
+#endif
 
 	// Iterate through all items and save flow parameters
 	// Expecting keys like "flow_5_fc_1", "flow_5_gain_1", etc.
