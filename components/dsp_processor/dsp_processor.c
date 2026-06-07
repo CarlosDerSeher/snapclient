@@ -6,12 +6,13 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "dsp_types.h"
+#include "esp_log.h"
 
 #if CONFIG_USE_DSP_PROCESSOR
 #include "dsp_processor.h"
 #include "dsps_biquad.h"
 #include "dsps_biquad_gen.h"
-#include "esp_log.h"
 #include "player.h"
 
 typedef struct ptype {
