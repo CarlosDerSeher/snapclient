@@ -47,7 +47,6 @@ typedef struct pcmData {
   size_t totalSize;
   pcm_chunk_fragment_t *fragment;
   uint32_t caps;
-  bool mono;  // true when fragments have been decimated to mono by player_apply_channel_mode
 } pcm_chunk_message_t;
 
 typedef enum codec_type_e { NONE = 0, PCM, FLAC, OGG, OPUS } codec_type_t;
