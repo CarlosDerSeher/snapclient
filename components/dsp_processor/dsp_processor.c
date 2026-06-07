@@ -48,7 +48,6 @@ static dsp_all_params_t all_params;
 static ptype_t *filter = NULL;
 
 static double dynamic_vol = 1.0;
-static dsp_channel_mode_t s_channel_mode = DSP_CH_STEREO;
 
 static bool init = false;
 
@@ -783,14 +782,6 @@ void dsp_processor_set_volome(double volume) {
     dynamic_vol = volume;
   }
 }
-dsp_channel_mode_t dsp_processor_get_channel_mode(void) {
-  return s_channel_mode;
-}
-
-void dsp_processor_set_channel_mode(dsp_channel_mode_t mode) {
-  s_channel_mode = mode;
-}
-
 /**
  * Set parameters for a specific flow (without switching to it)
  */
@@ -880,3 +871,22 @@ esp_err_t dsp_processor_switch_flow(dspFlows_t flow) {
 }
 
 #endif
+
+// s_channel_mode is written by the HTTP task and read by the player task;
+// protect with a spinlock so both cores see a consistent value.
+static portMUX_TYPE s_channel_mode_mux = portMUX_INITIALIZER_UNLOCKED;
+static volatile dsp_channel_mode_t s_channel_mode = DSP_CH_STEREO;
+
+dsp_channel_mode_t dsp_processor_get_channel_mode(void) {
+  dsp_channel_mode_t m;
+  portENTER_CRITICAL(&s_channel_mode_mux);
+  m = s_channel_mode;
+  portEXIT_CRITICAL(&s_channel_mode_mux);
+  return m;
+}
+
+void dsp_processor_set_channel_mode(dsp_channel_mode_t mode) {
+  portENTER_CRITICAL(&s_channel_mode_mux);
+  s_channel_mode = mode;
+  portEXIT_CRITICAL(&s_channel_mode_mux);
+}

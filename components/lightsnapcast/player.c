@@ -130,7 +130,7 @@ static bool i2sEnabled = false;
 
 // Tracks the channel mode that I2S was last configured for.
 // Updated by player_setup_i2s() and the in-task reconfig path.
-static dsp_channel_mode_t s_i2s_mode = DSP_CH_STEREO;
+static volatile dsp_channel_mode_t s_i2s_mode = DSP_CH_STEREO;
 
 i2s_std_gpio_config_t pin_config0;
 i2s_port_t i2sNum;
@@ -261,8 +261,10 @@ static void decimate_stereo_inplace(pcm_chunk_message_t *chunk, int bits,
 // Decimates a freshly-decoded stereo chunk to mono in-place if the current
 // channel mode requires it. Call this after DSP processing and before
 // insert_pcm_chunk so the queue holds mono-sized fragments.
+// Reads s_i2s_mode (the mode I2S is actually configured for) so that the
+// decimation decision is always consistent with framesToBytes in player_task.
 void player_apply_channel_mode(pcm_chunk_message_t *chunk, int bits, int ch) {
-  dsp_channel_mode_t mode = dsp_processor_get_channel_mode();
+  dsp_channel_mode_t mode = s_i2s_mode;
   if (mode != DSP_CH_STEREO && ch == 2) {
     decimate_stereo_inplace(chunk, bits, mode == DSP_CH_LEFT_ONLY);
   }
@@ -1917,7 +1919,8 @@ static void player_task(void *pvParameters) {
             }
 #endif
             int64_t alreadyWrittenTime_us = 0;
-            size_t framesToBytes = (scSet.ch + (scSet.bits >> 3));
+            size_t eff_ch = (s_i2s_mode != DSP_CH_STEREO) ? 1 : scSet.ch;
+            size_t framesToBytes = eff_ch * (scSet.bits >> 3);
             while (size) {
               size_t i2sWriteLen;
               size_t tmpSize = i2sDmaBufMaxLen * framesToBytes;

@@ -516,13 +516,18 @@ esp_err_t dsp_settings_set_from_json(const char *json_in) {
 	// Handle channel mode
 	cJSON *ch_mode = cJSON_GetObjectItem(root, "channel_mode");
 	if (cJSON_IsNumber(ch_mode)) {
-		dsp_channel_mode_t mode = (dsp_channel_mode_t)ch_mode->valueint;
-		dsp_processor_set_channel_mode(mode);
-		esp_err_t save_err = dsp_settings_save_channel_mode(mode);
-		if (save_err != ESP_OK) {
-			ESP_LOGW(TAG, "%s: Failed to save channel_mode", __func__);
-			if (err == ESP_OK)
-				err = save_err;
+		int raw = ch_mode->valueint;
+		if (raw < 0 || raw >= (int)DSP_CH_MODE_MAX) {
+			ESP_LOGW(TAG, "%s: channel_mode %d out of range, ignoring", __func__, raw);
+		} else {
+			dsp_channel_mode_t mode = (dsp_channel_mode_t)raw;
+			dsp_processor_set_channel_mode(mode);
+			esp_err_t save_err = dsp_settings_save_channel_mode(mode);
+			if (save_err != ESP_OK) {
+				ESP_LOGW(TAG, "%s: Failed to save channel_mode", __func__);
+				if (err == ESP_OK)
+					err = save_err;
+			}
 		}
 	}
 
@@ -728,8 +733,15 @@ esp_err_t dsp_settings_load_channel_mode(dsp_channel_mode_t *mode) {
 		err = nvs_get_i32(h, NVS_KEY_CHANNEL_MODE, &val);
 		nvs_close(h);
 		if (err == ESP_OK) {
-			*mode = (dsp_channel_mode_t)val;
-			ESP_LOGI(TAG, "%s: Loaded channel mode: %d", __func__, (int)*mode);
+			if (val < 0 || val >= (int32_t)DSP_CH_MODE_MAX) {
+				ESP_LOGW(TAG, "%s: NVS channel_mode %ld out of range, using default",
+						 __func__, (long)val);
+				*mode = DSP_CH_STEREO;
+				err = ESP_ERR_INVALID_ARG;
+			} else {
+				*mode = (dsp_channel_mode_t)val;
+				ESP_LOGI(TAG, "%s: Loaded channel mode: %d", __func__, (int)*mode);
+			}
 		} else if (err != ESP_ERR_NVS_NOT_FOUND) {
 			ESP_LOGW(TAG, "%s: NVS read error: %s", __func__,
 					 esp_err_to_name(err));
