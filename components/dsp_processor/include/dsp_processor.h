@@ -47,14 +47,6 @@ esp_err_t dsp_processor_set_params_for_flow(dspFlows_t flow, const filterParams_
  */
 esp_err_t dsp_processor_switch_flow(dspFlows_t flow);
 
-/**
- * Get/set channel routing mode (stereo / left-only / right-only).
- * Takes effect immediately on the next processed audio chunk.
- * Caller is responsible for persisting to NVS.
- */
-dsp_channel_mode_t dsp_processor_get_channel_mode(void);
-void dsp_processor_set_channel_mode(dsp_channel_mode_t mode);
-
 #ifdef __cplusplus
 }
 #endif

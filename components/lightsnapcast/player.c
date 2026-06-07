@@ -34,6 +34,7 @@
 #include "TimeFilter.h"
 #include "driver/gptimer.h"
 #include "driver/i2s_std.h"
+#include "dsp_types.h"
 #include "player.h"
 #include "snapcast.h"
 
@@ -107,6 +108,8 @@ static QueueHandle_t snapcastSettingQueueHandle = NULL;
 static uint32_t i2sDmaBufCnt;
 static uint32_t i2sDmaBufMaxLen;
 static playerSetting_t *scSet;  // should be used only from http_task
+
+static dsp_channel_mode_t s_channel_mode = DSP_CH_STEREO;
 
 static void tg0_timer_init(void);
 static void tg0_timer_deinit(void);
@@ -352,6 +355,11 @@ static esp_err_t player_setup_i2s(playerSetting_t *setting, bool lock) {
   // 16-bit samples are zero-padded by the IDF automatically.
   tx_std_cfg.slot_cfg.slot_bit_width = I2S_SLOT_BIT_WIDTH_32BIT;
 #endif
+  if (s_channel_mode == DSP_CH_LEFT_ONLY) {
+    tx_std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_LEFT;
+  } else if (s_channel_mode == DSP_CH_RIGHT_ONLY) {
+    tx_std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_RIGHT;
+  }
 
   ESP_ERROR_CHECK(i2s_channel_init_std_mode(tx_chan, &tx_std_cfg));
   // This prevents pops/clicks on some I2S codecs
@@ -712,6 +720,38 @@ int32_t player_send_snapcast_setting(playerSetting_t *setting) {
   }
 
   return pdPASS;
+}
+
+dsp_channel_mode_t player_get_channel_mode(void) {
+  return s_channel_mode;
+}
+
+void player_set_channel_mode(dsp_channel_mode_t mode) {
+  s_channel_mode = mode;
+  if (tx_chan == NULL) return;
+
+  i2s_std_slot_mask_t mask;
+  if (mode == DSP_CH_LEFT_ONLY) {
+    mask = I2S_STD_SLOT_LEFT;
+  } else if (mode == DSP_CH_RIGHT_ONLY) {
+    mask = I2S_STD_SLOT_RIGHT;
+  } else {
+    mask = I2S_STD_SLOT_BOTH;
+  }
+
+#if CONFIG_I2S_USE_MSB_FORMAT
+  i2s_std_slot_config_t slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO);
+#else
+  i2s_std_slot_config_t slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO);
+#endif
+#if CONFIG_I2S_SLOT_32BIT
+  slot_cfg.slot_bit_width = I2S_SLOT_BIT_WIDTH_32BIT;
+#endif
+  slot_cfg.slot_mask = mask;
+
+  my_i2s_channel_disable(tx_chan);
+  i2s_channel_reconfig_std_slot(tx_chan, &slot_cfg);
+  my_i2s_channel_enable(tx_chan);
 }
 
 #if USE_TIMEFILTER

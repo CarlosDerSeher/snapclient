@@ -2,6 +2,7 @@
 #define __PLAYER_H__
 
 #include "driver/i2s_std.h"
+#include "dsp_types.h"
 #include "esp_types.h"
 #include "freertos/FreeRTOS.h"
 #include "sdkconfig.h"
@@ -82,6 +83,9 @@ int32_t get_diff_to_server(int64_t *tDiff, int64_t now);
 int32_t latency_buffer_full(bool *is_full);
 
 int32_t player_send_snapcast_setting(playerSetting_t *setting);
+
+dsp_channel_mode_t player_get_channel_mode(void);
+void player_set_channel_mode(dsp_channel_mode_t mode);
 
 int32_t reset_latency_buffer(void);
 
