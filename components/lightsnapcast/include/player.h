@@ -68,6 +68,7 @@ void stop_player_task(void);
 
 int32_t allocate_pcm_chunk_memory(pcm_chunk_message_t **pcmChunk, size_t bytes);
 int32_t insert_pcm_chunk(pcm_chunk_message_t *pcmChunk);
+void player_apply_channel_mode(pcm_chunk_message_t *chunk, int bits, int ch);
 
 // int8_t insert_pcm_chunk (wire_chunk_message_t *decodedWireChunk);
 int8_t free_pcm_chunk(pcm_chunk_message_t *pcmChunk);

@@ -895,6 +895,7 @@ void handle_chunk_message(codec_type_t codec, playerSetting_t *scSet,
           dsp_processor_worker(new_pcmChunk->fragment->payload,
             new_pcmChunk->fragment->size / ((scSet->bits / 8) * scSet->ch),
             scSet->sr, scSet->ch);
+          player_apply_channel_mode(new_pcmChunk, scSet->bits, scSet->ch);
         }
 #endif
 
@@ -996,6 +997,7 @@ void handle_chunk_message(codec_type_t codec, playerSetting_t *scSet,
           dsp_processor_worker(new_pcmChunk->fragment->payload,
             new_pcmChunk->fragment->size / ((scSet->bits / 8) * scSet->ch),
             scSet->sr, scSet->ch);
+          player_apply_channel_mode(new_pcmChunk, scSet->bits, scSet->ch);
         }
 
 #endif
@@ -1053,6 +1055,7 @@ void handle_chunk_message(codec_type_t codec, playerSetting_t *scSet,
         dsp_processor_worker((*pcmData)->fragment->payload,
             (*pcmData)->fragment->size / ((scSet->bits / 8) * scSet->ch),
             scSet->sr, scSet->ch);
+        player_apply_channel_mode(*pcmData, scSet->bits, scSet->ch);
       }
 #endif
       if (*pcmData) {
