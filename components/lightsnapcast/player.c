@@ -128,9 +128,6 @@ static bool (*lock_i2s)(bool, TickType_t) = NULL;
 static i2s_chan_handle_t tx_chan = NULL;  // I2S tx channel handler
 static bool i2sEnabled = false;
 
-// Tracks the channel mode that I2S was last configured for.
-// Updated by player_setup_i2s() and the in-task reconfig path.
-static volatile dsp_channel_mode_t s_i2s_mode = DSP_CH_STEREO;
 
 i2s_std_gpio_config_t pin_config0;
 i2s_port_t i2sNum;
@@ -230,11 +227,8 @@ static i2s_std_slot_config_t make_slot_cfg(i2s_data_bit_width_t bits,
   return cfg;
 }
 
-// Decimates all fragments of a stereo chunk in-place, keeping left or right
-// channel. Updates fragment->size; does NOT touch chunk->totalSize so that
-// duration calculations (which divide totalSize by the server channel count)
-// remain correct. Shrinks each fragment's heap allocation so the freed half
-// is immediately available for new chunks.
+// Keeps one channel from every stereo frame, packing the result at the front
+// of the buffer. Shrinks each fragment's allocation to free the unused half.
 static void decimate_stereo_inplace(pcm_chunk_message_t *chunk, int bits,
                                     bool keep_left) {
   int bps = bits >> 3;
@@ -248,25 +242,48 @@ static void decimate_stereo_inplace(pcm_chunk_message_t *chunk, int bits,
     }
     size_t new_size = n_frames * bps;
     frag->size = new_size;
-    // Return the unused half to the heap. heap_caps_realloc shrinking always
-    // succeeds in-place; use the same caps the payload was allocated with.
-    char *shrunk = (char *)heap_caps_realloc(frag->payload, new_size,
-                                             chunk->caps ? chunk->caps
-                                                         : MALLOC_CAP_8BIT);
+    char *shrunk = heap_caps_realloc(frag->payload, new_size,
+                                     chunk->caps ? chunk->caps : MALLOC_CAP_8BIT);
     if (shrunk) frag->payload = shrunk;
     frag = frag->nextFragment;
   }
 }
 
-// Decimates a freshly-decoded stereo chunk to mono in-place if the current
-// channel mode requires it. Call this after DSP processing and before
-// insert_pcm_chunk so the queue holds mono-sized fragments.
-// Reads s_i2s_mode (the mode I2S is actually configured for) so that the
-// decimation decision is always consistent with framesToBytes in player_task.
+// Expands all fragments of a mono-decimated chunk back to stereo (L=R=mono
+// sample) before writing to I2S. Expands backwards in-place after realloc so
+// no separate bounce buffer is needed.
+static void expand_mono_to_stereo_inplace(pcm_chunk_message_t *chunk, int bits) {
+  int bps = bits >> 3;
+  pcm_chunk_fragment_t *frag = chunk->fragment;
+  while (frag) {
+    int n_frames = (int)(frag->size / bps);
+    size_t stereo_size = (size_t)n_frames * 2 * bps;
+    char *buf = heap_caps_realloc(frag->payload, stereo_size,
+                                  chunk->caps ? chunk->caps : MALLOC_CAP_8BIT);
+    if (buf) {
+      frag->payload = buf;
+      for (int i = n_frames - 1; i >= 0; i--) {
+        char *src = buf + i * bps;
+        char *dst = buf + i * 2 * bps;
+        memcpy(dst + bps, src, bps);  // R — write high address first
+        memmove(dst, src, bps);       // L — memmove safe when i==0 (dst==src)
+      }
+      frag->size = stereo_size;
+    } else {
+      ESP_LOGW(TAG, "%s: OOM on mono→stereo expand", __func__);
+    }
+    frag = frag->nextFragment;
+  }
+}
+
+// Decimates a freshly-decoded stereo chunk to mono to save queue memory, and
+// marks it so player_task re-expands to stereo just before writing to I2S.
+// I2S always stays in stereo slot mode; both outputs receive the same channel.
 void player_apply_channel_mode(pcm_chunk_message_t *chunk, int bits, int ch) {
-  dsp_channel_mode_t mode = s_i2s_mode;
+  dsp_channel_mode_t mode = dsp_processor_get_channel_mode();
   if (mode != DSP_CH_STEREO && ch == 2) {
     decimate_stereo_inplace(chunk, bits, mode == DSP_CH_LEFT_ONLY);
+    chunk->mono = true;
   }
 }
 
@@ -397,17 +414,11 @@ static esp_err_t player_setup_i2s(playerSetting_t *setting, bool lock) {
     i2s_clkcfg.mclk_multiple = I2S_MCLK_MULTIPLE_384;
   }
 
-  dsp_channel_mode_t ch_mode = dsp_processor_get_channel_mode();
-  i2s_slot_mode_t slot_mode =
-      (ch_mode != DSP_CH_STEREO) ? I2S_SLOT_MODE_MONO : I2S_SLOT_MODE_STEREO;
-
   i2s_std_config_t tx_std_cfg = {
       .clk_cfg = i2s_clkcfg,
-      .slot_cfg = make_slot_cfg(bits, slot_mode),
+      .slot_cfg = make_slot_cfg(bits, I2S_SLOT_MODE_STEREO),
       .gpio_cfg = pin_config0,
   };
-
-  s_i2s_mode = ch_mode;
 
   ESP_ERROR_CHECK(i2s_channel_init_std_mode(tx_chan, &tx_std_cfg));
   // This prevents pops/clicks on some I2S codecs
@@ -1623,31 +1634,6 @@ static void player_task(void *pvParameters) {
 
     }
 
-    // Reconfigure I2S slot mode when the channel mode changes (e.g. user
-    // switches between stereo and left/right-only via the web UI).
-    // Requires a brief mute + channel disable; causes an audible dropout.
-    {
-      dsp_channel_mode_t cur_mode = dsp_processor_get_channel_mode();
-      if (cur_mode != s_i2s_mode) {
-        i2s_slot_mode_t slot_mode = (cur_mode != DSP_CH_STEREO)
-                                        ? I2S_SLOT_MODE_MONO
-                                        : I2S_SLOT_MODE_STEREO;
-        i2s_std_slot_config_t slot_cfg = make_slot_cfg(scSet.bits, slot_mode);
-        audio_set_mute(true);
-        my_i2s_channel_disable(tx_chan);
-        if (chnk != NULL) {
-          free_pcm_chunk(chnk);
-          chnk = NULL;
-        }
-        size = 0;
-        ESP_ERROR_CHECK(i2s_channel_reconfig_std_slot(tx_chan, &slot_cfg));
-        my_i2s_channel_enable(tx_chan);
-        audio_set_mute(false);
-        s_i2s_mode = cur_mode;
-        ESP_LOGI(TAG, "I2S slot mode reconfigured for channel_mode=%d", (int)cur_mode);
-      }
-    }
-
     if (chnk == NULL) {
       if (pcmChkQHdl != NULL) {
         ret = xQueueReceive(pcmChkQHdl, &chnk, pdMS_TO_TICKS(2000));
@@ -1848,6 +1834,10 @@ static void player_task(void *pvParameters) {
 
       if (initialSync == 1) {
         if (size == 0) {
+          if (chnk->mono) {
+            expand_mono_to_stereo_inplace(chnk, scSet.bits);
+            chnk->mono = false;
+          }
           fragment = chnk->fragment;
           p_payload = fragment->payload;
           size = fragment->size;
@@ -1856,10 +1846,7 @@ static void player_task(void *pvParameters) {
         if (p_payload != NULL) {
           #if 1
           do {
-              // Bytes per audio frame sent to I2S: mono after decimation uses
-              // 1 channel; stereo uses the server channel count.
-              size_t eff_ch = (s_i2s_mode != DSP_CH_STEREO) ? 1 : scSet.ch;
-              size_t framesToBytes = eff_ch * (scSet.bits >> 3);
+              size_t framesToBytes = scSet.ch * (scSet.bits >> 3);
 #if USE_SAMPLE_INSERTION
               uint32_t sampleSizeInBytes =
                   framesToBytes * INSERT_SAMPLES;
@@ -1919,8 +1906,7 @@ static void player_task(void *pvParameters) {
             }
 #endif
             int64_t alreadyWrittenTime_us = 0;
-            size_t eff_ch = (s_i2s_mode != DSP_CH_STEREO) ? 1 : scSet.ch;
-            size_t framesToBytes = eff_ch * (scSet.bits >> 3);
+            size_t framesToBytes = scSet.ch * (scSet.bits >> 3);
             while (size) {
               size_t i2sWriteLen;
               size_t tmpSize = i2sDmaBufMaxLen * framesToBytes;
