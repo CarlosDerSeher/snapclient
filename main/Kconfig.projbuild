@@ -43,6 +43,13 @@ menu "Snapclient Configuration"
 			default 8000
 			help
 				HTTP server port to use.
+
+		config SNAPCLIENT_WEB_OTA
+			bool "Enable OTA firmware upload via web interface"
+			default y
+			help
+				Expose a /api/ota/upload endpoint and an OTA Update tab in the web UI.
+				Disable to reduce firmware size or restrict update access.
 	endmenu
 
 	config USE_SAMPLE_INSERTION

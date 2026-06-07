@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OTA Update</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="index.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 20px auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+
+    h1 {
+      color: #333;
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    .settings-container {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .setting-control {
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .setting-control label {
+      display: block;
+      font-weight: bold;
+      margin-bottom: 10px;
+      color: #333;
+      font-size: 16px;
+    }
+
+    .setting-control .description {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 15px;
+      font-style: italic;
+    }
+
+    .firmware-cards {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    @media (max-width: 560px) {
+      .firmware-cards { grid-template-columns: 1fr; }
+    }
+
+    .firmware-card {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      padding: 16px;
+    }
+
+    .firmware-card .card-title {
+      font-weight: bold;
+      font-size: 14px;
+      color: #333;
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 2px solid #e9ecef;
+    }
+
+    .firmware-card.card-new .card-title {
+      border-bottom-color: #007bff;
+    }
+
+    .firmware-meta {
+      font-size: 13px;
+      color: #555;
+    }
+
+    .firmware-meta .meta-row {
+      display: flex;
+      margin-bottom: 4px;
+      gap: 6px;
+    }
+
+    .firmware-meta .meta-key {
+      color: #888;
+      min-width: 80px;
+      flex-shrink: 0;
+    }
+
+    .firmware-meta .meta-val {
+      font-weight: 500;
+      word-break: break-all;
+    }
+
+    .sha256-row {
+      margin-top: 8px;
+      font-family: monospace;
+      font-size: 10px;
+      color: #aaa;
+      word-break: break-all;
+    }
+
+    .sha256-match { color: #28a745; font-weight: bold; }
+    .sha256-diff  { color: #dc3545; font-weight: bold; }
+
+    .placeholder {
+      font-size: 13px;
+      color: #aaa;
+      font-style: italic;
+    }
+
+    .btn {
+      padding: 10px 20px;
+      font-size: 14px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+
+    .btn-primary { background-color: #007bff; color: white; }
+    .btn-primary:hover { background-color: #0056b3; }
+    .btn-primary:disabled { background-color: #6c757d; cursor: not-allowed; }
+
+    .error   { background-color: #f8d7da; color: #721c24; padding: 15px; border-radius: 4px; margin: 10px 0; }
+    .success { background-color: #d4edda; color: #155724; padding: 15px; border-radius: 4px; margin: 10px 0; }
+    .warning { background-color: #fff3cd; color: #856404; padding: 15px; border-radius: 4px; margin: 10px 0; }
+
+    .file-input-wrapper { margin: 12px 0; }
+
+    input[type="file"] { font-size: 14px; padding: 6px 0; }
+
+    .file-info { font-size: 13px; color: #555; margin-top: 4px; }
+
+    .parse-error { font-size: 13px; color: #856404; margin-top: 6px; }
+
+    .progress-container { display: none; margin-top: 14px; }
+
+    .progress-bar-bg {
+      background: #e9ecef;
+      border-radius: 4px;
+      height: 22px;
+      overflow: hidden;
+    }
+
+    .progress-bar {
+      background: #007bff;
+      height: 100%;
+      width: 0%;
+      transition: width 0.2s ease;
+    }
+
+    .progress-bar.done { background: #28a745; }
+
+    .progress-text {
+      text-align: center;
+      font-size: 13px;
+      color: #555;
+      margin-top: 6px;
+    }
+  </style>
+</head>
+<body>
+  <h1>OTA Firmware Update</h1>
+
+  <div class="settings-container">
+
+    <div class="firmware-cards">
+      <div class="firmware-card" id="card-current">
+        <div class="card-title">Current Firmware</div>
+        <div id="info-current"><div class="placeholder">Loading…</div></div>
+      </div>
+      <div class="firmware-card card-new" id="card-selected">
+        <div class="card-title">Selected Firmware</div>
+        <div id="info-selected"><div class="placeholder">No file selected</div></div>
+      </div>
+    </div>
+
+    <div class="setting-control">
+      <label>Upload Firmware</label>
+      <div class="description">
+        Select a compiled <code>.bin</code> firmware file. The device will stop playback,
+        flash the new firmware, and restart automatically.
+      </div>
+
+      <div id="status-area"></div>
+
+      <div class="file-input-wrapper">
+        <input type="file" id="firmware-file" accept=".bin">
+        <div id="file-info" class="file-info"></div>
+        <div id="parse-error" class="parse-error"></div>
+      </div>
+
+      <div class="progress-container" id="progress-container">
+        <div class="progress-bar-bg">
+          <div class="progress-bar" id="progress-bar"></div>
+        </div>
+        <div class="progress-text" id="progress-text"></div>
+      </div>
+
+      <div style="margin-top: 16px;">
+        <button class="btn btn-primary" id="upload-btn" disabled onclick="startUpload()">
+          Upload Firmware
+        </button>
+      </div>
+    </div>
+
+    <div class="warning">
+      <strong>Warning:</strong> Do not power off or disconnect the device during the
+      update. The device will restart automatically once the new firmware is written.
+    </div>
+
+  </div>
+
+  <script>
+    'use strict';
+
+    const ESP_APP_DESC_MAGIC = 0xABCD5432;
+
+    // Offsets within esp_app_desc_t from the magic word
+    const OFF_SECURE_VER  =   4;
+    const OFF_VERSION     =  16;
+    const OFF_PROJ_NAME   =  48;
+    const OFF_TIME        =  80;
+    const OFF_DATE        =  96;
+    const OFF_IDF_VER     = 112;
+    const OFF_SHA256      = 144;
+    const STRUCT_SIZE     = 256;
+
+    const fileInput      = document.getElementById('firmware-file');
+    const uploadBtn      = document.getElementById('upload-btn');
+    const fileInfo       = document.getElementById('file-info');
+    const parseError     = document.getElementById('parse-error');
+    const statusArea     = document.getElementById('status-area');
+    const progressContainer = document.getElementById('progress-container');
+    const progressBar    = document.getElementById('progress-bar');
+    const progressText   = document.getElementById('progress-text');
+
+    const backendUrl = (typeof BACKEND_URL !== 'undefined') ? BACKEND_URL : '';
+
+    let currentSha256  = null;
+    let selectedDesc   = null;
+
+    // ── Utilities ────────────────────────────────────────────────────────────
+
+    function escapeHtml(text) {
+      const d = document.createElement('div');
+      d.textContent = String(text);
+      return d.innerHTML;
+    }
+
+    function showStatus(html) { statusArea.innerHTML = html; }
+
+    function readNullTermString(bytes, offset, maxLen) {
+      const slice = bytes.subarray(offset, offset + maxLen);
+      const end = slice.indexOf(0);
+      return new TextDecoder().decode(end >= 0 ? slice.subarray(0, end) : slice);
+    }
+
+    function bytesToHex(bytes, offset, len) {
+      return Array.from(bytes.subarray(offset, offset + len))
+        .map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    // ── esp_app_desc_t parser ─────────────────────────────────────────────────
+
+    function parseEspAppDesc(buffer) {
+      const bytes = new Uint8Array(buffer);
+      const view  = new DataView(buffer);
+
+      // Scan for magic word (little-endian), aligned to 4 bytes
+      for (let i = 0; i + STRUCT_SIZE <= bytes.length; i += 4) {
+        if (view.getUint32(i, true) !== ESP_APP_DESC_MAGIC) continue;
+
+        return {
+          secure_version: view.getUint32(i + OFF_SECURE_VER, true),
+          version:        readNullTermString(bytes, i + OFF_VERSION,   32),
+          project_name:   readNullTermString(bytes, i + OFF_PROJ_NAME, 32),
+          compile_time:   readNullTermString(bytes, i + OFF_TIME,      16),
+          compile_date:   readNullTermString(bytes, i + OFF_DATE,      16),
+          idf_version:    readNullTermString(bytes, i + OFF_IDF_VER,   32),
+          sha256:         bytesToHex(bytes, i + OFF_SHA256, 32),
+        };
+      }
+      return null;
+    }
+
+    // ── Firmware info rendering ───────────────────────────────────────────────
+
+    function renderMeta(desc) {
+      if (!desc) return '<div class="placeholder">Unknown</div>';
+
+      const rows = [
+        ['Version',  desc.version      || '—'],
+        ['Project',  desc.project_name || '—'],
+        ['Built',    desc.compile_date + ' ' + desc.compile_time],
+        ['IDF',      desc.idf_version  || '—'],
+      ];
+
+      let html = '<div class="firmware-meta">';
+      for (const [k, v] of rows) {
+        html += '<div class="meta-row">'
+          + '<span class="meta-key">' + k + '</span>'
+          + '<span class="meta-val">'  + escapeHtml(v.trim()) + '</span>'
+          + '</div>';
+      }
+      html += '</div>';
+
+      if (desc.sha256) {
+        const match = currentSha256 && desc.sha256 === currentSha256;
+        const cls   = currentSha256 ? (match ? 'sha256-match' : 'sha256-diff') : '';
+        const label = cls === 'sha256-match' ? ' ✓ same as running'
+                    : cls === 'sha256-diff'  ? ' ✗ different'
+                    : '';
+        html += '<div class="sha256-row"><span class="' + cls + '">'
+              + escapeHtml(desc.sha256) + label + '</span></div>';
+      }
+
+      return html;
+    }
+
+    // ── Load current firmware from device ────────────────────────────────────
+
+    async function loadCurrentFirmware() {
+      const el = document.getElementById('info-current');
+      try {
+        const resp = await fetch(backendUrl + '/api/ota/status');
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+        currentSha256 = data.sha256 || null;
+        el.innerHTML = renderMeta(data);
+        // Re-render selected card now that we have currentSha256 for comparison
+        if (selectedDesc) {
+          document.getElementById('info-selected').innerHTML = renderMeta(selectedDesc);
+        }
+      } catch (e) {
+        el.innerHTML = '<div class="placeholder">Unavailable</div>';
+      }
+    }
+
+    // ── File selection ────────────────────────────────────────────────────────
+
+    fileInput.addEventListener('change', function () {
+      const file = this.files[0];
+      parseError.textContent = '';
+      selectedDesc = null;
+
+      if (!file) {
+        fileInfo.textContent = '';
+        uploadBtn.disabled = true;
+        document.getElementById('info-selected').innerHTML = '<div class="placeholder">No file selected</div>';
+        return;
+      }
+
+      const kb = (file.size / 1024).toFixed(1);
+      fileInfo.textContent = file.name + ' — ' + kb + ' KB';
+      uploadBtn.disabled = false;
+
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        const desc = parseEspAppDesc(e.target.result);
+        if (desc) {
+          selectedDesc = desc;
+          document.getElementById('info-selected').innerHTML = renderMeta(desc);
+        } else {
+          document.getElementById('info-selected').innerHTML = '<div class="placeholder">Could not parse firmware metadata</div>';
+          parseError.textContent = 'Warning: esp_app_desc magic word not found — this may not be a valid ESP-IDF firmware image.';
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    });
+
+    // ── Upload + post-flash polling ───────────────────────────────────────────
+
+    async function pollForRestart() {
+      const maxAttempts = 30;
+      for (let i = 0; i < maxAttempts; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        progressText.textContent = 'Waiting for device to restart… (' + ((maxAttempts - i - 1) * 2) + 's)';
+        try {
+          const resp = await fetch(backendUrl + '/api/ota/status');
+          if (!resp.ok) continue;
+          const data = await resp.json();
+
+          progressBar.classList.add('done');
+          progressText.textContent = '';
+
+          const isNew = currentSha256 && data.sha256 && data.sha256 !== currentSha256;
+          const meta  = renderMeta(data);
+
+          showStatus(isNew
+            ? '<div class="success"><strong>New firmware confirmed running.</strong>' + meta + '</div>'
+            : '<div class="success"><strong>Device restarted successfully.</strong>'  + meta + '</div>');
+
+          // Refresh both cards
+          currentSha256 = data.sha256 || null;
+          document.getElementById('info-current').innerHTML  = renderMeta(data);
+          document.getElementById('info-selected').innerHTML = '<div class="placeholder">No file selected</div>';
+          selectedDesc = null;
+          fileInput.value = '';
+          fileInfo.textContent = '';
+
+          uploadBtn.disabled = true;
+          fileInput.disabled = false;
+          return;
+        } catch (e) {
+          // Still restarting
+        }
+      }
+
+      progressText.textContent = '';
+      showStatus('<div class="warning">Device did not respond within 60 seconds. It may still be restarting.</div>');
+      uploadBtn.disabled = false;
+      fileInput.disabled = false;
+    }
+
+    function startUpload() {
+      const file = fileInput.files[0];
+      if (!file) return;
+
+      uploadBtn.disabled = true;
+      fileInput.disabled = true;
+      showStatus('');
+
+      progressContainer.style.display = 'block';
+      progressBar.style.width = '0%';
+      progressBar.classList.remove('done');
+      progressText.textContent = 'Starting upload…';
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', backendUrl + '/api/ota/upload', true);
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+
+      xhr.upload.addEventListener('progress', function (e) {
+        if (e.lengthComputable) {
+          const pct      = Math.round((e.loaded / e.total) * 100);
+          const loadedKB = (e.loaded / 1024).toFixed(0);
+          const totalKB  = (e.total  / 1024).toFixed(0);
+          progressBar.style.width = pct + '%';
+          progressText.textContent = 'Uploading: ' + pct + '% (' + loadedKB + ' / ' + totalKB + ' KB)';
+        }
+      });
+
+      function onUploadDone() {
+        progressBar.style.width = '100%';
+        progressText.textContent = 'Upload complete — waiting for restart…';
+        pollForRestart();
+      }
+
+      xhr.onload = function () {
+        if (xhr.status === 200) {
+          onUploadDone();
+        } else {
+          let msg = 'Upload failed (HTTP ' + xhr.status + ')';
+          try { const r = JSON.parse(xhr.responseText); if (r.error) msg = r.error; } catch (e) { /* ignore */ }
+          progressText.textContent = '';
+          showStatus('<div class="error">Error: ' + escapeHtml(msg) + '</div>');
+          uploadBtn.disabled = false;
+          fileInput.disabled = false;
+        }
+      };
+
+      xhr.onerror   = onUploadDone; // connection dropped = device restarted
+      xhr.ontimeout = function () {
+        showStatus('<div class="error">Error: Upload timed out.</div>');
+        uploadBtn.disabled = false;
+        fileInput.disabled = false;
+      };
+
+      xhr.send(file);
+    }
+
+    document.addEventListener('DOMContentLoaded', loadCurrentFirmware);
+  </script>
+</body>
+</html>
