@@ -1506,7 +1506,7 @@ static void http_get_task(void *pvParameters) {
 /**
  *
  */
-int init_snapclient(void (*set_volume)(int), void (*set_mute)(bool, bool), i2s_std_gpio_config_t i2s_pin_config0, i2s_port_t I2S_NUM_0, bool (*lock)(bool, TickType_t)) {
+int init_snapclient(void (*set_volume)(int), void (*set_mute)(bool, bool), i2s_std_gpio_config_t i2s_pin_config0, i2s_port_t I2S_NUM_0, bool (*lock)(bool, TickType_t), dsp_channel_mode_t channel_mode) {
   if (set_volume == NULL) {
     ESP_LOGE(TAG, "Volume callback is NULL");
 
@@ -1522,7 +1522,7 @@ int init_snapclient(void (*set_volume)(int), void (*set_mute)(bool, bool), i2s_s
   if (snapclientStateMux == NULL) {
     snapclientStateMux = xSemaphoreCreateMutex();
   }
-  init_player(i2s_pin_config0, I2S_NUM_0, player_set_mute, on_player_state_paused, lock);
+  init_player(i2s_pin_config0, I2S_NUM_0, player_set_mute, on_player_state_paused, lock, channel_mode);
 
   xTaskCreatePinnedToCore(&http_get_task, "http", 15 * 1024, NULL,
                         HTTP_TASK_PRIORITY, &t_http_get_task,
@@ -1780,7 +1780,14 @@ void app_main(void) {
 
   i2sLockMutex = xSemaphoreCreateBinary();
 
-  init_snapclient(audio_set_volume, audio_set_mute, i2s_pin_config0, I2S_NUM_0, i2s_lock);
+#if CONFIG_USE_DSP_PROCESSOR
+  dsp_channel_mode_t channel_mode = DSP_CH_STEREO;
+  dsp_settings_load_channel_mode(&channel_mode);
+#else
+  dsp_channel_mode_t channel_mode = DSP_CH_STEREO;
+#endif
+
+  init_snapclient(audio_set_volume, audio_set_mute, i2s_pin_config0, I2S_NUM_0, i2s_lock, channel_mode);
   //init_player(i2s_pin_config0, I2S_NUM_0, player_set_mute);
   sc_add_state_cb(on_sc_state_changed);
   sc_add_state_cb(ota_on_sc_state_changed);

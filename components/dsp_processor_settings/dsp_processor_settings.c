@@ -7,7 +7,6 @@
 
 #include "cJSON.h"
 #include "dsp_processor.h"
-#include "player.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -22,6 +21,8 @@ static const char *NVS_KEY_CHANNEL_MODE = "ch_mode";
 
 // Mutex for thread-safe NVS access
 static SemaphoreHandle_t dsp_settings_mutex = NULL;
+
+static dsp_channel_mode_t s_channel_mode = DSP_CH_STEREO;
 
 
 /**
@@ -79,11 +80,11 @@ esp_err_t dsp_settings_init(void) {
 		ESP_LOGW(TAG, "%s: dsp_processor_switch_flow failed: %s", __func__, esp_err_to_name(se));
 	}
 
-	// Restore channel mode
+	// Restore channel mode cache (applied to player via init_player parameter at boot)
 	dsp_channel_mode_t saved_mode = DSP_CH_STEREO;
 	if (dsp_settings_load_channel_mode(&saved_mode) == ESP_OK) {
-		player_set_channel_mode(saved_mode);
-		ESP_LOGI(TAG, "%s: Restored channel mode from NVS: %d", __func__,
+		s_channel_mode = saved_mode;
+		ESP_LOGI(TAG, "%s: Loaded channel mode from NVS: %d", __func__,
 				 (int)saved_mode);
 	}
 
@@ -270,8 +271,7 @@ esp_err_t dsp_settings_get_json(char *json_out, size_t max_len) {
 	cJSON_AddNumberToObject(root, "active_flow", (int)active_flow);
 
 	// Channel mode (global, not flow-specific)
-	cJSON_AddNumberToObject(root, "channel_mode",
-							(int)player_get_channel_mode());
+	cJSON_AddNumberToObject(root, "channel_mode", (int)s_channel_mode);
 
 	// Add flow schema with current values
 	cJSON *schema = cJSON_CreateArray();
@@ -518,7 +518,7 @@ esp_err_t dsp_settings_set_from_json(const char *json_in) {
 	cJSON *ch_mode = cJSON_GetObjectItem(root, "channel_mode");
 	if (cJSON_IsNumber(ch_mode)) {
 		dsp_channel_mode_t mode = (dsp_channel_mode_t)ch_mode->valueint;
-		player_set_channel_mode(mode);
+		s_channel_mode = mode;
 		esp_err_t save_err = dsp_settings_save_channel_mode(mode);
 		if (save_err != ESP_OK) {
 			ESP_LOGW(TAG, "%s: Failed to save channel_mode", __func__);

@@ -140,6 +140,7 @@ esp_err_t dsp_settings_save_channel_mode(dsp_channel_mode_t mode);
  */
 esp_err_t dsp_settings_load_channel_mode(dsp_channel_mode_t *mode);
 
+
 #ifdef __cplusplus
 }
 #endif

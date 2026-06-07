@@ -489,15 +489,16 @@ void call_state_cb(void) {
 /**
  *  call before http task creation!
  */
-int init_player(i2s_std_gpio_config_t pin_config0_, i2s_port_t i2sNum_, void (*set_mute_cb)(bool), void (*cb)(bool), bool (*lock)(bool, TickType_t)) {
+int init_player(i2s_std_gpio_config_t pin_config0_, i2s_port_t i2sNum_, void (*set_mute_cb)(bool), void (*cb)(bool), bool (*lock)(bool, TickType_t), dsp_channel_mode_t channel_mode) {
   if (set_mute_cb == NULL) {
     ESP_LOGE(TAG, "set_mute_cb is NULL");
     return -1;
   }
-   
+
   audio_set_mute = set_mute_cb;
   state_cb = cb; // can be NULL
   lock_i2s = lock; // can be NULL
+  s_channel_mode = channel_mode;
 
 
   deinit_player();
@@ -722,37 +723,6 @@ int32_t player_send_snapcast_setting(playerSetting_t *setting) {
   return pdPASS;
 }
 
-dsp_channel_mode_t player_get_channel_mode(void) {
-  return s_channel_mode;
-}
-
-void player_set_channel_mode(dsp_channel_mode_t mode) {
-  s_channel_mode = mode;
-  if (tx_chan == NULL) return;
-
-  i2s_std_slot_mask_t mask;
-  if (mode == DSP_CH_LEFT_ONLY) {
-    mask = I2S_STD_SLOT_LEFT;
-  } else if (mode == DSP_CH_RIGHT_ONLY) {
-    mask = I2S_STD_SLOT_RIGHT;
-  } else {
-    mask = I2S_STD_SLOT_BOTH;
-  }
-
-#if CONFIG_I2S_USE_MSB_FORMAT
-  i2s_std_slot_config_t slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO);
-#else
-  i2s_std_slot_config_t slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO);
-#endif
-#if CONFIG_I2S_SLOT_32BIT
-  slot_cfg.slot_bit_width = I2S_SLOT_BIT_WIDTH_32BIT;
-#endif
-  slot_cfg.slot_mask = mask;
-
-  my_i2s_channel_disable(tx_chan);
-  i2s_channel_reconfig_std_slot(tx_chan, &slot_cfg);
-  my_i2s_channel_enable(tx_chan);
-}
 
 #if USE_TIMEFILTER
 /**
