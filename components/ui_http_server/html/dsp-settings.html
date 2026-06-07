@@ -193,6 +193,19 @@
     // Handle channel mode dropdown
     function handleChannelModeChange(value) {
       setParameter('channel_mode', parseInt(value, 10));
+      const btn = document.getElementById('channel-mode-restart-btn');
+      if (btn) btn.disabled = false;
+    }
+
+    function requestRestart() {
+      if (!confirm('Restart device now?')) return;
+      fetch('/restart', { method: 'POST' }).then(resp => {
+        if (resp.ok) {
+          alert('Device will restart now');
+        } else {
+          alert('Restart request failed');
+        }
+      }).catch(() => alert('Restart request failed'));
     }
 
     // Render the complete UI based on capabilities
@@ -209,7 +222,9 @@
       html += `<option value="1" ${chMode === 1 ? 'selected' : ''}>Left Only</option>`;
       html += `<option value="2" ${chMode === 2 ? 'selected' : ''}>Right Only</option>`;
       html += '</select>';
+      html += '<button id="channel-mode-restart-btn" class="btn btn-danger" onclick="requestRestart()" style="background-color:#e74c3c;margin-left:8px;" disabled>Restart to apply</button>';
       html += '</div>';
+      html += '<div class="info" style="margin-top:4px;">Channel mode takes effect after restart.</div>';
       html += '</div>';
 
       // Create flow selector
