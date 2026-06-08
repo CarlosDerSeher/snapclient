@@ -296,7 +296,7 @@
 
     // ── Firmware info rendering ───────────────────────────────────────────────
 
-    function renderMeta(desc) {
+    function renderMeta(desc, showShaLabel = true) {
       if (!desc) return '<div class="placeholder">Unknown</div>';
 
       const rows = [
@@ -317,7 +317,7 @@
 
       if (desc.sha256) {
         const match = currentSha256 && desc.sha256 === currentSha256;
-        const cls   = currentSha256 ? (match ? 'sha256-match' : 'sha256-diff') : '';
+        const cls   = (showShaLabel && currentSha256) ? (match ? 'sha256-match' : 'sha256-diff') : '';
         const label = cls === 'sha256-match' ? ' ✓ same as running'
                     : cls === 'sha256-diff'  ? ' ✗ different'
                     : '';
@@ -337,7 +337,7 @@
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         const data = await resp.json();
         currentSha256 = data.sha256 || null;
-        el.innerHTML = renderMeta(data);
+        el.innerHTML = renderMeta(data, false);
         // Re-render selected card now that we have currentSha256 for comparison
         if (selectedDesc) {
           document.getElementById('info-selected').innerHTML = renderMeta(selectedDesc);
@@ -395,6 +395,7 @@
           progressText.textContent = '';
 
           const isNew = currentSha256 && data.sha256 && data.sha256 !== currentSha256;
+          currentSha256 = data.sha256 || null;
           const meta  = renderMeta(data);
 
           showStatus(isNew
@@ -402,8 +403,7 @@
             : '<div class="success"><strong>Device restarted successfully.</strong>'  + meta + '</div>');
 
           // Refresh both cards
-          currentSha256 = data.sha256 || null;
-          document.getElementById('info-current').innerHTML  = renderMeta(data);
+          document.getElementById('info-current').innerHTML  = renderMeta(data, false);
           document.getElementById('info-selected').innerHTML = '<div class="placeholder">No file selected</div>';
           selectedDesc = null;
           fileInput.value = '';
