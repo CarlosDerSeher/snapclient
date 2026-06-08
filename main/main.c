@@ -1780,6 +1780,9 @@ void app_main(void) {
 
   i2sLockMutex = xSemaphoreCreateBinary();
 
+  // Initialize settings manager before reading any persisted settings
+  settings_manager_init();
+
   int32_t channel_mode_raw = 0;
   settings_get_channel_mode(&channel_mode_raw);
   dsp_channel_mode_t channel_mode = (dsp_channel_mode_t)channel_mode_raw;
@@ -1803,9 +1806,6 @@ void app_main(void) {
   }
   #endif
 
-  // Initialize settings manager (hostname + snapserver settings)
-  settings_manager_init();
-  
   // Get hostname for mDNS
   char mdns_hostname[64] = {0};
   if (settings_get_hostname(mdns_hostname, sizeof(mdns_hostname)) != ESP_OK) {
