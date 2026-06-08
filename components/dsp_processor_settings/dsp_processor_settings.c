@@ -76,7 +76,6 @@ esp_err_t dsp_settings_init(void) {
 	if (se != ESP_OK) {
 		ESP_LOGW(TAG, "%s: dsp_processor_switch_flow failed: %s", __func__, esp_err_to_name(se));
 	}
-
 	return ESP_OK;
 }
 
@@ -652,4 +651,3 @@ esp_err_t dsp_settings_switch_active_flow(dspFlows_t flow) {
 
 	return err;
 }
-

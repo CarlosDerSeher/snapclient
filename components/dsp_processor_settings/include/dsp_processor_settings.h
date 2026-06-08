@@ -129,7 +129,6 @@ esp_err_t dsp_settings_set_flow_params(dspFlows_t flow,
  */
 esp_err_t dsp_settings_switch_active_flow(dspFlows_t flow);
 
-
 #ifdef __cplusplus
 }
 #endif

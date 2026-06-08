@@ -184,6 +184,7 @@
     let currentSnapPort = '';
     let needsRestart = false; // Track if device needs restart
     let isDirty = false;
+    let currentChannelMode = 0;
 
     // Load current settings
     async function loadSettings() {
@@ -202,6 +203,7 @@
         currentSnapUseMDNS = capabilities.mdns_enabled !== undefined ? capabilities.mdns_enabled : true;
         currentSnapHost = capabilities.server_host || '';
         currentSnapPort = capabilities.server_port || '';
+        currentChannelMode = capabilities.channel_mode !== undefined ? capabilities.channel_mode : 0;
         
         renderUI();
       } catch (error) {
@@ -253,7 +255,21 @@
       html += '</div>';
       html += '</div>'; // .setting-control.setting-section
       html += '</div>';
-      
+
+      // Channel mode setting
+      html += '<div class="setting-control">';
+      html += '<label for="channel-mode">Channel Mode</label>';
+      html += '<div class="description">Select which audio channel is routed to both outputs. Takes effect after restart.</div>';
+      html += `<select id="channel-mode" onchange="handleChannelModeChange(this.value)">`;
+      html += `<option value="0" ${currentChannelMode === 0 ? 'selected' : ''}>Stereo</option>`;
+      html += `<option value="1" ${currentChannelMode === 1 ? 'selected' : ''}>Left Only</option>`;
+      html += `<option value="2" ${currentChannelMode === 2 ? 'selected' : ''}>Right Only</option>`;
+      html += '</select>';
+      html += '<div class="button-group">';
+      html += '<button class="btn btn-danger" id="restart-btn-channel" onclick="requestRestart()" style="background-color:#e74c3c;" disabled>Restart to apply</button>';
+      html += '</div>';
+      html += '</div>';
+
       // Info message
       html += '<div class="info">';
       html += '<strong>Note:</strong> After changing the settings, you will need to restart the device for the changes to take effect.';
@@ -348,6 +364,18 @@
         alert(err.message || 'Failed to save settings');
         saveBtn.disabled = false;
         saveBtn.textContent = 'Save Changes';
+      }
+    }
+
+    async function handleChannelModeChange(value) {
+      const mode = parseInt(value, 10);
+      try {
+        await setParameter('channel_mode', mode);
+        currentChannelMode = mode;
+        const btn = document.getElementById('restart-btn-channel');
+        if (btn) btn.disabled = false;
+      } catch (err) {
+        alert('Failed to save channel mode');
       }
     }
 
