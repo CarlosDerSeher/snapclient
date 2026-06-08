@@ -1785,6 +1785,10 @@ void app_main(void) {
 
   int32_t channel_mode_raw = 0;
   settings_get_channel_mode(&channel_mode_raw);
+  if (channel_mode_raw < DSP_CH_STEREO || channel_mode_raw > DSP_CH_RIGHT_ONLY) {
+    ESP_LOGW(TAG, "Invalid channel_mode %ld in NVS, defaulting to stereo", channel_mode_raw);
+    channel_mode_raw = DSP_CH_STEREO;
+  }
   dsp_channel_mode_t channel_mode = (dsp_channel_mode_t)channel_mode_raw;
 
   init_snapclient(audio_set_volume, audio_set_mute, i2s_pin_config0, I2S_NUM_0, i2s_lock, channel_mode);
