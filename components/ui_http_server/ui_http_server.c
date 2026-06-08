@@ -570,21 +570,6 @@ static esp_err_t get_capabilities_handler(httpd_req_t *req) {
 			return ESP_OK;
 		}
 
-		// Inject channel_mode (stored in settings_manager, not dsp_settings)
-		cJSON *dsp_root = cJSON_Parse(dsp_json);
-		if (dsp_root) {
-			int32_t ch_mode = 0;
-			settings_get_channel_mode(&ch_mode);
-			cJSON_AddNumberToObject(dsp_root, "channel_mode", ch_mode);
-			char *merged = cJSON_PrintUnformatted(dsp_root);
-			cJSON_Delete(dsp_root);
-			if (merged && strlen(merged) < 4096) {
-				strncpy(dsp_json, merged, 4095);
-				dsp_json[4095] = '\0';
-			}
-			cJSON_free(merged);
-		}
-
 		httpd_resp_set_status(req, "200 OK");
 		httpd_resp_set_type(req, "application/json");
 		httpd_resp_sendstr(req, dsp_json);
