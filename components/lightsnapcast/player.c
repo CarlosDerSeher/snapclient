@@ -34,7 +34,6 @@
 #include "TimeFilter.h"
 #include "driver/gptimer.h"
 #include "driver/i2s_std.h"
-#include "dsp_types.h"
 #include "player.h"
 #include "snapcast.h"
 
@@ -494,7 +493,7 @@ int init_player(i2s_std_gpio_config_t pin_config0_, i2s_port_t i2sNum_, void (*s
     ESP_LOGE(TAG, "set_mute_cb is NULL");
     return -1;
   }
-
+   
   audio_set_mute = set_mute_cb;
   state_cb = cb; // can be NULL
   lock_i2s = lock; // can be NULL
@@ -722,7 +721,6 @@ int32_t player_send_snapcast_setting(playerSetting_t *setting) {
 
   return pdPASS;
 }
-
 
 #if USE_TIMEFILTER
 /**
