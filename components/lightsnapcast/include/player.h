@@ -11,6 +11,13 @@
 extern "C" {
 #endif
 
+typedef enum {
+  DSP_CH_STEREO = 0,     // Normal stereo (default)
+  DSP_CH_LEFT_ONLY = 1,  // Route left channel to both outputs
+  DSP_CH_RIGHT_ONLY = 2, // Route right channel to both outputs
+  DSP_CH_MODE_MAX,       // Sentinel — must be last
+} dsp_channel_mode_t;
+
 #define USE_TIMEFILTER  CONFIG_SNAPCLIENT_USE_TIMEFILTER
 
 #define I2S_PORT I2S_NUM_0

@@ -34,7 +34,7 @@
 #include "TimeFilter.h"
 #include "driver/gptimer.h"
 #include "driver/i2s_std.h"
-#include "dsp_processor.h"
+#include "settings_manager.h"
 #include "player.h"
 #include "snapcast.h"
 
@@ -211,6 +211,12 @@ static void ensure_noiseless(i2s_chan_handle_t tx) {
 
   // Disable I2S channel again. Leaving it enabled may cause pops later.
   my_i2s_channel_disable(tx);
+}
+
+static dsp_channel_mode_t read_channel_mode(void) {
+  int32_t raw = (int32_t)DSP_CH_STEREO;
+  settings_get_channel_mode(&raw);
+  return (raw >= 0 && raw < (int32_t)DSP_CH_MODE_MAX) ? (dsp_channel_mode_t)raw : DSP_CH_STEREO;
 }
 
 // Returns the slot config for the given bit width and slot mode, respecting
@@ -390,7 +396,7 @@ static esp_err_t player_setup_i2s(playerSetting_t *setting, bool lock) {
     i2s_clkcfg.mclk_multiple = I2S_MCLK_MULTIPLE_384;
   }
 
-  dsp_channel_mode_t ch_mode = dsp_processor_get_channel_mode();
+  dsp_channel_mode_t ch_mode = read_channel_mode();
   i2s_slot_mode_t slot_mode =
       (ch_mode != DSP_CH_STEREO) ? I2S_SLOT_MODE_MONO : I2S_SLOT_MODE_STEREO;
 
@@ -1619,7 +1625,7 @@ static void player_task(void *pvParameters) {
     // Reconfigure I2S slot mode when the channel mode changes.
     // MONO+BOTH routes the single decimated sample to both physical outputs.
     {
-      dsp_channel_mode_t cur_mode = dsp_processor_get_channel_mode();
+      dsp_channel_mode_t cur_mode = read_channel_mode();
       if (cur_mode != s_i2s_mode) {
         i2s_slot_mode_t slot_mode = (cur_mode != DSP_CH_STEREO)
                                         ? I2S_SLOT_MODE_MONO
@@ -1635,6 +1641,11 @@ static void player_task(void *pvParameters) {
         ESP_ERROR_CHECK(i2s_channel_reconfig_std_slot(tx_chan, &slot_cfg));
         my_i2s_channel_enable(tx_chan);
         audio_set_mute(false);
+        if (pcmChkQHdl) {
+          pcm_chunk_message_t *stale;
+          while (xQueueReceive(pcmChkQHdl, &stale, 0) == pdTRUE)
+            free_pcm_chunk(stale);
+        }
         s_i2s_mode = cur_mode;
       }
     }

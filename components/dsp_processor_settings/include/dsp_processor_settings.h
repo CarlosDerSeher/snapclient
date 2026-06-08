@@ -129,17 +129,6 @@ esp_err_t dsp_settings_set_flow_params(dspFlows_t flow,
  */
 esp_err_t dsp_settings_switch_active_flow(dspFlows_t flow);
 
-/**
- * Save channel routing mode to NVS
- */
-esp_err_t dsp_settings_save_channel_mode(dsp_channel_mode_t mode);
-
-/**
- * Load channel routing mode from NVS
- * @return ESP_OK on success, ESP_ERR_NVS_NOT_FOUND if not set
- */
-esp_err_t dsp_settings_load_channel_mode(dsp_channel_mode_t *mode);
-
 #ifdef __cplusplus
 }
 #endif
