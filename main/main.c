@@ -1780,12 +1780,9 @@ void app_main(void) {
 
   i2sLockMutex = xSemaphoreCreateBinary();
 
-#if CONFIG_USE_DSP_PROCESSOR
-  dsp_channel_mode_t channel_mode = DSP_CH_STEREO;
-  dsp_settings_load_channel_mode(&channel_mode);
-#else
-  dsp_channel_mode_t channel_mode = DSP_CH_STEREO;
-#endif
+  int32_t channel_mode_raw = 0;
+  settings_get_channel_mode(&channel_mode_raw);
+  dsp_channel_mode_t channel_mode = (dsp_channel_mode_t)channel_mode_raw;
 
   init_snapclient(audio_set_volume, audio_set_mute, i2s_pin_config0, I2S_NUM_0, i2s_lock, channel_mode);
   //init_player(i2s_pin_config0, I2S_NUM_0, player_set_mute);

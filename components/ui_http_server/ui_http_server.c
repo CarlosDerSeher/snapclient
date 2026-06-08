@@ -570,6 +570,21 @@ static esp_err_t get_capabilities_handler(httpd_req_t *req) {
 			return ESP_OK;
 		}
 
+		// Inject channel_mode (stored in settings_manager, not dsp_settings)
+		cJSON *dsp_root = cJSON_Parse(dsp_json);
+		if (dsp_root) {
+			int32_t ch_mode = 0;
+			settings_get_channel_mode(&ch_mode);
+			cJSON_AddNumberToObject(dsp_root, "channel_mode", ch_mode);
+			char *merged = cJSON_PrintUnformatted(dsp_root);
+			cJSON_Delete(dsp_root);
+			if (merged && strlen(merged) < 4096) {
+				strncpy(dsp_json, merged, 4095);
+				dsp_json[4095] = '\0';
+			}
+			cJSON_free(merged);
+		}
+
 		httpd_resp_set_status(req, "200 OK");
 		httpd_resp_set_type(req, "application/json");
 		httpd_resp_sendstr(req, dsp_json);
@@ -1253,16 +1268,11 @@ static void http_server_task(void *pvParameters) {
 
 		// Handle channel mode (global, not flow-specific)
 		if (strcmp(urlBuf.key, "channel_mode") == 0) {
-#if CONFIG_USE_DSP_PROCESSOR
-			char json[32];
-			snprintf(json, sizeof(json), "{\"channel_mode\":%ld}",
-					 (long)urlBuf.int_value);
-			esp_err_t e = dsp_settings_set_from_json(json);
+			esp_err_t e = settings_set_channel_mode((int32_t)urlBuf.int_value);
 			if (e != ESP_OK) {
 				ESP_LOGW(TAG, "%s: channel_mode set failed: %s", __func__,
 						 esp_err_to_name(e));
 			}
-#endif
 			continue;
 		}
 

@@ -2,7 +2,6 @@
 #define __PLAYER_H__
 
 #include "driver/i2s_std.h"
-#include "dsp_types.h"
 #include "esp_types.h"
 #include "freertos/FreeRTOS.h"
 #include "sdkconfig.h"
@@ -11,6 +10,12 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+typedef enum {
+  DSP_CH_STEREO = 0,
+  DSP_CH_LEFT_ONLY = 1,
+  DSP_CH_RIGHT_ONLY = 2,
+} dsp_channel_mode_t;
 
 #define USE_TIMEFILTER  CONFIG_SNAPCLIENT_USE_TIMEFILTER
 

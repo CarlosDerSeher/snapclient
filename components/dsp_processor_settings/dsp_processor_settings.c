@@ -17,12 +17,9 @@
 static const char *TAG = "dsp_settings";
 static const char *NVS_NAMESPACE = "dsp_settings";
 static const char *NVS_KEY_ACTIVE_FLOW = "active_flow";
-static const char *NVS_KEY_CHANNEL_MODE = "ch_mode";
 
 // Mutex for thread-safe NVS access
 static SemaphoreHandle_t dsp_settings_mutex = NULL;
-
-static dsp_channel_mode_t s_channel_mode = DSP_CH_STEREO;
 
 
 /**
@@ -78,14 +75,6 @@ esp_err_t dsp_settings_init(void) {
 	esp_err_t se = dsp_processor_switch_flow(active);
 	if (se != ESP_OK) {
 		ESP_LOGW(TAG, "%s: dsp_processor_switch_flow failed: %s", __func__, esp_err_to_name(se));
-	}
-
-	// Restore channel mode cache (applied to player via init_player parameter at boot)
-	dsp_channel_mode_t saved_mode = DSP_CH_STEREO;
-	if (dsp_settings_load_channel_mode(&saved_mode) == ESP_OK) {
-		s_channel_mode = saved_mode;
-		ESP_LOGI(TAG, "%s: Loaded channel mode from NVS: %d", __func__,
-				 (int)saved_mode);
 	}
 
 	return ESP_OK;
@@ -269,9 +258,6 @@ esp_err_t dsp_settings_get_json(char *json_out, size_t max_len) {
 	dspFlows_t active_flow = dspfStereo; // default
 	(void)dsp_settings_load_active_flow(&active_flow);
 	cJSON_AddNumberToObject(root, "active_flow", (int)active_flow);
-
-	// Channel mode (global, not flow-specific)
-	cJSON_AddNumberToObject(root, "channel_mode", (int)s_channel_mode);
 
 	// Add flow schema with current values
 	cJSON *schema = cJSON_CreateArray();
@@ -514,19 +500,6 @@ esp_err_t dsp_settings_set_from_json(const char *json_in) {
 		}
 	}
 
-	// Handle channel mode
-	cJSON *ch_mode = cJSON_GetObjectItem(root, "channel_mode");
-	if (cJSON_IsNumber(ch_mode)) {
-		dsp_channel_mode_t mode = (dsp_channel_mode_t)ch_mode->valueint;
-		s_channel_mode = mode;
-		esp_err_t save_err = dsp_settings_save_channel_mode(mode);
-		if (save_err != ESP_OK) {
-			ESP_LOGW(TAG, "%s: Failed to save channel_mode", __func__);
-			if (err == ESP_OK)
-				err = save_err;
-		}
-	}
-
 	// Iterate through all items and save flow parameters
 	// Expecting keys like "flow_5_fc_1", "flow_5_gain_1", etc.
 	cJSON *item = NULL;
@@ -680,63 +653,3 @@ esp_err_t dsp_settings_switch_active_flow(dspFlows_t flow) {
 	return err;
 }
 
-esp_err_t dsp_settings_save_channel_mode(dsp_channel_mode_t mode) {
-	ESP_LOGD(TAG, "%s: mode=%d", __func__, (int)mode);
-
-	if (!dsp_settings_mutex)
-		return ESP_ERR_INVALID_STATE;
-
-	if (xSemaphoreTake(dsp_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE)
-		return ESP_ERR_TIMEOUT;
-
-	nvs_handle_t h;
-	esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
-	if (err != ESP_OK) {
-		xSemaphoreGive(dsp_settings_mutex);
-		ESP_LOGE(TAG, "%s: Failed to open NVS: %s", __func__,
-				 esp_err_to_name(err));
-		return err;
-	}
-
-	err = nvs_set_i32(h, NVS_KEY_CHANNEL_MODE, (int32_t)mode);
-	if (err == ESP_OK)
-		err = nvs_commit(h);
-
-	nvs_close(h);
-	xSemaphoreGive(dsp_settings_mutex);
-
-	if (err == ESP_OK)
-		ESP_LOGI(TAG, "%s: Saved channel mode: %d", __func__, (int)mode);
-	else
-		ESP_LOGE(TAG, "%s: Failed to save: %s", __func__, esp_err_to_name(err));
-
-	return err;
-}
-
-esp_err_t dsp_settings_load_channel_mode(dsp_channel_mode_t *mode) {
-	ESP_LOGD(TAG, "%s: entered", __func__);
-
-	if (!mode || !dsp_settings_mutex)
-		return ESP_ERR_INVALID_ARG;
-
-	if (xSemaphoreTake(dsp_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE)
-		return ESP_ERR_TIMEOUT;
-
-	nvs_handle_t h;
-	esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &h);
-	if (err == ESP_OK) {
-		int32_t val = 0;
-		err = nvs_get_i32(h, NVS_KEY_CHANNEL_MODE, &val);
-		nvs_close(h);
-		if (err == ESP_OK) {
-			*mode = (dsp_channel_mode_t)val;
-			ESP_LOGI(TAG, "%s: Loaded channel mode: %d", __func__, (int)*mode);
-		} else if (err != ESP_ERR_NVS_NOT_FOUND) {
-			ESP_LOGW(TAG, "%s: NVS read error: %s", __func__,
-					 esp_err_to_name(err));
-		}
-	}
-
-	xSemaphoreGive(dsp_settings_mutex);
-	return err;
-}
