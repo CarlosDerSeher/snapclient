@@ -490,7 +490,7 @@ esp_err_t settings_get_channel_mode(int32_t *mode) {
 }
 
 esp_err_t settings_set_channel_mode(int32_t mode) {
-    if (mode < 0 || mode > 2) return ESP_ERR_INVALID_ARG;
+    if (mode < 0 || mode > 3) return ESP_ERR_INVALID_ARG;
     if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
     if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
 

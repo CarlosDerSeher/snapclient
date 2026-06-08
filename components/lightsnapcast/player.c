@@ -258,14 +258,45 @@ static void decimate_stereo_inplace(pcm_chunk_message_t *chunk, int bits,
   }
 }
 
-// Decimates a freshly-decoded stereo chunk to mono in-place when the current
-// I2S slot mode requires it. Uses s_i2s_mode so the decimation decision is
-// always consistent with the framesToBytes calculation in player_task.
-// I2S runs in MONO + BOTH-mask so the hardware routes the sample to both outputs.
+// Averages L+R from every stereo frame into a single mono sample, packing
+// results at the front of the buffer and shrinking the allocation.
+static void mix_stereo_to_mono_inplace(pcm_chunk_message_t *chunk, int bits) {
+  int bps = bits >> 3;
+  pcm_chunk_fragment_t *frag = chunk->fragment;
+  while (frag) {
+    size_t n_frames = frag->size / (bps * 2);
+    for (size_t i = 0; i < n_frames; i++) {
+      char *l = frag->payload + i * bps * 2;
+      char *r = frag->payload + i * bps * 2 + bps;
+      char *o = frag->payload + i * bps;
+      if (bps == 2) {
+        *(int16_t *)o = (int16_t)(((int32_t)*(int16_t *)l + *(int16_t *)r) >> 1);
+      } else if (bps == 4) {
+        *(int32_t *)o = (int32_t)(((int64_t)*(int32_t *)l + *(int32_t *)r) >> 1);
+      } else {
+        memmove(o, l, bps); // fallback: take left
+      }
+    }
+    size_t new_size = n_frames * bps;
+    frag->size = new_size;
+    char *shrunk = heap_caps_realloc(frag->payload, new_size,
+                                     chunk->caps ? chunk->caps : MALLOC_CAP_8BIT);
+    if (shrunk) frag->payload = shrunk;
+    frag = frag->nextFragment;
+  }
+}
+
+// Reduces a freshly-decoded stereo chunk to mono in-place. Uses s_i2s_mode so
+// the decision is always consistent with the framesToBytes calculation in
+// player_task. I2S runs in MONO+BOTH so the hardware drives both outputs.
 void player_apply_channel_mode(pcm_chunk_message_t *chunk, int bits, int ch) {
   dsp_channel_mode_t mode = s_i2s_mode;
   if (mode != DSP_CH_STEREO && ch == 2) {
-    decimate_stereo_inplace(chunk, bits, mode == DSP_CH_LEFT_ONLY);
+    if (mode == DSP_CH_MONO) {
+      mix_stereo_to_mono_inplace(chunk, bits);
+    } else {
+      decimate_stereo_inplace(chunk, bits, mode == DSP_CH_LEFT_ONLY);
+    }
   }
 }
 
