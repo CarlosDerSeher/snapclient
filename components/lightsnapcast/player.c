@@ -359,6 +359,7 @@ static esp_err_t player_setup_i2s(playerSetting_t *setting, bool lock) {
   } else if (s_channel_mode == DSP_CH_RIGHT_ONLY) {
     tx_std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_RIGHT;
   }
+  ESP_LOGI(TAG, "player_setup_i2s: channel_mode=%d slot_mask=%d", s_channel_mode, tx_std_cfg.slot_cfg.slot_mask);
 
   ESP_ERROR_CHECK(i2s_channel_init_std_mode(tx_chan, &tx_std_cfg));
   // This prevents pops/clicks on some I2S codecs
