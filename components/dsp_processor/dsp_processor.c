@@ -464,28 +464,6 @@ int dsp_processor_worker(char *pcmChnk, uint16_t len, uint32_t samplerate, int c
       return -1;
     }
 
-#if CONFIG_SNAPCLIENT_MIX_LR_TO_MONO
-    if (ch == 2) {
-      for (int k = 0; k < len; k += DSP_PROCESSOR_LEN) {
-        volatile uint32_t *tmp = (uint32_t *)(&audio_tmp[k]);
-        uint32_t max = DSP_PROCESSOR_LEN;
-        uint32_t test = len - k;
-
-        if (test < DSP_PROCESSOR_LEN) {
-          max = test;
-        }
-
-        for (i = 0; i < max; i++) {
-          int16_t channel0 = (int16_t)((tmp[i] & 0xFFFF0000) >> 16);
-          int16_t channel1 = (int16_t)(tmp[i] & 0x0000FFFF);
-          int16_t mixMono = ((int32_t)channel0 + (int32_t)channel1) / 2;
-
-          tmp[i] = ((uint32_t)mixMono << 16) | ((uint32_t)mixMono & 0x0000FFFF);
-        }
-      }
-    }
-#endif
-
     switch (dspFlow) {
       case dspfEQBassTreble: {
         for (int k = 0; k < len; k += DSP_PROCESSOR_LEN) {
