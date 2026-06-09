@@ -51,8 +51,8 @@ extern const uint8_t dac_settings_html_start[] asm("_binary_dac_settings_html_st
 extern const uint8_t dac_settings_html_end[] asm("_binary_dac_settings_html_end");
 extern const uint8_t eq_settings_html_start[] asm("_binary_eq_settings_html_start");
 extern const uint8_t eq_settings_html_end[] asm("_binary_eq_settings_html_end");
-extern const uint8_t favicon_ico_start[] asm("_binary_favicon_ico_start");
-extern const uint8_t favicon_ico_end[] asm("_binary_favicon_ico_end");
+extern const uint8_t favicon_svg_start[] asm("_binary_favicon_svg_start");
+extern const uint8_t favicon_svg_end[] asm("_binary_favicon_svg_end");
 
 // Structure to map URI paths to embedded files
 typedef struct {
@@ -72,7 +72,7 @@ static const embedded_file_t embedded_files[] = {
 	{"/dsp-settings.html", dsp_settings_html_start, dsp_settings_html_end, "text/html; charset=utf-8"},
 	{"/dac-settings.html", dac_settings_html_start, dac_settings_html_end, "text/html; charset=utf-8"},
 	{"/eq-settings.html", eq_settings_html_start, eq_settings_html_end, "text/html; charset=utf-8"},
-	{"/favicon.ico", favicon_ico_start, favicon_ico_end, "image/x-icon"},
+	{"/favicon.svg", favicon_svg_start, favicon_svg_end, "image/svg+xml"},
 };
 
 /**
@@ -804,8 +804,9 @@ static esp_err_t get_capabilities_handler(httpd_req_t *req) {
 }
 
 /*
- * favicon get handler
- * Returns 404 since we don't have a favicon
+ * favicon.ico get handler
+ * 404s the implicit /favicon.ico probe; the icon is /favicon.svg, linked
+ * from index.html
  */
 static esp_err_t favicon_get_handler(httpd_req_t *req) {
 	ESP_LOGD(TAG, "%s: uri=%s", __func__, req->uri);
