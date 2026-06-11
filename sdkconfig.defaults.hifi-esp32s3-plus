@@ -44,6 +44,12 @@ CONFIG_MASTER_I2S_DATAOUT_PIN=16
 CONFIG_PCM51XX_MUTE_PIN=4
 # end of TI PCM51XX interface Configuration
 
+
+#
+# TI PCM51XX DSP Support
+#
+CONFIG_DAC_PCM51XX_EQ_SUPPORT=y
+
 #
 # ESP32 DSP processor config
 #
