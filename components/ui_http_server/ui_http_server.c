@@ -1264,7 +1264,11 @@ esp_err_t start_server(const char *base_path, int port) {
 	ESP_LOGD(TAG, "%s: base_path=%s port=%d", __func__, base_path, port);
 	httpd_config_t config = HTTPD_DEFAULT_CONFIG();
 	config.server_port = port;
-	config.max_open_sockets = 7;     // Max allowed by LWIP_MAX_SOCKETS config
+	/* esp_http_server reserves 3 sockets for its own use (listener + two UDP
+	   control sockets), so this is the most it will accept. Derived from the
+	   config value rather than hardcoded so lowering LWIP_MAX_SOCKETS does not
+	   make httpd_start() fail with ESP_ERR_INVALID_ARG. */
+	config.max_open_sockets = CONFIG_LWIP_MAX_SOCKETS - 3;
 	config.max_uri_handlers = 64;
 	config.lru_purge_enable = true;  // Enable LRU socket purging
 	config.stack_size = 8192;        // Increased for bi-amp schema generation

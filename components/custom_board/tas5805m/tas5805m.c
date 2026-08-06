@@ -39,8 +39,26 @@
 
 static const char *TAG = "TAS5805M";
 
-/* Mutex for thread-safe I2C access */
+/* Mutex for thread-safe I2C access.
+ * Recursive so that a caller holding it for a whole paged sequence does not
+ * deadlock against the per-transfer locking in the read/write helpers. */
 static SemaphoreHandle_t tas5805m_i2c_mutex = NULL;
+
+/* The book/page registers are device-global state, so selecting a page and
+ * then accessing a register in it is only safe if no other task can change
+ * the page in between. Callers that emit a paged sequence must hold the mutex
+ * for the whole sequence, not just for the individual transfers. */
+static void tas5805m_i2c_lock(void) {
+  if (tas5805m_i2c_mutex) {
+    xSemaphoreTakeRecursive(tas5805m_i2c_mutex, portMAX_DELAY);
+  }
+}
+
+static void tas5805m_i2c_unlock(void) {
+  if (tas5805m_i2c_mutex) {
+    xSemaphoreGiveRecursive(tas5805m_i2c_mutex);
+  }
+}
 
 #define TAS5805M_SET_BOOK_AND_PAGE(BOOK, PAGE) \
     do { \
@@ -880,6 +898,7 @@ esp_err_t tas5805m_set_mixer_gain(tas5805m_mixer_chan_t channel, uint32_t gain)
     }
   }
 
+  tas5805m_i2c_lock();
   TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_5, mixer_page);
   int ret = tas5805m_write_bytes(&reg, 1, (uint8_t *)&gain, sizeof(gain));
   if (ret != ESP_OK) {
@@ -887,6 +906,7 @@ esp_err_t tas5805m_set_mixer_gain(tas5805m_mixer_chan_t channel, uint32_t gain)
   }
 
   TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_CONTROL_PORT, TAS5805M_REG_PAGE_ZERO);
+  tas5805m_i2c_unlock();
   return ret;
 }
 
@@ -915,6 +935,7 @@ esp_err_t tas5805m_set_channel_gain(tas5805m_eq_chan_t channel, int8_t gain_db)
     reg = (channel == TAS5805M_EQ_CHANNELS_RIGHT) ? TAS5805M_REG_RIGHT_VOLUME : TAS5805M_REG_LEFT_VOLUME;
   }
 
+  tas5805m_i2c_lock();
   TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_5, vol_page);
   int ret = tas5805m_write_bytes(&reg, 1, (uint8_t *)&reg_value, sizeof(reg_value));
   if (ret != ESP_OK) {
@@ -924,6 +945,7 @@ esp_err_t tas5805m_set_channel_gain(tas5805m_eq_chan_t channel, int8_t gain_db)
   }
 
   TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_CONTROL_PORT, TAS5805M_REG_PAGE_ZERO);
+  tas5805m_i2c_unlock();
   if (ret == ESP_OK) {
     if (channel == TAS5805M_EQ_CHANNELS_RIGHT) {
       tas5805m_state.channel_gain_r = gain_db;
@@ -1060,11 +1082,13 @@ esp_err_t tas5805m_set_eq_mode(tas5805m_eq_mode_t mode)
     uint8_t gang_val[4] = {0x00, 0x00, 0x00, biamp ? 0x00 : 0x01};
     ESP_LOGD(TAG, "%s: TAS5825M EQ bypass = %d, biamp = %d", __func__, bypass, biamp);
     
+    tas5805m_i2c_lock();
     TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_5, TAS5825M_REG_BOOK_5_EQ_PAGE);
     int ret = tas5805m_write_bytes(&gang_reg,   1, gang_val,   sizeof(gang_val));
     ret    |= tas5805m_write_bytes(&bypass_reg, 1, bypass_val, sizeof(bypass_val));
     TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_CONTROL_PORT, TAS5805M_REG_PAGE_ZERO);
-    
+    tas5805m_i2c_unlock();
+
     if (ret == ESP_OK) 
       tas5805m_state.eq_mode = mode;
     return ret;
@@ -1131,8 +1155,9 @@ esp_err_t tas5805m_set_eq_gain_channel(tas5805m_eq_chan_t channel, int band, int
     eq_maps = (channel == TAS5805M_EQ_CHANNELS_RIGHT) ? tas5805m_eq_registers_right : tas5805m_eq_registers_left;
   }
 
-  for (int i = 0; i < TAS5805M_EQ_KOEF_PER_BAND * TAS5805M_EQ_REG_PER_KOEF; i += TAS5805M_EQ_REG_PER_KOEF) 
-  { 
+  tas5805m_i2c_lock();
+  for (int i = 0; i < TAS5805M_EQ_KOEF_PER_BAND * TAS5805M_EQ_REG_PER_KOEF; i += TAS5805M_EQ_REG_PER_KOEF)
+  {
       const reg_sequence_eq *reg_value0 = &eq_maps[x][y + i + 0];
       const reg_sequence_eq *reg_value1 = &eq_maps[x][y + i + 1];
       const reg_sequence_eq *reg_value2 = &eq_maps[x][y + i + 2];
@@ -1168,8 +1193,9 @@ esp_err_t tas5805m_set_eq_gain_channel(tas5805m_eq_chan_t channel, int band, int
     tas5805m_state.eq_gain_r[band] = gain;
   else
     tas5805m_state.eq_gain_l[band] = gain;
-                                                                      
-  TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_CONTROL_PORT, TAS5805M_REG_PAGE_ZERO); 
+
+  TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_CONTROL_PORT, TAS5805M_REG_PAGE_ZERO);
+  tas5805m_i2c_unlock();
   return ret;
 }
 
@@ -1203,8 +1229,9 @@ esp_err_t tas5805m_set_eq_profile_channel(tas5805m_eq_chan_t channel, tas5805m_e
   }
 
   int x = (uint8_t)profile;
-  for (int i = 0; i < TAS5805M_EQ_PROFILE_REG_PER_STEP; i += TAS5805M_EQ_REG_PER_KOEF) 
-  { 
+  tas5805m_i2c_lock();
+  for (int i = 0; i < TAS5805M_EQ_PROFILE_REG_PER_STEP; i += TAS5805M_EQ_REG_PER_KOEF)
+  {
     const reg_sequence_eq *reg_value0 = &eq_maps[x][i + 0]; 
     const reg_sequence_eq *reg_value1 = &eq_maps[x][i + 1];
     const reg_sequence_eq *reg_value2 = &eq_maps[x][i + 2];
@@ -1237,7 +1264,8 @@ esp_err_t tas5805m_set_eq_profile_channel(tas5805m_eq_chan_t channel, tas5805m_e
   // Set the EQ profile
   tas5805m_state.eq_profile[channel] = profile;
 
-  TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_CONTROL_PORT, TAS5805M_REG_PAGE_ZERO); 
+  TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_CONTROL_PORT, TAS5805M_REG_PAGE_ZERO);
+  tas5805m_i2c_unlock();
   return ret;
 }
 
@@ -1309,9 +1337,11 @@ esp_err_t tas5805m_read_biquad_coefficients(tas5805m_eq_chan_t channel, int band
   float *coeffs[] = {b0, b1, b2, a1, a2};
   const char *names[] = {"B0", "B1", "B2", "A1", "A2"};
 
+  tas5805m_i2c_lock();
   for (int i = 0; i < TAS5805M_EQ_KOEF_PER_BAND; i++) {
     ret = tas5805m_get_biquad_register(channel, band, i, &page, &offset);
     if (ret != ESP_OK) {
+      tas5805m_i2c_unlock();
       return ret;
     }
 
@@ -1335,6 +1365,7 @@ esp_err_t tas5805m_read_biquad_coefficients(tas5805m_eq_chan_t channel, int band
   *a2 = -(*a2);
 
   TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_CONTROL_PORT, TAS5805M_REG_PAGE_ZERO);
+  tas5805m_i2c_unlock();
   return ret;
 }
 
@@ -1358,12 +1389,14 @@ esp_err_t tas5805m_write_biquad_coefficients(tas5805m_eq_chan_t channel, int ban
   float coeffs[] = {b0, b1, b2, -a1, -a2};
   const char *names[] = {"B0", "B1", "B2", "A1", "A2"};
   
+  tas5805m_i2c_lock();
   for (int i = 0; i < TAS5805M_EQ_KOEF_PER_BAND; i++) {
     ret = tas5805m_get_biquad_register(channel, band, i, &page, &offset);
     if (ret != ESP_OK) {
+      tas5805m_i2c_unlock();
       return ret;
     }
-    
+
     if (page != current_page) {
       TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_EQ, page);
       current_page = page;
@@ -1380,8 +1413,9 @@ esp_err_t tas5805m_write_biquad_coefficients(tas5805m_eq_chan_t channel, int ban
       break;
     }
   }
-  
+
   TAS5805M_SET_BOOK_AND_PAGE(TAS5805M_REG_BOOK_CONTROL_PORT, TAS5805M_REG_PAGE_ZERO);
+  tas5805m_i2c_unlock();
   return ret;
 }
 
