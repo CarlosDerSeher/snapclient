@@ -267,7 +267,7 @@ esp_err_t tas5805m_write_bytes(uint8_t *reg,
   ret |= i2c_master_write(cmd, reg, regLen, ACK_CHECK_EN);
   ret |= i2c_master_write(cmd, data, datalen, ACK_CHECK_EN);
   ret |= i2c_master_stop(cmd);
-  ret = i2c_master_cmd_begin(I2C_TAS5805M_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+  ret = i2c_master_cmd_begin(I2C_TAS5805M_MASTER_NUM, cmd, pdMS_TO_TICKS(1000));
 
   // Check if ret is OK
   if (ret != ESP_OK)
@@ -296,7 +296,7 @@ esp_err_t tas5805m_read_bytes(uint8_t *reg, int regLen, uint8_t *data, int datal
   ret |= i2c_master_write_byte(cmd, TAS5805M_ADDRESS << 1 | WRITE_BIT, ACK_CHECK_EN);
   ret |= i2c_master_write(cmd, reg, regLen, ACK_CHECK_EN);
   ret |= i2c_master_stop(cmd);
-  ret = i2c_master_cmd_begin(I2C_TAS5805M_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+  ret = i2c_master_cmd_begin(I2C_TAS5805M_MASTER_NUM, cmd, pdMS_TO_TICKS(1000));
   i2c_cmd_link_delete(cmd);
 
   if (ret != ESP_OK) {
@@ -305,7 +305,7 @@ esp_err_t tas5805m_read_bytes(uint8_t *reg, int regLen, uint8_t *data, int datal
     return ret;
   }
 
-  vTaskDelay(1 / portTICK_PERIOD_MS);
+  vTaskDelay(pdMS_TO_TICKS(1));
 
   cmd = i2c_cmd_link_create();
   ret |= i2c_master_start(cmd);
@@ -315,7 +315,7 @@ esp_err_t tas5805m_read_bytes(uint8_t *reg, int regLen, uint8_t *data, int datal
   }
   ret |= i2c_master_read_byte(cmd, data + datalen - 1, NACK_VAL);
   ret |= i2c_master_stop(cmd);
-  ret = i2c_master_cmd_begin(I2C_TAS5805M_MASTER_NUM, cmd, 1000 / portTICK_RATE_MS);
+  ret = i2c_master_cmd_begin(I2C_TAS5805M_MASTER_NUM, cmd, pdMS_TO_TICKS(1000));
 
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "%s: Error during I2C read phase: %s", __func__, esp_err_to_name(ret));
