@@ -44,11 +44,14 @@
 
 static const char *TAG = "PLAYER";
 
-#if USE_SAMPLE_INSERTION
-
+/* Declared outside the USE_SAMPLE_INSERTION block: the lock is taken and
+ * released on the plain playback path too, so it must exist whenever
+ * CONFIG_PM_ENABLE is set, regardless of the sample insertion setting. */
 #if CONFIG_PM_ENABLE
 esp_pm_lock_handle_t player_pm_lock_handle = NULL;
 #endif
+
+#if USE_SAMPLE_INSERTION
 
 #define INSERT_SAMPLES \
   1  //!< currently only allowed to be 1 or sync algorithm will break
