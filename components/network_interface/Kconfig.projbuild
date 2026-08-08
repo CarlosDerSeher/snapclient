@@ -299,6 +299,21 @@ menu "Wifi Configuration"
             bool "OWE"
     endchoice
 
+    config SNAPCLIENT_WIFI_PS_NONE
+        bool "Disable WiFi power save"
+        default y
+        help
+            Call esp_wifi_set_ps(WIFI_PS_NONE) after starting WiFi.
+
+            ESP-IDF defaults to WIFI_PS_MIN_MODEM, which sleeps the modem
+            between DTIM beacons. That adds roughly 100-300ms of latency to
+            either leg of a snapcast time-sync exchange, which is far more than
+            the protocol tolerates: sync round-trips stop completing, the
+            client/server offset freezes, and the player resyncs hard forever.
+
+            Disabling power save fixes that at the cost of higher idle power
+            draw. Say n only on battery-powered builds that do not need sync.
+
     config WIFI_MAXIMUM_RETRY
         int "Maximum connection retry"
         default 5

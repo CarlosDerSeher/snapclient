@@ -197,9 +197,6 @@ void wifi_start(void) {
   esp_wifi_netif = esp_netif_create_wifi(WIFI_IF_STA, &esp_netif_config);
   esp_wifi_set_default_wifi_sta_handlers();
 
-  // esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
-  //   esp_wifi_set_ps(WIFI_PS_NONE);
-
 #if ENABLE_WIFI_PROVISIONING
   /* Start Wi-Fi station */
   ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
@@ -286,4 +283,21 @@ void wifi_start(void) {
   ESP_LOGI(TAG, "wifi_init_sta finished. Trying to connect to %s",
            wifi_config.sta.ssid);
 #endif
+
+  /* Common to both paths above: both start Wi-Fi, and IDF defaults to
+     WIFI_PS_MIN_MODEM, whose beacon-interval modem sleep stalls snapcast
+     time-sync round-trips. */
+#ifdef CONFIG_SNAPCLIENT_WIFI_PS_NONE
+  const wifi_ps_type_t ps_type = WIFI_PS_NONE;
+#else
+  const wifi_ps_type_t ps_type = WIFI_PS_MIN_MODEM;
+#endif
+  esp_err_t ps_err = esp_wifi_set_ps(ps_type);
+  if (ps_err != ESP_OK) {
+    ESP_LOGW(TAG, "esp_wifi_set_ps(%d) failed: %s", (int)ps_type,
+             esp_err_to_name(ps_err));
+  } else {
+    ESP_LOGI(TAG, "wifi power save: %s",
+             (ps_type == WIFI_PS_NONE) ? "none" : "min modem");
+  }
 }
