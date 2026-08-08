@@ -15,6 +15,10 @@
 #include "sdkconfig.h"
 #include "cJSON.h"
 
+#ifndef CONFIG_SNAPCLIENT_DEFAULT_CHANNEL_MODE
+#define CONFIG_SNAPCLIENT_DEFAULT_CHANNEL_MODE 0
+#endif
+
 static const char *TAG = "settings";
 static const char *NVS_NAMESPACE = "snapclient";
 static const char *NVS_KEY_HOSTNAME = "hostname";
@@ -483,7 +487,9 @@ esp_err_t settings_get_channel_mode(int32_t *mode) {
     }
     xSemaphoreGive(hostname_mutex);
     if (err == ESP_ERR_NVS_NOT_FOUND || err == ESP_ERR_NVS_INVALID_HANDLE) {
-        *mode = 0; // default: stereo
+        int32_t def = CONFIG_SNAPCLIENT_DEFAULT_CHANNEL_MODE;
+        if (def < 0 || def > 3) def = 0; // out-of-range build default: stereo
+        *mode = def;
         return ESP_OK;
     }
     return err;
