@@ -33,7 +33,9 @@
 #include "network_interface.h"
 #include "nvs_flash.h"
 
+#if CONFIG_ESP32_UDP_LOGGER_ENABLED
 #include "esp32_udp_logger.h"
+#endif
 
 // Web socket server
 // #include "websocket_if.h"
