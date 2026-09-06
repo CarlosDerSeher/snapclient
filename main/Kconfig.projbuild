@@ -37,6 +37,25 @@ menu "Snapclient Configuration"
         help
             Name of the client to register the snapserver.
 
+    config SNAPCLIENT_DEFAULT_CHANNEL_MODE
+        int "Default channel mode"
+        range 0 3
+        default 0
+        help
+            Channel mode used on first boot, before anything has been stored in
+            NVS. Once the mode is changed through the web UI the stored value
+            takes precedence and this option no longer has any effect.
+
+            Values map to dsp_channel_mode_t:
+              0 - DSP_CH_STEREO      normal stereo
+              1 - DSP_CH_LEFT_ONLY   route left channel to both outputs
+              2 - DSP_CH_RIGHT_ONLY  route right channel to both outputs
+              3 - DSP_CH_MONO        mix L+R to mono, route to both outputs
+
+            Set this to 3 for boards that cannot select a channel in hardware
+            (e.g. a MAX98357A whose SD_MODE pin is not driven), so they ship
+            with a mono downmix out of the box.
+
 	menu "HTTP Server Setting"
 		config WEB_PORT
 			int "User interface HTTP Server Port"

@@ -41,6 +41,10 @@ esp_err_t settings_get_server_port(int32_t *port);
 esp_err_t settings_set_server_port(int32_t port);
 esp_err_t settings_clear_server_port(void);
 
+/* I2S channel routing mode (0=stereo, 1=left only, 2=right only) */
+esp_err_t settings_get_channel_mode(int32_t *mode);
+esp_err_t settings_set_channel_mode(int32_t mode);
+
 /**
  * Get all settings as a JSON string
  * @param json_out Buffer to store JSON string (caller must allocate)
