@@ -2,6 +2,11 @@
 set(COMPONENT_REQUIRES audio_hal audio_board)
 set(COMPONENT_PRIV_REQUIRES esp_peripherals)
 
+# Add tas5805m_settings dependency when TAS5805M DAC is enabled
+if(CONFIG_DAC_TAS5805M)
+  list(APPEND COMPONENT_PRIV_REQUIRES tas5805m_settings)
+endif()
+
 if(CONFIG_AUDIO_BOARD_CUSTOM)
   message(STATUS "Current board name is " CONFIG_AUDIO_BOARD_CUSTOM)
   set(COMPONENT_ADD_INCLUDEDIRS ./generic_board/include)
@@ -49,6 +54,7 @@ if(CONFIG_AUDIO_BOARD_CUSTOM)
   if(CONFIG_DAC_TAS5805M)
 	message(STATUS "Selected DAC is " CONFIG_DAC_TAS5805M)
 	list(APPEND COMPONENT_ADD_INCLUDEDIRS ./tas5805m/include)
+	list(APPEND COMPONENT_ADD_INCLUDEDIRS ../tas5805m_settings/include)
 	list(APPEND COMPONENT_SRCS ./tas5805m/tas5805m.c)
   endif()
 

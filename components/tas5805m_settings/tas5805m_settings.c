@@ -4,6 +4,7 @@
  */
 
 #include "tas5805m_settings.h"
+#include "tas5805m_biamp.h"
 
 #if CONFIG_DAC_TAS5805M
 
@@ -193,6 +194,7 @@ const char *tas5805m_eq_ui_mode_to_string(TAS5805M_EQ_UI_MODE m) {
         case TAS5805M_EQ_UI_MODE_15_BAND: return "15-band";
         case TAS5805M_EQ_UI_MODE_15_BAND_BIAMP: return "15-band (bi-amp)";
         case TAS5805M_EQ_UI_MODE_PRESETS: return "EQ Presets";
+        case TAS5805M_EQ_UI_MODE_ADVANCED_BIAMP: return "Advanced Bi-Amp";
         default: return "Unknown";
     }
 }
@@ -767,6 +769,438 @@ esp_err_t tas5805m_settings_load_channel_gain(tas5805m_eq_chan_t ch, int *gain_d
     return err;
 }
 
+/* ============ Advanced Bi-Amp Settings NVS Functions ============ */
+
+/** Save advanced bi-amp settings to NVS */
+esp_err_t tas5805m_settings_save_biamp(const tas5805m_biamp_settings_t *settings) {
+    ESP_LOGD(TAG, "%s", __func__);
+
+    if (!settings) return ESP_ERR_INVALID_ARG;
+    if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (xSemaphoreTake(tas5805m_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(TAS5805M_NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        /* Crossover settings */
+        err = nvs_set_u16(h, TAS5805M_NVS_KEY_BIAMP_XOVER_FREQ, settings->crossover_freq);
+        if (err == ESP_OK) err = nvs_set_u8(h, TAS5805M_NVS_KEY_BIAMP_SLOPE, (uint8_t)settings->slope);
+        if (err == ESP_OK) err = nvs_set_u8(h, TAS5805M_NVS_KEY_BIAMP_TYPE, (uint8_t)settings->type);
+        if (err == ESP_OK) err = nvs_set_u32(h, TAS5805M_NVS_KEY_BIAMP_SAMPLE_RATE, settings->sample_rate);
+
+        /* Speaker protection */
+        if (err == ESP_OK) err = nvs_set_u16(h, TAS5805M_NVS_KEY_BIAMP_SUBSONIC_FREQ, settings->subsonic_freq);
+
+        /* Low output settings */
+        if (err == ESP_OK) err = nvs_set_i8(h, TAS5805M_NVS_KEY_BIAMP_LOW_GAIN, settings->low_gain);
+        if (err == ESP_OK) err = nvs_set_u8(h, TAS5805M_NVS_KEY_BIAMP_LOW_PHASE, settings->low_phase_invert);
+
+        /* High output settings */
+        if (err == ESP_OK) err = nvs_set_i8(h, TAS5805M_NVS_KEY_BIAMP_HIGH_GAIN, settings->high_gain);
+        if (err == ESP_OK) err = nvs_set_u8(h, TAS5805M_NVS_KEY_BIAMP_HIGH_PHASE, settings->high_phase_invert);
+
+        /* Per-output PEQ bands */
+        for (int i = 0; i < TAS5805M_BIAMP_PEQ_BANDS && err == ESP_OK; i++) {
+            char key[20];
+            snprintf(key, sizeof(key), "%s%d_f", TAS5805M_NVS_KEY_BIAMP_PEQ_PREFIX_L, i);
+            err = nvs_set_u16(h, key, settings->low_peq[i].freq);
+            if (err == ESP_OK) {
+                snprintf(key, sizeof(key), "%s%d_g", TAS5805M_NVS_KEY_BIAMP_PEQ_PREFIX_L, i);
+                err = nvs_set_i8(h, key, settings->low_peq[i].gain);
+            }
+            if (err == ESP_OK) {
+                snprintf(key, sizeof(key), "%s%d_q", TAS5805M_NVS_KEY_BIAMP_PEQ_PREFIX_L, i);
+                err = nvs_set_u8(h, key, settings->low_peq[i].q_x10);
+            }
+
+            if (err == ESP_OK) {
+                snprintf(key, sizeof(key), "%s%d_f", TAS5805M_NVS_KEY_BIAMP_PEQ_PREFIX_H, i);
+                err = nvs_set_u16(h, key, settings->high_peq[i].freq);
+            }
+            if (err == ESP_OK) {
+                snprintf(key, sizeof(key), "%s%d_g", TAS5805M_NVS_KEY_BIAMP_PEQ_PREFIX_H, i);
+                err = nvs_set_i8(h, key, settings->high_peq[i].gain);
+            }
+            if (err == ESP_OK) {
+                snprintf(key, sizeof(key), "%s%d_q", TAS5805M_NVS_KEY_BIAMP_PEQ_PREFIX_H, i);
+                err = nvs_set_u8(h, key, settings->high_peq[i].q_x10);
+            }
+        }
+
+        /* Baffle step compensation */
+        if (err == ESP_OK) err = nvs_set_u8(h, TAS5805M_NVS_KEY_BAFFLE_WIDTH, settings->baffle_width_cm);
+        if (err == ESP_OK) err = nvs_set_u8(h, TAS5805M_NVS_KEY_BAFFLE_PLACEMENT, (uint8_t)settings->baffle_placement);
+
+        /* Time alignment (tweeter delay) */
+        if (err == ESP_OK) err = nvs_set_u8(h, TAS5805M_NVS_KEY_TWEETER_DELAY, settings->tweeter_delay_mm);
+
+        /* Tweeter breakup notch */
+        if (err == ESP_OK) err = nvs_set_u16(h, TAS5805M_NVS_KEY_NOTCH_FREQ, settings->notch_freq);
+        if (err == ESP_OK) err = nvs_set_i8(h, TAS5805M_NVS_KEY_NOTCH_GAIN, settings->notch_gain);
+        if (err == ESP_OK) err = nvs_set_u8(h, TAS5805M_NVS_KEY_NOTCH_Q, settings->notch_q_x10);
+
+        /* Air/Brilliance shelf */
+        if (err == ESP_OK) err = nvs_set_i8(h, TAS5805M_NVS_KEY_AIR_GAIN, settings->air_gain);
+
+        if (err == ESP_OK) err = nvs_commit(h);
+        nvs_close(h);
+
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "%s: Saved bi-amp settings: xover=%dHz slope=%d sr=%lu notch=%dHz air=%.1fdB",
+                     __func__, settings->crossover_freq, settings->slope,
+                     (unsigned long)settings->sample_rate, settings->notch_freq, settings->air_gain / 2.0);
+        }
+    } else {
+        ESP_LOGW(TAG, "%s: Failed to open NVS namespace '%s': %s", __func__, TAS5805M_NVS_NAMESPACE, esp_err_to_name(err));
+    }
+
+    xSemaphoreGive(tas5805m_settings_mutex);
+    return err;
+}
+
+/** Load advanced bi-amp settings from NVS */
+esp_err_t tas5805m_settings_load_biamp(tas5805m_biamp_settings_t *settings) {
+    if (!settings) return ESP_ERR_INVALID_ARG;
+    if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
+
+    /* Initialize to defaults first */
+    tas5805m_biamp_init_defaults(settings);
+
+    if (xSemaphoreTake(tas5805m_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(TAS5805M_NVS_NAMESPACE, NVS_READONLY, &h);
+    if (err == ESP_OK) {
+        uint16_t u16val;
+        uint8_t u8val;
+        int8_t i8val;
+
+        /* Crossover settings */
+        if (nvs_get_u16(h, TAS5805M_NVS_KEY_BIAMP_XOVER_FREQ, &u16val) == ESP_OK) {
+            settings->crossover_freq = u16val;
+        }
+        if (nvs_get_u8(h, TAS5805M_NVS_KEY_BIAMP_SLOPE, &u8val) == ESP_OK) {
+            settings->slope = (tas5805m_biamp_slope_t)u8val;
+        }
+        if (nvs_get_u8(h, TAS5805M_NVS_KEY_BIAMP_TYPE, &u8val) == ESP_OK) {
+            settings->type = (tas5805m_biamp_type_t)u8val;
+        }
+        uint32_t u32val;
+        if (nvs_get_u32(h, TAS5805M_NVS_KEY_BIAMP_SAMPLE_RATE, &u32val) == ESP_OK) {
+            settings->sample_rate = u32val;
+        }
+
+        /* Speaker protection */
+        if (nvs_get_u16(h, TAS5805M_NVS_KEY_BIAMP_SUBSONIC_FREQ, &u16val) == ESP_OK) {
+            settings->subsonic_freq = u16val;
+        }
+
+        /* Low output settings */
+        if (nvs_get_i8(h, TAS5805M_NVS_KEY_BIAMP_LOW_GAIN, &i8val) == ESP_OK) {
+            settings->low_gain = i8val;
+        }
+        if (nvs_get_u8(h, TAS5805M_NVS_KEY_BIAMP_LOW_PHASE, &u8val) == ESP_OK) {
+            settings->low_phase_invert = u8val;
+        }
+
+        /* High output settings */
+        if (nvs_get_i8(h, TAS5805M_NVS_KEY_BIAMP_HIGH_GAIN, &i8val) == ESP_OK) {
+            settings->high_gain = i8val;
+        }
+        if (nvs_get_u8(h, TAS5805M_NVS_KEY_BIAMP_HIGH_PHASE, &u8val) == ESP_OK) {
+            settings->high_phase_invert = u8val;
+        }
+
+        /* Per-output PEQ bands */
+        for (int i = 0; i < TAS5805M_BIAMP_PEQ_BANDS; i++) {
+            char key[20];
+            snprintf(key, sizeof(key), "%s%d_f", TAS5805M_NVS_KEY_BIAMP_PEQ_PREFIX_L, i);
+            if (nvs_get_u16(h, key, &u16val) == ESP_OK) settings->low_peq[i].freq = u16val;
+            snprintf(key, sizeof(key), "%s%d_g", TAS5805M_NVS_KEY_BIAMP_PEQ_PREFIX_L, i);
+            if (nvs_get_i8(h, key, &i8val) == ESP_OK) settings->low_peq[i].gain = i8val;
+            snprintf(key, sizeof(key), "%s%d_q", TAS5805M_NVS_KEY_BIAMP_PEQ_PREFIX_L, i);
+            if (nvs_get_u8(h, key, &u8val) == ESP_OK) settings->low_peq[i].q_x10 = u8val;
+
+            snprintf(key, sizeof(key), "%s%d_f", TAS5805M_NVS_KEY_BIAMP_PEQ_PREFIX_H, i);
+            if (nvs_get_u16(h, key, &u16val) == ESP_OK) settings->high_peq[i].freq = u16val;
+            snprintf(key, sizeof(key), "%s%d_g", TAS5805M_NVS_KEY_BIAMP_PEQ_PREFIX_H, i);
+            if (nvs_get_i8(h, key, &i8val) == ESP_OK) settings->high_peq[i].gain = i8val;
+            snprintf(key, sizeof(key), "%s%d_q", TAS5805M_NVS_KEY_BIAMP_PEQ_PREFIX_H, i);
+            if (nvs_get_u8(h, key, &u8val) == ESP_OK) settings->high_peq[i].q_x10 = u8val;
+        }
+
+        /* Baffle step compensation */
+        if (nvs_get_u8(h, TAS5805M_NVS_KEY_BAFFLE_WIDTH, &u8val) == ESP_OK) {
+            settings->baffle_width_cm = u8val;
+        }
+        if (nvs_get_u8(h, TAS5805M_NVS_KEY_BAFFLE_PLACEMENT, &u8val) == ESP_OK) {
+            settings->baffle_placement = (tas5805m_baffle_placement_t)u8val;
+        }
+
+        /* Time alignment (tweeter delay) */
+        if (nvs_get_u8(h, TAS5805M_NVS_KEY_TWEETER_DELAY, &u8val) == ESP_OK) {
+            settings->tweeter_delay_mm = u8val;
+        }
+
+        /* Tweeter breakup notch */
+        if (nvs_get_u16(h, TAS5805M_NVS_KEY_NOTCH_FREQ, &u16val) == ESP_OK) {
+            settings->notch_freq = u16val;
+        }
+        if (nvs_get_i8(h, TAS5805M_NVS_KEY_NOTCH_GAIN, &i8val) == ESP_OK) {
+            settings->notch_gain = i8val;
+        }
+        if (nvs_get_u8(h, TAS5805M_NVS_KEY_NOTCH_Q, &u8val) == ESP_OK) {
+            settings->notch_q_x10 = u8val;
+        }
+
+        /* Air/Brilliance shelf */
+        if (nvs_get_i8(h, TAS5805M_NVS_KEY_AIR_GAIN, &i8val) == ESP_OK) {
+            settings->air_gain = i8val;
+        }
+
+        nvs_close(h);
+        ESP_LOGD(TAG, "%s: Loaded bi-amp settings: xover=%dHz slope=%d sr=%lu notch=%dHz air=%.1fdB",
+                 __func__, settings->crossover_freq, settings->slope,
+                 (unsigned long)settings->sample_rate, settings->notch_freq, settings->air_gain / 2.0);
+        err = ESP_OK;
+    } else if (err == ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGD(TAG, "%s: No bi-amp settings in NVS, using defaults", __func__);
+        err = ESP_OK;
+    } else {
+        ESP_LOGW(TAG, "%s: Failed to open NVS namespace '%s': %s", __func__, TAS5805M_NVS_NAMESPACE, esp_err_to_name(err));
+    }
+
+    xSemaphoreGive(tas5805m_settings_mutex);
+    return err;
+}
+
+/** Apply advanced bi-amp settings to the DAC */
+esp_err_t tas5805m_settings_apply_biamp(const tas5805m_biamp_settings_t *settings) {
+    if (!settings) return ESP_ERR_INVALID_ARG;
+
+    ESP_LOGI(TAG, "%s: Applying bi-amp settings", __func__);
+    return tas5805m_biamp_apply(settings);
+}
+
+/* ============ Loudness Compensation Functions ============ */
+
+/** Cached loudness settings (loaded at init) */
+static tas5805m_loudness_settings_t s_loudness_settings;
+static int s_current_volume = 50;  /* Track current volume for zone detection */
+
+/** Initialize loudness settings to defaults */
+void tas5805m_loudness_init_defaults(tas5805m_loudness_settings_t *settings) {
+    if (!settings) return;
+
+    settings->enabled = 0;  /* Disabled by default */
+
+    /* Default thresholds: 20%, 40%, 60%, 80% */
+    settings->thresholds[0] = 20;
+    settings->thresholds[1] = 40;
+    settings->thresholds[2] = 60;
+    settings->thresholds[3] = 80;
+
+    /* Default bass boost: more at lower volumes */
+    settings->bass_boost[0] = 6;   /* Zone 0: 0-20% volume */
+    settings->bass_boost[1] = 4;   /* Zone 1: 20-40% */
+    settings->bass_boost[2] = 2;   /* Zone 2: 40-60% */
+    settings->bass_boost[3] = 1;   /* Zone 3: 60-80% */
+    settings->bass_boost[4] = 0;   /* Zone 4: 80-100% */
+
+    /* Default treble boost */
+    settings->treble_boost[0] = 4;
+    settings->treble_boost[1] = 3;
+    settings->treble_boost[2] = 2;
+    settings->treble_boost[3] = 1;
+    settings->treble_boost[4] = 0;
+}
+
+/** Save loudness settings to NVS */
+esp_err_t tas5805m_settings_save_loudness(const tas5805m_loudness_settings_t *settings) {
+    if (!settings) return ESP_ERR_INVALID_ARG;
+    if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (xSemaphoreTake(tas5805m_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(TAS5805M_NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        err = nvs_set_u8(h, TAS5805M_NVS_KEY_LOUDNESS_ENABLED, settings->enabled);
+        if (err == ESP_OK) {
+            err = nvs_set_blob(h, TAS5805M_NVS_KEY_LOUDNESS_THRESH,
+                               settings->thresholds, sizeof(settings->thresholds));
+        }
+        if (err == ESP_OK) {
+            err = nvs_set_blob(h, TAS5805M_NVS_KEY_LOUDNESS_BASS,
+                               settings->bass_boost, sizeof(settings->bass_boost));
+        }
+        if (err == ESP_OK) {
+            err = nvs_set_blob(h, TAS5805M_NVS_KEY_LOUDNESS_TREBLE,
+                               settings->treble_boost, sizeof(settings->treble_boost));
+        }
+        if (err == ESP_OK) err = nvs_commit(h);
+        nvs_close(h);
+
+        if (err == ESP_OK) {
+            /* Update cached settings */
+            memcpy(&s_loudness_settings, settings, sizeof(s_loudness_settings));
+            ESP_LOGI(TAG, "%s: Saved loudness settings (enabled=%d)", __func__, settings->enabled);
+        }
+    }
+
+    xSemaphoreGive(tas5805m_settings_mutex);
+    return err;
+}
+
+/** Load loudness settings from NVS */
+esp_err_t tas5805m_settings_load_loudness(tas5805m_loudness_settings_t *settings) {
+    if (!settings) return ESP_ERR_INVALID_ARG;
+    if (!tas5805m_settings_mutex) return ESP_ERR_INVALID_STATE;
+
+    /* Initialize to defaults first */
+    tas5805m_loudness_init_defaults(settings);
+
+    if (xSemaphoreTake(tas5805m_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(TAS5805M_NVS_NAMESPACE, NVS_READONLY, &h);
+    if (err == ESP_OK) {
+        uint8_t enabled = 0;
+        if (nvs_get_u8(h, TAS5805M_NVS_KEY_LOUDNESS_ENABLED, &enabled) == ESP_OK) {
+            settings->enabled = enabled;
+        }
+
+        size_t len = sizeof(settings->thresholds);
+        nvs_get_blob(h, TAS5805M_NVS_KEY_LOUDNESS_THRESH, settings->thresholds, &len);
+
+        len = sizeof(settings->bass_boost);
+        nvs_get_blob(h, TAS5805M_NVS_KEY_LOUDNESS_BASS, settings->bass_boost, &len);
+
+        len = sizeof(settings->treble_boost);
+        nvs_get_blob(h, TAS5805M_NVS_KEY_LOUDNESS_TREBLE, settings->treble_boost, &len);
+
+        nvs_close(h);
+        ESP_LOGD(TAG, "%s: Loaded loudness settings (enabled=%d)", __func__, settings->enabled);
+    } else if (err == ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGD(TAG, "%s: No loudness settings in NVS, using defaults", __func__);
+        err = ESP_OK;
+    }
+
+    /* Update cached settings */
+    memcpy(&s_loudness_settings, settings, sizeof(s_loudness_settings));
+
+    xSemaphoreGive(tas5805m_settings_mutex);
+    return err;
+}
+
+/** Get current loudness zone (0-4) for a given volume (0-100) */
+int tas5805m_loudness_get_zone(int volume) {
+    if (volume < 0) volume = 0;
+    if (volume > 100) volume = 100;
+
+    for (int i = 0; i < TAS5805M_LOUDNESS_ZONES - 1; i++) {
+        if (volume < s_loudness_settings.thresholds[i]) {
+            return i;
+        }
+    }
+    return TAS5805M_LOUDNESS_ZONES - 1;  /* Highest zone */
+}
+
+/** Apply loudness compensation based on current volume */
+esp_err_t tas5805m_loudness_apply(int volume) {
+#if CONFIG_DAC_TAS5805M_EQ_SUPPORT
+    /* Get current sample rate from bi-amp settings or use default */
+    float fs = 48000.0f;  /* Default sample rate */
+    tas5805m_biamp_settings_t biamp;
+    if (tas5805m_settings_load_biamp(&biamp) == ESP_OK && biamp.sample_rate > 0) {
+        fs = (float)biamp.sample_rate;
+    }
+
+    tas5805m_biquad_coeffs_t coeffs;
+    esp_err_t ret;
+
+    if (!s_loudness_settings.enabled) {
+        /* Loudness disabled: reset bands 13 and 14 to passthrough (0dB, flat response) */
+        ESP_LOGI(TAG, "%s: Loudness disabled, resetting bands to passthrough", __func__);
+
+        /* Reset bass band (13) to passthrough on LEFT channel */
+        ret = tas5805m_calc_low_shelf(200.0f, 0.0f, fs, &coeffs);
+        if (ret == ESP_OK) {
+            ret = tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT,
+                                                      TAS5805M_LOUDNESS_BASS_BAND,
+                                                      coeffs.b0, coeffs.b1, coeffs.b2,
+                                                      coeffs.a1, coeffs.a2);
+        }
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "%s: Failed to reset bass band to passthrough", __func__);
+        }
+
+        /* Reset treble band (14) to passthrough on RIGHT channel */
+        ret = tas5805m_calc_high_shelf(4000.0f, 0.0f, fs, &coeffs);
+        if (ret == ESP_OK) {
+            ret = tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT,
+                                                      TAS5805M_LOUDNESS_TREBLE_BAND,
+                                                      coeffs.b0, coeffs.b1, coeffs.b2,
+                                                      coeffs.a1, coeffs.a2);
+        }
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "%s: Failed to reset treble band to passthrough", __func__);
+        }
+
+        return ESP_OK;
+    }
+
+    /* Loudness enabled: apply boost based on volume zone */
+    s_current_volume = volume;
+    int zone = tas5805m_loudness_get_zone(volume);
+    int8_t bass_db = s_loudness_settings.bass_boost[zone];
+    int8_t treble_db = s_loudness_settings.treble_boost[zone];
+
+    ESP_LOGI(TAG, "%s: Volume=%d%% Zone=%d Bass=%+ddB Treble=%+ddB",
+             __func__, volume, zone, bass_db, treble_db);
+
+    /* Apply low shelf for bass boost (200 Hz) - LEFT channel only (woofer in bi-amp) */
+    ret = tas5805m_calc_low_shelf(200.0f, (float)bass_db, fs, &coeffs);
+    if (ret == ESP_OK) {
+        ret = tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS_LEFT,
+                                                  TAS5805M_LOUDNESS_BASS_BAND,
+                                                  coeffs.b0, coeffs.b1, coeffs.b2,
+                                                  coeffs.a1, coeffs.a2);
+    }
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "%s: Failed to apply bass shelf to woofer", __func__);
+    }
+
+    /* Apply high shelf for treble boost (4000 Hz) - RIGHT channel only (tweeter in bi-amp) */
+    ret = tas5805m_calc_high_shelf(4000.0f, (float)treble_db, fs, &coeffs);
+    if (ret == ESP_OK) {
+        ret = tas5805m_write_biquad_coefficients(TAS5805M_EQ_CHANNELS_RIGHT,
+                                                  TAS5805M_LOUDNESS_TREBLE_BAND,
+                                                  coeffs.b0, coeffs.b1, coeffs.b2,
+                                                  coeffs.a1, coeffs.a2);
+    }
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "%s: Failed to apply treble shelf to tweeter", __func__);
+    }
+
+    return ESP_OK;
+#else
+    /* EQ support not enabled - loudness compensation unavailable */
+    (void)volume;
+    ESP_LOGD(TAG, "%s: EQ support disabled, loudness compensation not available", __func__);
+    return ESP_OK;
+#endif /* CONFIG_DAC_TAS5805M_EQ_SUPPORT */
+}
+
 /** Load EQ mode from NVS */
 esp_err_t tas5805m_settings_load_eq_mode(tas5805m_eq_mode_t *mode) {
     if (!mode) return ESP_ERR_INVALID_ARG;
@@ -1176,6 +1610,7 @@ esp_err_t tas5805m_settings_set_from_json(const char *json_in) {
             case TAS5805M_EQ_UI_MODE_15_BAND: drv = TAS5805M_EQ_MODE_ON; break;
             case TAS5805M_EQ_UI_MODE_15_BAND_BIAMP: drv = TAS5805M_EQ_MODE_BIAMP; break;
             case TAS5805M_EQ_UI_MODE_PRESETS: drv = TAS5805M_EQ_MODE_BIAMP; break;
+            case TAS5805M_EQ_UI_MODE_ADVANCED_BIAMP: drv = TAS5805M_EQ_MODE_BIAMP; break;
             default: drv = TAS5805M_EQ_MODE_OFF; break;
         }
 
@@ -2267,8 +2702,47 @@ esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
 
     cJSON *groups = cJSON_CreateArray();
 
-    // ===== Channel Gain Group (always visible, first in EQ schema) =====
+    /* Load UI mode early so it can be used to conditionally include groups */
+    TAS5805M_EQ_UI_MODE ui_mode = TAS5805M_EQ_UI_MODE_OFF;
+    tas5805m_settings_load_eq_ui_mode(&ui_mode);
+
+#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+    // ===== EQ Mode Group (first in schema as requested) =====
     {
+        TAS5805M_EQ_MODE eq_mode_val = TAS5805M_EQ_MODE_OFF;
+        tas5805m_get_eq_mode(&eq_mode_val);
+
+        cJSON *eq_mode_group = cJSON_CreateObject();
+        cJSON_AddStringToObject(eq_mode_group, "name", "EQ Mode");
+        cJSON_AddStringToObject(eq_mode_group, "description", "Equalizer operation mode");
+
+        cJSON *eq_mode_params = cJSON_CreateArray();
+
+        cJSON *eq_ui_mode_param = cJSON_CreateObject();
+        cJSON_AddStringToObject(eq_ui_mode_param, "key", "eq_ui_mode");
+        cJSON_AddStringToObject(eq_ui_mode_param, "name", "EQ Mode");
+        cJSON_AddStringToObject(eq_ui_mode_param, "type", "enum");
+
+        cJSON_AddNumberToObject(eq_ui_mode_param, "current", (int)ui_mode);
+
+        cJSON *eq_ui_mode_values = cJSON_CreateArray();
+        const char *ui_mode_names[] = {"Off", "15-Band", "15-Band Bi-Amp", "Presets", "Advanced Bi-Amp"};
+        for (int i = 0; i <= TAS5805M_EQ_UI_MODE_ADVANCED_BIAMP; ++i) {
+            cJSON *val = cJSON_CreateObject();
+            cJSON_AddNumberToObject(val, "value", i);
+            cJSON_AddStringToObject(val, "name", ui_mode_names[i]);
+            cJSON_AddItemToArray(eq_ui_mode_values, val);
+        }
+        cJSON_AddItemToObject(eq_ui_mode_param, "values", eq_ui_mode_values);
+        cJSON_AddItemToArray(eq_mode_params, eq_ui_mode_param);
+
+        cJSON_AddItemToObject(eq_mode_group, "parameters", eq_mode_params);
+        cJSON_AddItemToArray(groups, eq_mode_group);
+    }
+#endif
+
+    // ===== Channel Gain Group (hidden in Advanced Bi-Amp mode - uses Low/High gains instead) =====
+    if (ui_mode != TAS5805M_EQ_UI_MODE_ADVANCED_BIAMP) {
         cJSON *ch_group = cJSON_CreateObject();
         cJSON_AddStringToObject(ch_group, "name", "Channel Gain");
         cJSON_AddStringToObject(ch_group, "description", "Per-channel mixer gain control");
@@ -2572,6 +3046,487 @@ esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
     cJSON_AddItemToArray(groups, eq_bands_right);
 #endif
 
+    /* ===== Advanced Bi-Amp Crossover Group (only shown in Advanced Bi-Amp mode) ===== */
+    if (ui_mode == TAS5805M_EQ_UI_MODE_ADVANCED_BIAMP) {
+        tas5805m_biamp_settings_t biamp;
+        tas5805m_settings_load_biamp(&biamp);
+        tas5805m_loudness_settings_t loudness;
+        tas5805m_settings_load_loudness(&loudness);
+
+        cJSON *biamp_group = cJSON_CreateObject();
+        cJSON_AddStringToObject(biamp_group, "name", "Advanced Bi-Amp Crossover");
+        cJSON_AddStringToObject(biamp_group, "description", "Configure active crossover with per-output PEQ and gain");
+        cJSON_AddStringToObject(biamp_group, "layout", "biamp-crossover");
+
+        cJSON *sections = cJSON_CreateArray();
+
+        /* === Section 1: Crossover Settings === */
+        {
+            cJSON *xover_section = cJSON_CreateObject();
+            cJSON_AddStringToObject(xover_section, "name", "Crossover Settings");
+            cJSON_AddStringToObject(xover_section, "layout", "form");
+            cJSON *xover_params = cJSON_CreateArray();
+
+            cJSON *xover_freq = cJSON_CreateObject();
+            cJSON_AddStringToObject(xover_freq, "key", "biamp_xover_freq");
+            cJSON_AddStringToObject(xover_freq, "name", "Frequency");
+            cJSON_AddStringToObject(xover_freq, "type", "range");
+            cJSON_AddStringToObject(xover_freq, "unit", "Hz");
+            cJSON_AddNumberToObject(xover_freq, "min", 20);
+            cJSON_AddNumberToObject(xover_freq, "max", 20000);
+            cJSON_AddNumberToObject(xover_freq, "step", 1);
+            cJSON_AddNumberToObject(xover_freq, "current", biamp.crossover_freq);
+            cJSON_AddItemToArray(xover_params, xover_freq);
+
+            cJSON *slope = cJSON_CreateObject();
+            cJSON_AddStringToObject(slope, "key", "biamp_slope");
+            cJSON_AddStringToObject(slope, "name", "Slope");
+            cJSON_AddStringToObject(slope, "type", "enum");
+            cJSON_AddNumberToObject(slope, "current", (int)biamp.slope);
+            cJSON *slope_vals = cJSON_CreateArray();
+            cJSON *sv;
+            sv = cJSON_CreateObject(); cJSON_AddNumberToObject(sv, "value", BIAMP_SLOPE_12DB); cJSON_AddStringToObject(sv, "name", "12 dB/oct"); cJSON_AddItemToArray(slope_vals, sv);
+            sv = cJSON_CreateObject(); cJSON_AddNumberToObject(sv, "value", BIAMP_SLOPE_24DB); cJSON_AddStringToObject(sv, "name", "24 dB/oct (LR)"); cJSON_AddItemToArray(slope_vals, sv);
+            sv = cJSON_CreateObject(); cJSON_AddNumberToObject(sv, "value", BIAMP_SLOPE_48DB); cJSON_AddStringToObject(sv, "name", "48 dB/oct"); cJSON_AddItemToArray(slope_vals, sv);
+            cJSON_AddItemToObject(slope, "values", slope_vals);
+            cJSON_AddItemToArray(xover_params, slope);
+
+            /* Filter type selector removed: cascading identical BW2 stages
+             * produces Linkwitz-Riley alignment, which is the industry standard
+             * for audio crossovers. The type field is kept in NVS/presets for
+             * backward compatibility but is not exposed in the UI. */
+
+            cJSON *sr = cJSON_CreateObject();
+            cJSON_AddStringToObject(sr, "key", "biamp_sample_rate");
+            cJSON_AddStringToObject(sr, "name", "Sample Rate");
+            cJSON_AddStringToObject(sr, "type", "enum");
+            cJSON_AddNumberToObject(sr, "current", (int)biamp.sample_rate);
+            cJSON *sr_vals = cJSON_CreateArray();
+            cJSON *srv;
+            srv = cJSON_CreateObject(); cJSON_AddNumberToObject(srv, "value", BIAMP_SAMPLE_RATE_44100); cJSON_AddStringToObject(srv, "name", "44.1 kHz"); cJSON_AddItemToArray(sr_vals, srv);
+            srv = cJSON_CreateObject(); cJSON_AddNumberToObject(srv, "value", BIAMP_SAMPLE_RATE_48000); cJSON_AddStringToObject(srv, "name", "48 kHz"); cJSON_AddItemToArray(sr_vals, srv);
+            srv = cJSON_CreateObject(); cJSON_AddNumberToObject(srv, "value", BIAMP_SAMPLE_RATE_88200); cJSON_AddStringToObject(srv, "name", "88.2 kHz"); cJSON_AddItemToArray(sr_vals, srv);
+            srv = cJSON_CreateObject(); cJSON_AddNumberToObject(srv, "value", BIAMP_SAMPLE_RATE_96000); cJSON_AddStringToObject(srv, "name", "96 kHz"); cJSON_AddItemToArray(sr_vals, srv);
+            cJSON_AddItemToObject(sr, "values", sr_vals);
+            cJSON_AddItemToArray(xover_params, sr);
+
+            cJSON_AddItemToObject(xover_section, "parameters", xover_params);
+            cJSON_AddItemToArray(sections, xover_section);
+        }
+
+        /* === Section 2: Low/High Output Columns === */
+        {
+            cJSON *columns_section = cJSON_CreateObject();
+            cJSON *columns = cJSON_CreateArray();
+
+            /* Low Output (Woofer) Column */
+            cJSON *low_col = cJSON_CreateObject();
+            cJSON_AddStringToObject(low_col, "name", "Low Output (Woofer)");
+            cJSON_AddStringToObject(low_col, "layout", "output-channel");
+            cJSON *low_params = cJSON_CreateArray();
+
+            /* Gain slider */
+            cJSON *low_gain = cJSON_CreateObject();
+            cJSON_AddStringToObject(low_gain, "key", "biamp_low_gain");
+            cJSON_AddStringToObject(low_gain, "label", "Gain");
+            cJSON_AddStringToObject(low_gain, "name", "Output Gain");
+            cJSON_AddStringToObject(low_gain, "type", "range");
+            cJSON_AddStringToObject(low_gain, "unit", "dB");
+            cJSON_AddNumberToObject(low_gain, "min", -24);
+            cJSON_AddNumberToObject(low_gain, "max", 24);
+            cJSON_AddNumberToObject(low_gain, "step", 0.5);
+            cJSON_AddNumberToObject(low_gain, "decimals", 1);
+            cJSON_AddNumberToObject(low_gain, "current", biamp.low_gain / 2.0);
+            cJSON_AddItemToArray(low_params, low_gain);
+
+            /* Subsonic HPF slider (woofer only) */
+            cJSON *subsonic = cJSON_CreateObject();
+            cJSON_AddStringToObject(subsonic, "key", "biamp_subsonic_freq");
+            cJSON_AddStringToObject(subsonic, "label", "Subsonic");
+            cJSON_AddStringToObject(subsonic, "name", "Subsonic HPF");
+            cJSON_AddStringToObject(subsonic, "type", "range");
+            cJSON_AddStringToObject(subsonic, "unit", "Hz");
+            cJSON_AddNumberToObject(subsonic, "min", 0);
+            cJSON_AddNumberToObject(subsonic, "max", 80);
+            cJSON_AddNumberToObject(subsonic, "step", 5);
+            cJSON_AddNumberToObject(subsonic, "current", biamp.subsonic_freq);
+            cJSON_AddItemToArray(low_params, subsonic);
+
+            /* Baffle Step Compensation subgroup (woofer only) */
+            {
+                cJSON *baffle_group = cJSON_CreateObject();
+                cJSON_AddStringToObject(baffle_group, "name", "Baffle Step");
+                cJSON_AddStringToObject(baffle_group, "type", "subgroup");
+                cJSON *baffle_params = cJSON_CreateArray();
+
+                /* Baffle width (0=disabled, 5-50cm) */
+                cJSON *baffle_width = cJSON_CreateObject();
+                cJSON_AddStringToObject(baffle_width, "key", "biamp_baffle_width");
+                cJSON_AddStringToObject(baffle_width, "name", "Baffle Width");
+                cJSON_AddStringToObject(baffle_width, "type", "range");
+                cJSON_AddStringToObject(baffle_width, "unit", "cm");
+                cJSON_AddNumberToObject(baffle_width, "min", 0);
+                cJSON_AddNumberToObject(baffle_width, "max", 50);
+                cJSON_AddNumberToObject(baffle_width, "step", 1);
+                cJSON_AddNumberToObject(baffle_width, "current", biamp.baffle_width_cm);
+                cJSON_AddItemToArray(baffle_params, baffle_width);
+
+                /* Placement type */
+                cJSON *placement = cJSON_CreateObject();
+                cJSON_AddStringToObject(placement, "key", "biamp_baffle_placement");
+                cJSON_AddStringToObject(placement, "name", "Placement");
+                cJSON_AddStringToObject(placement, "type", "enum");
+                cJSON_AddNumberToObject(placement, "current", (int)biamp.baffle_placement);
+                cJSON *place_vals = cJSON_CreateArray();
+                cJSON *pv;
+                pv = cJSON_CreateObject(); cJSON_AddNumberToObject(pv, "value", BAFFLE_PLACEMENT_FREESTANDING); cJSON_AddStringToObject(pv, "name", "Freestanding (+6dB)"); cJSON_AddItemToArray(place_vals, pv);
+                pv = cJSON_CreateObject(); cJSON_AddNumberToObject(pv, "value", BAFFLE_PLACEMENT_NEAR_WALL); cJSON_AddStringToObject(pv, "name", "Near Wall (+3dB)"); cJSON_AddItemToArray(place_vals, pv);
+                pv = cJSON_CreateObject(); cJSON_AddNumberToObject(pv, "value", BAFFLE_PLACEMENT_CORNER); cJSON_AddStringToObject(pv, "name", "Corner (0dB)"); cJSON_AddItemToArray(place_vals, pv);
+                cJSON_AddItemToObject(placement, "values", place_vals);
+                cJSON_AddItemToArray(baffle_params, placement);
+
+                cJSON_AddItemToObject(baffle_group, "parameters", baffle_params);
+                cJSON_AddItemToArray(low_params, baffle_group);
+            }
+
+            /* PEQ bands as subgroups */
+            for (int i = 0; i < TAS5805M_BIAMP_PEQ_BANDS; i++) {
+                char key[32], label[32];
+                cJSON *peq_group = cJSON_CreateObject();
+                snprintf(label, sizeof(label), "PEQ %d", i + 1);
+                cJSON_AddStringToObject(peq_group, "name", label);
+                cJSON_AddStringToObject(peq_group, "type", "peq-subgroup");
+                cJSON *peq_params = cJSON_CreateArray();
+
+                /* Frequency */
+                snprintf(key, sizeof(key), "biamp_low_peq%d_freq", i);
+                cJSON *freq = cJSON_CreateObject();
+                cJSON_AddStringToObject(freq, "key", key);
+                cJSON_AddStringToObject(freq, "name", "Freq");
+                cJSON_AddStringToObject(freq, "type", "range");
+                cJSON_AddStringToObject(freq, "unit", "Hz");
+                cJSON_AddNumberToObject(freq, "min", 20);
+                cJSON_AddNumberToObject(freq, "max", 20000);
+                cJSON_AddNumberToObject(freq, "step", 1);
+                cJSON_AddNumberToObject(freq, "current", biamp.low_peq[i].freq);
+                cJSON_AddItemToArray(peq_params, freq);
+
+                /* Gain (stored as x2 for 0.5 dB resolution) */
+                snprintf(key, sizeof(key), "biamp_low_peq%d_gain", i);
+                cJSON *gain = cJSON_CreateObject();
+                cJSON_AddStringToObject(gain, "key", key);
+                cJSON_AddStringToObject(gain, "name", "Gain");
+                cJSON_AddStringToObject(gain, "type", "range");
+                cJSON_AddStringToObject(gain, "unit", "dB");
+                cJSON_AddNumberToObject(gain, "min", -15);
+                cJSON_AddNumberToObject(gain, "max", 15);
+                cJSON_AddNumberToObject(gain, "step", 0.5);
+                cJSON_AddNumberToObject(gain, "decimals", 1);
+                cJSON_AddNumberToObject(gain, "current", biamp.low_peq[i].gain / 2.0);
+                cJSON_AddItemToArray(peq_params, gain);
+
+                /* Q factor (stored as q_x10, display as float) */
+                snprintf(key, sizeof(key), "biamp_low_peq%d_q", i);
+                cJSON *q = cJSON_CreateObject();
+                cJSON_AddStringToObject(q, "key", key);
+                cJSON_AddStringToObject(q, "name", "Q");
+                cJSON_AddStringToObject(q, "type", "range");
+                cJSON_AddNumberToObject(q, "min", 0.5);
+                cJSON_AddNumberToObject(q, "max", 10.0);
+                cJSON_AddNumberToObject(q, "step", 0.1);
+                cJSON_AddNumberToObject(q, "decimals", 1);
+                cJSON_AddNumberToObject(q, "current", biamp.low_peq[i].q_x10 / 10.0);
+                cJSON_AddItemToArray(peq_params, q);
+
+                cJSON_AddItemToObject(peq_group, "parameters", peq_params);
+                cJSON_AddItemToArray(low_params, peq_group);
+            }
+
+            /* Phase at the end */
+            cJSON *low_phase = cJSON_CreateObject();
+            cJSON_AddStringToObject(low_phase, "key", "biamp_low_phase");
+            cJSON_AddStringToObject(low_phase, "name", "Phase");
+            cJSON_AddStringToObject(low_phase, "type", "radio");
+            cJSON_AddNumberToObject(low_phase, "current", biamp.low_phase_invert);
+            cJSON *lp_vals = cJSON_CreateArray();
+            cJSON *lpv;
+            lpv = cJSON_CreateObject(); cJSON_AddNumberToObject(lpv, "value", 0); cJSON_AddStringToObject(lpv, "name", "Normal"); cJSON_AddItemToArray(lp_vals, lpv);
+            lpv = cJSON_CreateObject(); cJSON_AddNumberToObject(lpv, "value", 1); cJSON_AddStringToObject(lpv, "name", "Invert"); cJSON_AddItemToArray(lp_vals, lpv);
+            cJSON_AddItemToObject(low_phase, "values", lp_vals);
+            cJSON_AddItemToArray(low_params, low_phase);
+
+            cJSON_AddItemToObject(low_col, "parameters", low_params);
+            cJSON_AddItemToArray(columns, low_col);
+
+            /* High Output (Tweeter) Column */
+            cJSON *high_col = cJSON_CreateObject();
+            cJSON_AddStringToObject(high_col, "name", "High Output (Tweeter)");
+            cJSON_AddStringToObject(high_col, "layout", "output-channel");
+            cJSON *high_params = cJSON_CreateArray();
+
+            /* Gain slider */
+            cJSON *high_gain = cJSON_CreateObject();
+            cJSON_AddStringToObject(high_gain, "key", "biamp_high_gain");
+            cJSON_AddStringToObject(high_gain, "label", "Gain");
+            cJSON_AddStringToObject(high_gain, "name", "Output Gain");
+            cJSON_AddStringToObject(high_gain, "type", "range");
+            cJSON_AddStringToObject(high_gain, "unit", "dB");
+            cJSON_AddNumberToObject(high_gain, "min", -24);
+            cJSON_AddNumberToObject(high_gain, "max", 24);
+            cJSON_AddNumberToObject(high_gain, "step", 0.5);
+            cJSON_AddNumberToObject(high_gain, "decimals", 1);
+            cJSON_AddNumberToObject(high_gain, "current", biamp.high_gain / 2.0);
+            cJSON_AddItemToArray(high_params, high_gain);
+
+            /* Tweeter delay slider for time alignment */
+            cJSON *twt_delay = cJSON_CreateObject();
+            cJSON_AddStringToObject(twt_delay, "key", "biamp_tweeter_delay");
+            cJSON_AddStringToObject(twt_delay, "label", "Delay");
+            cJSON_AddStringToObject(twt_delay, "name", "Tweeter Delay");
+            cJSON_AddStringToObject(twt_delay, "description", "Delays the tweeter to align with the woofer acoustic center. Set to the physical offset between drivers.");
+            cJSON_AddStringToObject(twt_delay, "type", "range");
+            cJSON_AddStringToObject(twt_delay, "unit", "mm");
+            cJSON_AddNumberToObject(twt_delay, "min", 0);
+            cJSON_AddNumberToObject(twt_delay, "max", 50);
+            cJSON_AddNumberToObject(twt_delay, "step", 1);
+            cJSON_AddNumberToObject(twt_delay, "current", biamp.tweeter_delay_mm);
+            cJSON_AddItemToArray(high_params, twt_delay);
+
+            /* Breakup Notch subgroup */
+            {
+                cJSON *notch_group = cJSON_CreateObject();
+                cJSON_AddStringToObject(notch_group, "name", "Breakup Notch");
+                cJSON_AddStringToObject(notch_group, "type", "subgroup");
+                cJSON_AddStringToObject(notch_group, "description", "Tames the resonance peak at the tweeter's upper frequency limit");
+                cJSON *notch_params = cJSON_CreateArray();
+
+                /* Notch frequency */
+                cJSON *notch_freq = cJSON_CreateObject();
+                cJSON_AddStringToObject(notch_freq, "key", "biamp_notch_freq");
+                cJSON_AddStringToObject(notch_freq, "name", "Frequency");
+                cJSON_AddStringToObject(notch_freq, "type", "range");
+                cJSON_AddStringToObject(notch_freq, "unit", "Hz");
+                cJSON_AddNumberToObject(notch_freq, "min", 0);
+                cJSON_AddNumberToObject(notch_freq, "max", 25000);
+                cJSON_AddNumberToObject(notch_freq, "step", 100);
+                cJSON_AddNumberToObject(notch_freq, "current", biamp.notch_freq);
+                cJSON_AddItemToArray(notch_params, notch_freq);
+
+                /* Notch depth (gain, negative only) */
+                cJSON *notch_gain = cJSON_CreateObject();
+                cJSON_AddStringToObject(notch_gain, "key", "biamp_notch_gain");
+                cJSON_AddStringToObject(notch_gain, "name", "Depth");
+                cJSON_AddStringToObject(notch_gain, "type", "range");
+                cJSON_AddStringToObject(notch_gain, "unit", "dB");
+                cJSON_AddNumberToObject(notch_gain, "min", -12);
+                cJSON_AddNumberToObject(notch_gain, "max", 0);
+                cJSON_AddNumberToObject(notch_gain, "step", 0.5);
+                cJSON_AddNumberToObject(notch_gain, "decimals", 1);
+                cJSON_AddNumberToObject(notch_gain, "current", biamp.notch_gain / 2.0);
+                cJSON_AddItemToArray(notch_params, notch_gain);
+
+                /* Notch Q */
+                cJSON *notch_q = cJSON_CreateObject();
+                cJSON_AddStringToObject(notch_q, "key", "biamp_notch_q");
+                cJSON_AddStringToObject(notch_q, "name", "Q");
+                cJSON_AddStringToObject(notch_q, "type", "range");
+                cJSON_AddNumberToObject(notch_q, "min", 2.0);
+                cJSON_AddNumberToObject(notch_q, "max", 10.0);
+                cJSON_AddNumberToObject(notch_q, "step", 0.1);
+                cJSON_AddNumberToObject(notch_q, "decimals", 1);
+                cJSON_AddNumberToObject(notch_q, "current", biamp.notch_q_x10 / 10.0);
+                cJSON_AddItemToArray(notch_params, notch_q);
+
+                cJSON_AddItemToObject(notch_group, "parameters", notch_params);
+                cJSON_AddItemToArray(high_params, notch_group);
+            }
+
+            /* PEQ bands as subgroups */
+            for (int i = 0; i < TAS5805M_BIAMP_PEQ_BANDS; i++) {
+                char key[32], label[32];
+                cJSON *peq_group = cJSON_CreateObject();
+                snprintf(label, sizeof(label), "PEQ %d", i + 1);
+                cJSON_AddStringToObject(peq_group, "name", label);
+                cJSON_AddStringToObject(peq_group, "type", "peq-subgroup");
+                cJSON *peq_params = cJSON_CreateArray();
+
+                /* Frequency */
+                snprintf(key, sizeof(key), "biamp_high_peq%d_freq", i);
+                cJSON *freq = cJSON_CreateObject();
+                cJSON_AddStringToObject(freq, "key", key);
+                cJSON_AddStringToObject(freq, "name", "Freq");
+                cJSON_AddStringToObject(freq, "type", "range");
+                cJSON_AddStringToObject(freq, "unit", "Hz");
+                cJSON_AddNumberToObject(freq, "min", 20);
+                cJSON_AddNumberToObject(freq, "max", 20000);
+                cJSON_AddNumberToObject(freq, "step", 1);
+                cJSON_AddNumberToObject(freq, "current", biamp.high_peq[i].freq);
+                cJSON_AddItemToArray(peq_params, freq);
+
+                /* Gain (stored as x2 for 0.5 dB resolution) */
+                snprintf(key, sizeof(key), "biamp_high_peq%d_gain", i);
+                cJSON *gain = cJSON_CreateObject();
+                cJSON_AddStringToObject(gain, "key", key);
+                cJSON_AddStringToObject(gain, "name", "Gain");
+                cJSON_AddStringToObject(gain, "type", "range");
+                cJSON_AddStringToObject(gain, "unit", "dB");
+                cJSON_AddNumberToObject(gain, "min", -15);
+                cJSON_AddNumberToObject(gain, "max", 15);
+                cJSON_AddNumberToObject(gain, "step", 0.5);
+                cJSON_AddNumberToObject(gain, "decimals", 1);
+                cJSON_AddNumberToObject(gain, "current", biamp.high_peq[i].gain / 2.0);
+                cJSON_AddItemToArray(peq_params, gain);
+
+                /* Q factor (stored as q_x10, display as float) */
+                snprintf(key, sizeof(key), "biamp_high_peq%d_q", i);
+                cJSON *q = cJSON_CreateObject();
+                cJSON_AddStringToObject(q, "key", key);
+                cJSON_AddStringToObject(q, "name", "Q");
+                cJSON_AddStringToObject(q, "type", "range");
+                cJSON_AddNumberToObject(q, "min", 0.5);
+                cJSON_AddNumberToObject(q, "max", 10.0);
+                cJSON_AddNumberToObject(q, "step", 0.1);
+                cJSON_AddNumberToObject(q, "decimals", 1);
+                cJSON_AddNumberToObject(q, "current", biamp.high_peq[i].q_x10 / 10.0);
+                cJSON_AddItemToArray(peq_params, q);
+
+                cJSON_AddItemToObject(peq_group, "parameters", peq_params);
+                cJSON_AddItemToArray(high_params, peq_group);
+            }
+
+            /* Phase at the end */
+            cJSON *high_phase = cJSON_CreateObject();
+            cJSON_AddStringToObject(high_phase, "key", "biamp_high_phase");
+            cJSON_AddStringToObject(high_phase, "name", "Phase");
+            cJSON_AddStringToObject(high_phase, "type", "radio");
+            cJSON_AddNumberToObject(high_phase, "current", biamp.high_phase_invert);
+            cJSON *hp_vals = cJSON_CreateArray();
+            cJSON *hpv;
+            hpv = cJSON_CreateObject(); cJSON_AddNumberToObject(hpv, "value", 0); cJSON_AddStringToObject(hpv, "name", "Normal"); cJSON_AddItemToArray(hp_vals, hpv);
+            hpv = cJSON_CreateObject(); cJSON_AddNumberToObject(hpv, "value", 1); cJSON_AddStringToObject(hpv, "name", "Invert"); cJSON_AddItemToArray(hp_vals, hpv);
+            cJSON_AddItemToObject(high_phase, "values", hp_vals);
+            cJSON_AddItemToArray(high_params, high_phase);
+
+            /* Air/Brilliance shelf slider (after phase) */
+            cJSON *air_gain = cJSON_CreateObject();
+            cJSON_AddStringToObject(air_gain, "key", "biamp_air_gain");
+            cJSON_AddStringToObject(air_gain, "label", "Air");
+            cJSON_AddStringToObject(air_gain, "name", "Air / Brilliance");
+            cJSON_AddStringToObject(air_gain, "description", "High shelf at 10kHz for treble sparkle and air");
+            cJSON_AddStringToObject(air_gain, "type", "range");
+            cJSON_AddStringToObject(air_gain, "unit", "dB");
+            cJSON_AddNumberToObject(air_gain, "min", -6);
+            cJSON_AddNumberToObject(air_gain, "max", 6);
+            cJSON_AddNumberToObject(air_gain, "step", 0.5);
+            cJSON_AddNumberToObject(air_gain, "decimals", 1);
+            cJSON_AddNumberToObject(air_gain, "current", biamp.air_gain / 2.0);
+            cJSON_AddItemToArray(high_params, air_gain);
+
+            cJSON_AddItemToObject(high_col, "parameters", high_params);
+            cJSON_AddItemToArray(columns, high_col);
+
+            cJSON_AddItemToObject(columns_section, "columns", columns);
+            cJSON_AddItemToArray(sections, columns_section);
+        }
+
+        /* === Section 3: Loudness Compensation === */
+        {
+            cJSON *loud_section = cJSON_CreateObject();
+            cJSON_AddStringToObject(loud_section, "name", "Loudness Compensation");
+            cJSON_AddStringToObject(loud_section, "layout", "loudness");
+            cJSON *loud_params = cJSON_CreateArray();
+
+            /* Enabled toggle (always visible) */
+            cJSON *loud_en = cJSON_CreateObject();
+            cJSON_AddStringToObject(loud_en, "key", "loudness_enabled");
+            cJSON_AddStringToObject(loud_en, "name", "Enable");
+            cJSON_AddStringToObject(loud_en, "type", "enum");
+            cJSON_AddNumberToObject(loud_en, "current", loudness.enabled);
+            cJSON *loud_en_vals = cJSON_CreateArray();
+            cJSON *lev;
+            lev = cJSON_CreateObject(); cJSON_AddNumberToObject(lev, "value", 0); cJSON_AddStringToObject(lev, "name", "Off"); cJSON_AddItemToArray(loud_en_vals, lev);
+            lev = cJSON_CreateObject(); cJSON_AddNumberToObject(lev, "value", 1); cJSON_AddStringToObject(lev, "name", "On"); cJSON_AddItemToArray(loud_en_vals, lev);
+            cJSON_AddItemToObject(loud_en, "values", loud_en_vals);
+            cJSON_AddItemToArray(loud_params, loud_en);
+
+            /* visibleWhen object for conditional params */
+            cJSON *visibleWhen = cJSON_CreateObject();
+            cJSON_AddNumberToObject(visibleWhen, "loudness_enabled", 1);
+
+            /* Create grouped zones - each zone has threshold (except last), bass, treble */
+            for (int i = 0; i < TAS5805M_LOUDNESS_ZONES; i++) {
+                cJSON *zone_group = cJSON_CreateObject();
+                char zone_name[48];
+
+                /* Calculate volume range for this zone */
+                int vol_start = (i == 0) ? 0 : loudness.thresholds[i - 1];
+                int vol_end = (i < TAS5805M_LOUDNESS_ZONES - 1) ? loudness.thresholds[i] : 100;
+                snprintf(zone_name, sizeof(zone_name), "Zone %d (%d%% - %d%%)", i + 1, vol_start, vol_end);
+
+                cJSON_AddStringToObject(zone_group, "name", zone_name);
+                cJSON_AddStringToObject(zone_group, "type", "loudness-zone");
+                cJSON_AddNumberToObject(zone_group, "zone_index", i);
+                cJSON_AddItemToObject(zone_group, "visibleWhen", cJSON_Duplicate(visibleWhen, 1));
+
+                cJSON *zone_params = cJSON_CreateArray();
+
+                /* Threshold slider (zones 0-3 have thresholds, zone 4 ends at 100%) */
+                if (i < TAS5805M_LOUDNESS_ZONES - 1) {
+                    char tkey[24];
+                    snprintf(tkey, sizeof(tkey), "loudness_thresh_%d", i);
+                    cJSON *thresh = cJSON_CreateObject();
+                    cJSON_AddStringToObject(thresh, "key", tkey);
+                    cJSON_AddStringToObject(thresh, "name", "Upper Limit");
+                    cJSON_AddStringToObject(thresh, "type", "range");
+                    cJSON_AddStringToObject(thresh, "unit", "%");
+                    cJSON_AddNumberToObject(thresh, "min", 0);
+                    cJSON_AddNumberToObject(thresh, "max", 100);
+                    cJSON_AddNumberToObject(thresh, "step", 5);
+                    cJSON_AddNumberToObject(thresh, "current", loudness.thresholds[i]);
+                    cJSON_AddItemToArray(zone_params, thresh);
+                }
+
+                /* Bass boost */
+                char bkey[24];
+                snprintf(bkey, sizeof(bkey), "loudness_bass_%d", i);
+                cJSON *bass = cJSON_CreateObject();
+                cJSON_AddStringToObject(bass, "key", bkey);
+                cJSON_AddStringToObject(bass, "name", "Bass");
+                cJSON_AddStringToObject(bass, "type", "range");
+                cJSON_AddStringToObject(bass, "unit", "dB");
+                cJSON_AddNumberToObject(bass, "min", -12);
+                cJSON_AddNumberToObject(bass, "max", 12);
+                cJSON_AddNumberToObject(bass, "step", 1);
+                cJSON_AddNumberToObject(bass, "current", loudness.bass_boost[i]);
+                cJSON_AddItemToArray(zone_params, bass);
+
+                /* Treble boost */
+                char trkey[24];
+                snprintf(trkey, sizeof(trkey), "loudness_treble_%d", i);
+                cJSON *treble = cJSON_CreateObject();
+                cJSON_AddStringToObject(treble, "key", trkey);
+                cJSON_AddStringToObject(treble, "name", "Treble");
+                cJSON_AddStringToObject(treble, "type", "range");
+                cJSON_AddStringToObject(treble, "unit", "dB");
+                cJSON_AddNumberToObject(treble, "min", -12);
+                cJSON_AddNumberToObject(treble, "max", 12);
+                cJSON_AddNumberToObject(treble, "step", 1);
+                cJSON_AddNumberToObject(treble, "current", loudness.treble_boost[i]);
+                cJSON_AddItemToArray(zone_params, treble);
+
+                cJSON_AddItemToObject(zone_group, "parameters", zone_params);
+                cJSON_AddItemToArray(loud_params, zone_group);
+            }
+
+            cJSON_Delete(visibleWhen);
+            cJSON_AddItemToObject(loud_section, "parameters", loud_params);
+            cJSON_AddItemToArray(sections, loud_section);
+        }
+
+        cJSON_AddItemToObject(biamp_group, "sections", sections);
+        cJSON_AddItemToArray(groups, biamp_group);
+    }
+
     cJSON_AddItemToObject(root, "groups", groups);
 
     // Render to string
@@ -2749,11 +3704,25 @@ esp_err_t tas5805m_settings_apply_delayed(void) {
                 ESP_LOGI(TAG, "%s: Restored Channel Gain R = %d dB", __func__, ch_gain);
             }
         }
+    } else if (ui_mode == TAS5805M_EQ_UI_MODE_ADVANCED_BIAMP) {
+        // Apply persisted advanced bi-amp crossover settings
+        tas5805m_biamp_settings_t biamp;
+        if (tas5805m_settings_load_biamp(&biamp) == ESP_OK) {
+            ESP_LOGI(TAG, "%s: Restoring advanced bi-amp settings: xover=%dHz slope=%d",
+                     __func__, biamp.crossover_freq, biamp.slope);
+            if (tas5805m_settings_apply_biamp(&biamp) != ESP_OK) {
+                ESP_LOGW(TAG, "%s: Failed to apply saved bi-amp settings", __func__);
+            } else {
+                ESP_LOGI(TAG, "%s: Restored advanced bi-amp crossover", __func__);
+            }
+        }
     }
-    
-    // Restore channel gain for all EQ modes (not just presets)
+
+    // Restore channel gain for all EQ modes (not just presets and advanced biamp)
     // Channel gain is independent of EQ band settings
-    if (ui_mode != TAS5805M_EQ_UI_MODE_OFF && ui_mode != TAS5805M_EQ_UI_MODE_PRESETS) {
+    // Note: Advanced Bi-Amp handles its own gains internally via crossover filters
+    if (ui_mode != TAS5805M_EQ_UI_MODE_OFF && ui_mode != TAS5805M_EQ_UI_MODE_PRESETS &&
+        ui_mode != TAS5805M_EQ_UI_MODE_ADVANCED_BIAMP) {
         int ch_gain = 0;
         if (tas5805m_settings_load_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, &ch_gain) == ESP_OK) {
             if (tas5805m_set_channel_gain(TAS5805M_EQ_CHANNELS_LEFT, (int8_t)ch_gain) != ESP_OK) {
@@ -2769,6 +3738,14 @@ esp_err_t tas5805m_settings_apply_delayed(void) {
                 ESP_LOGI(TAG, "%s: Restored Channel Gain R = %d dB", __func__, ch_gain);
             }
         }
+    }
+
+    /* Load loudness settings into the static cache and apply if enabled */
+    if (tas5805m_settings_load_loudness(&s_loudness_settings) == ESP_OK && s_loudness_settings.enabled) {
+        int vol = 50;
+        tas5805m_get_volume(&vol);
+        ESP_LOGI(TAG, "%s: Restoring loudness compensation (enabled=%d, vol=%d%%)", __func__, s_loudness_settings.enabled, vol);
+        tas5805m_loudness_apply(vol);
     }
 #endif
 
@@ -2960,6 +3937,11 @@ esp_err_t tas5805m_settings_get_eq_json(char *json_out, size_t max_len) {
         snprintf(key, sizeof(key), "eq_gain_r_%d", band);
         cJSON_AddNumberToObject(root, key, gain_r);
     }
+
+    // Get loudness enabled state (needed for UI visibility)
+    tas5805m_loudness_settings_t loudness;
+    tas5805m_settings_load_loudness(&loudness);
+    cJSON_AddNumberToObject(root, "loudness_enabled", loudness.enabled);
 #else
     // EQ support disabled
     cJSON_AddNumberToObject(root, "eq_mode", 0);
@@ -3215,7 +4197,14 @@ esp_err_t tas5805m_settings_set_eq_from_json(const char *json_in) {
                     ESP_LOGI(TAG, "%s: Applying saved preset right=%d", __func__, (int)prof_r);
                     tas5805m_set_eq_profile_channel(TAS5805M_EQ_CHANNELS_RIGHT, prof_r);
                 }
-            } 
+            } else if (ui_mode == TAS5805M_EQ_UI_MODE_ADVANCED_BIAMP) {
+                // Apply saved advanced bi-amp crossover settings
+                tas5805m_biamp_settings_t biamp;
+                if (tas5805m_settings_load_biamp(&biamp) == ESP_OK) {
+                    ESP_LOGI(TAG, "%s: Applying saved advanced bi-amp settings", __func__);
+                    tas5805m_settings_apply_biamp(&biamp);
+                }
+            }
         }
         else if (strcmp(key, "eq_profile_l") == 0 && cJSON_IsNumber(item)) {
             tas5805m_eq_profile_t prof = (tas5805m_eq_profile_t)item->valueint;
@@ -3259,10 +4248,662 @@ esp_err_t tas5805m_settings_set_eq_from_json(const char *json_in) {
                 tas5805m_settings_save_eq_gain(TAS5805M_EQ_CHANNELS_RIGHT, band, gain);
             }
         }
+        /* Advanced Bi-Amp parameter handling */
+        else if (strncmp(key, "biamp_", 6) == 0 && cJSON_IsNumber(item)) {
+            /* Load current settings, modify, save, and apply only affected band */
+            tas5805m_biamp_settings_t biamp;
+            tas5805m_settings_load_biamp(&biamp);
+
+            /* Track what type of change for targeted apply */
+            enum {
+                BIAMP_CHANGE_NONE = 0,
+                BIAMP_CHANGE_CROSSOVER,      /* Requires full apply */
+                BIAMP_CHANGE_LOW_GAIN_PHASE,
+                BIAMP_CHANGE_HIGH_GAIN_PHASE,
+                BIAMP_CHANGE_SUBSONIC,
+                BIAMP_CHANGE_TWEETER_DELAY,
+                BIAMP_CHANGE_BAFFLE_STEP,
+                BIAMP_CHANGE_NOTCH,
+                BIAMP_CHANGE_AIR,
+                BIAMP_CHANGE_LOW_PEQ,
+                BIAMP_CHANGE_HIGH_PEQ
+            } change_type = BIAMP_CHANGE_NONE;
+            int peq_band_changed = -1;
+
+            if (strcmp(key, "biamp_xover_freq") == 0) {
+                /* Clamp crossover frequency to valid range (20Hz - 20000Hz) */
+                int freq = item->valueint;
+                if (freq < 20) freq = 20;
+                if (freq > 20000) freq = 20000;
+                biamp.crossover_freq = (uint16_t)freq;
+                change_type = BIAMP_CHANGE_CROSSOVER;
+                ESP_LOGI(TAG, "%s: Setting bi-amp crossover freq to %d Hz", __func__, biamp.crossover_freq);
+            } else if (strcmp(key, "biamp_slope") == 0) {
+                biamp.slope = (tas5805m_biamp_slope_t)item->valueint;
+                change_type = BIAMP_CHANGE_CROSSOVER;
+                ESP_LOGI(TAG, "%s: Setting bi-amp slope to %d", __func__, biamp.slope);
+            } else if (strcmp(key, "biamp_type") == 0) {
+                biamp.type = (tas5805m_biamp_type_t)item->valueint;
+                change_type = BIAMP_CHANGE_CROSSOVER;
+                ESP_LOGI(TAG, "%s: Setting bi-amp type to %d", __func__, biamp.type);
+            } else if (strcmp(key, "biamp_sample_rate") == 0) {
+                biamp.sample_rate = (uint32_t)item->valueint;
+                change_type = BIAMP_CHANGE_CROSSOVER;
+                ESP_LOGI(TAG, "%s: Setting bi-amp sample rate to %lu Hz", __func__, (unsigned long)biamp.sample_rate);
+            } else if (strcmp(key, "biamp_subsonic_freq") == 0) {
+                biamp.subsonic_freq = (uint16_t)item->valueint;
+                change_type = BIAMP_CHANGE_SUBSONIC;
+                ESP_LOGI(TAG, "%s: Setting bi-amp subsonic filter to %d Hz", __func__, biamp.subsonic_freq);
+            } else if (strcmp(key, "biamp_low_gain") == 0) {
+                biamp.low_gain = (int8_t)(item->valuedouble * 2.0 + (item->valuedouble >= 0 ? 0.5 : -0.5));
+                change_type = BIAMP_CHANGE_LOW_GAIN_PHASE;
+                ESP_LOGI(TAG, "%s: Setting bi-amp low gain to %.1f dB", __func__, item->valuedouble);
+            } else if (strcmp(key, "biamp_low_phase") == 0) {
+                biamp.low_phase_invert = (uint8_t)item->valueint;
+                change_type = BIAMP_CHANGE_LOW_GAIN_PHASE;
+                ESP_LOGI(TAG, "%s: Setting bi-amp low phase to %s", __func__, biamp.low_phase_invert ? "inverted" : "normal");
+            } else if (strcmp(key, "biamp_high_gain") == 0) {
+                biamp.high_gain = (int8_t)(item->valuedouble * 2.0 + (item->valuedouble >= 0 ? 0.5 : -0.5));
+                change_type = BIAMP_CHANGE_HIGH_GAIN_PHASE;
+                ESP_LOGI(TAG, "%s: Setting bi-amp high gain to %.1f dB", __func__, item->valuedouble);
+            } else if (strcmp(key, "biamp_high_phase") == 0) {
+                biamp.high_phase_invert = (uint8_t)item->valueint;
+                change_type = BIAMP_CHANGE_HIGH_GAIN_PHASE;
+                ESP_LOGI(TAG, "%s: Setting bi-amp high phase to %s", __func__, biamp.high_phase_invert ? "inverted" : "normal");
+            } else if (strcmp(key, "biamp_baffle_width") == 0) {
+                biamp.baffle_width_cm = (uint8_t)item->valueint;
+                change_type = BIAMP_CHANGE_BAFFLE_STEP;
+                ESP_LOGI(TAG, "%s: Setting bi-amp baffle width to %d cm", __func__, biamp.baffle_width_cm);
+            } else if (strcmp(key, "biamp_baffle_placement") == 0) {
+                biamp.baffle_placement = (tas5805m_baffle_placement_t)item->valueint;
+                change_type = BIAMP_CHANGE_BAFFLE_STEP;
+                ESP_LOGI(TAG, "%s: Setting bi-amp baffle placement to %d", __func__, biamp.baffle_placement);
+            } else if (strcmp(key, "biamp_tweeter_delay") == 0) {
+                biamp.tweeter_delay_mm = (uint8_t)item->valueint;
+                change_type = BIAMP_CHANGE_TWEETER_DELAY;
+                ESP_LOGI(TAG, "%s: Setting bi-amp tweeter delay to %d mm", __func__, biamp.tweeter_delay_mm);
+            } else if (strcmp(key, "biamp_notch_freq") == 0) {
+                biamp.notch_freq = (uint16_t)item->valueint;
+                change_type = BIAMP_CHANGE_NOTCH;
+                ESP_LOGI(TAG, "%s: Setting bi-amp notch freq to %d Hz", __func__, biamp.notch_freq);
+            } else if (strcmp(key, "biamp_notch_gain") == 0) {
+                biamp.notch_gain = (int8_t)(item->valuedouble * 2.0 + (item->valuedouble >= 0 ? 0.5 : -0.5));
+                change_type = BIAMP_CHANGE_NOTCH;
+                ESP_LOGI(TAG, "%s: Setting bi-amp notch gain to %.1f dB", __func__, item->valuedouble);
+            } else if (strcmp(key, "biamp_notch_q") == 0) {
+                biamp.notch_q_x10 = (uint8_t)(item->valuedouble * 10.0 + 0.5);
+                change_type = BIAMP_CHANGE_NOTCH;
+                ESP_LOGI(TAG, "%s: Setting bi-amp notch Q to %.1f", __func__, item->valuedouble);
+            } else if (strcmp(key, "biamp_air_gain") == 0) {
+                biamp.air_gain = (int8_t)(item->valuedouble * 2.0 + (item->valuedouble >= 0 ? 0.5 : -0.5));
+                change_type = BIAMP_CHANGE_AIR;
+                ESP_LOGI(TAG, "%s: Setting bi-amp air gain to %.1f dB", __func__, item->valuedouble);
+            }
+            /* Low output PEQ bands */
+            else if (strncmp(key, "biamp_low_peq", 13) == 0) {
+                int peq_idx = key[13] - '0';
+                if (peq_idx >= 0 && peq_idx < TAS5805M_BIAMP_PEQ_BANDS) {
+                    peq_band_changed = peq_idx;
+                    if (strstr(key, "_freq") != NULL) {
+                        biamp.low_peq[peq_idx].freq = (uint16_t)item->valueint;
+                        change_type = BIAMP_CHANGE_LOW_PEQ;
+                        ESP_LOGI(TAG, "%s: Setting bi-amp low PEQ %d freq to %d Hz", __func__, peq_idx, biamp.low_peq[peq_idx].freq);
+                    } else if (strstr(key, "_gain") != NULL) {
+                        biamp.low_peq[peq_idx].gain = (int8_t)(item->valuedouble * 2.0 + (item->valuedouble >= 0 ? 0.5 : -0.5));
+                        change_type = BIAMP_CHANGE_LOW_PEQ;
+                        ESP_LOGI(TAG, "%s: Setting bi-amp low PEQ %d gain to %.1f dB", __func__, peq_idx, item->valuedouble);
+                    } else if (strstr(key, "_q") != NULL) {
+                        biamp.low_peq[peq_idx].q_x10 = (uint8_t)(item->valuedouble * 10.0 + 0.5);
+                        change_type = BIAMP_CHANGE_LOW_PEQ;
+                        ESP_LOGI(TAG, "%s: Setting bi-amp low PEQ %d Q to %.1f", __func__, peq_idx, item->valuedouble);
+                    }
+                }
+            }
+            /* High output PEQ bands */
+            else if (strncmp(key, "biamp_high_peq", 14) == 0) {
+                int peq_idx = key[14] - '0';
+                if (peq_idx >= 0 && peq_idx < TAS5805M_BIAMP_PEQ_BANDS) {
+                    peq_band_changed = peq_idx;
+                    if (strstr(key, "_freq") != NULL) {
+                        biamp.high_peq[peq_idx].freq = (uint16_t)item->valueint;
+                        change_type = BIAMP_CHANGE_HIGH_PEQ;
+                        ESP_LOGI(TAG, "%s: Setting bi-amp high PEQ %d freq to %d Hz", __func__, peq_idx, biamp.high_peq[peq_idx].freq);
+                    } else if (strstr(key, "_gain") != NULL) {
+                        biamp.high_peq[peq_idx].gain = (int8_t)(item->valuedouble * 2.0 + (item->valuedouble >= 0 ? 0.5 : -0.5));
+                        change_type = BIAMP_CHANGE_HIGH_PEQ;
+                        ESP_LOGI(TAG, "%s: Setting bi-amp high PEQ %d gain to %.1f dB", __func__, peq_idx, item->valuedouble);
+                    } else if (strstr(key, "_q") != NULL) {
+                        biamp.high_peq[peq_idx].q_x10 = (uint8_t)(item->valuedouble * 10.0 + 0.5);
+                        change_type = BIAMP_CHANGE_HIGH_PEQ;
+                        ESP_LOGI(TAG, "%s: Setting bi-amp high PEQ %d Q to %.1f", __func__, peq_idx, item->valuedouble);
+                    }
+                }
+            }
+
+            if (change_type != BIAMP_CHANGE_NONE) {
+                tas5805m_settings_save_biamp(&biamp);
+
+                /* Apply only if we're in advanced bi-amp mode */
+                TAS5805M_EQ_UI_MODE ui_mode = TAS5805M_EQ_UI_MODE_OFF;
+                tas5805m_settings_load_eq_ui_mode(&ui_mode);
+                if (ui_mode == TAS5805M_EQ_UI_MODE_ADVANCED_BIAMP) {
+                    /* Apply only the affected band(s) */
+                    switch (change_type) {
+                        case BIAMP_CHANGE_CROSSOVER:
+                            /* Crossover changes affect multiple bands - do full apply */
+                            tas5805m_settings_apply_biamp(&biamp);
+                            break;
+                        case BIAMP_CHANGE_LOW_GAIN_PHASE:
+                            tas5805m_biamp_apply_low_gain_phase(biamp.low_gain, biamp.low_phase_invert, biamp.sample_rate);
+                            break;
+                        case BIAMP_CHANGE_HIGH_GAIN_PHASE:
+                            tas5805m_biamp_apply_high_gain_phase(biamp.high_gain, biamp.high_phase_invert, biamp.sample_rate);
+                            break;
+                        case BIAMP_CHANGE_SUBSONIC:
+                            tas5805m_biamp_apply_subsonic(biamp.subsonic_freq, biamp.sample_rate);
+                            break;
+                        case BIAMP_CHANGE_TWEETER_DELAY:
+                            tas5805m_biamp_apply_tweeter_delay(biamp.tweeter_delay_mm, biamp.sample_rate);
+                            break;
+                        case BIAMP_CHANGE_BAFFLE_STEP:
+                            tas5805m_biamp_apply_baffle_step(biamp.baffle_width_cm, biamp.baffle_placement, biamp.sample_rate);
+                            break;
+                        case BIAMP_CHANGE_NOTCH:
+                            tas5805m_biamp_apply_notch(biamp.notch_freq, biamp.notch_gain, biamp.notch_q_x10, biamp.sample_rate);
+                            break;
+                        case BIAMP_CHANGE_AIR:
+                            tas5805m_biamp_apply_air_shelf(biamp.air_gain, biamp.sample_rate);
+                            break;
+                        case BIAMP_CHANGE_LOW_PEQ:
+                            if (peq_band_changed >= 0) {
+                                tas5805m_biamp_apply_low_peq(peq_band_changed, &biamp.low_peq[peq_band_changed], biamp.sample_rate);
+                            }
+                            break;
+                        case BIAMP_CHANGE_HIGH_PEQ:
+                            if (peq_band_changed >= 0) {
+                                tas5805m_biamp_apply_high_peq(peq_band_changed, &biamp.high_peq[peq_band_changed], biamp.sample_rate);
+                            }
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            }
+        }
+        /* Loudness compensation parameter handling - update static cache directly */
+        else if (strncmp(key, "loudness_", 9) == 0 && cJSON_IsNumber(item)) {
+            /* Ensure cache is loaded from NVS before modifying */
+            tas5805m_settings_load_loudness(&s_loudness_settings);
+            bool modified = false;
+
+            if (strcmp(key, "loudness_enabled") == 0) {
+                s_loudness_settings.enabled = (uint8_t)item->valueint;
+                modified = true;
+                ESP_LOGI(TAG, "%s: Setting loudness enabled to %d", __func__, s_loudness_settings.enabled);
+            } else if (strncmp(key, "loudness_thresh_", 16) == 0) {
+                int idx = key[16] - '0';
+                if (idx >= 0 && idx < TAS5805M_LOUDNESS_ZONES - 1) {
+                    s_loudness_settings.thresholds[idx] = (uint8_t)item->valueint;
+                    modified = true;
+                    ESP_LOGI(TAG, "%s: Setting loudness threshold %d to %d%%", __func__, idx, s_loudness_settings.thresholds[idx]);
+                }
+            } else if (strncmp(key, "loudness_bass_", 14) == 0) {
+                int idx = key[14] - '0';
+                if (idx >= 0 && idx < TAS5805M_LOUDNESS_ZONES) {
+                    s_loudness_settings.bass_boost[idx] = (int8_t)item->valueint;
+                    modified = true;
+                    ESP_LOGI(TAG, "%s: Setting loudness bass zone %d to %d dB", __func__, idx, s_loudness_settings.bass_boost[idx]);
+                }
+            } else if (strncmp(key, "loudness_treble_", 16) == 0) {
+                int idx = key[16] - '0';
+                if (idx >= 0 && idx < TAS5805M_LOUDNESS_ZONES) {
+                    s_loudness_settings.treble_boost[idx] = (int8_t)item->valueint;
+                    modified = true;
+                    ESP_LOGI(TAG, "%s: Setting loudness treble zone %d to %d dB", __func__, idx, s_loudness_settings.treble_boost[idx]);
+                }
+            }
+
+            if (modified) {
+                tas5805m_settings_save_loudness(&s_loudness_settings);
+                /* Re-apply loudness with current volume */
+                int vol = 50;
+                tas5805m_get_volume(&vol);
+                tas5805m_loudness_apply(vol);
+            }
+        }
     }
 #endif
 
     cJSON_Delete(root);
+    return ESP_OK;
+}
+
+/* ============ Bi-Amp Preset Export/Import ============ */
+
+esp_err_t tas5805m_biamp_preset_export(char *json_out, size_t max_len)
+{
+    if (!json_out || max_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    /* Load current settings */
+    tas5805m_biamp_settings_t biamp;
+    tas5805m_settings_load_biamp(&biamp);
+
+    tas5805m_loudness_settings_t loudness;
+    tas5805m_settings_load_loudness(&loudness);
+
+    /* Build JSON preset */
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    /* Preset metadata */
+    cJSON_AddNumberToObject(root, "version", TAS5805M_BIAMP_PRESET_VERSION);
+    cJSON_AddStringToObject(root, "type", "biamp_preset");
+
+    /* Crossover settings */
+    cJSON *crossover = cJSON_CreateObject();
+    cJSON_AddNumberToObject(crossover, "frequency", biamp.crossover_freq);
+    cJSON_AddNumberToObject(crossover, "slope", biamp.slope);
+    cJSON_AddNumberToObject(crossover, "filter_type", biamp.type);
+    cJSON_AddItemToObject(root, "crossover", crossover);
+
+    /* Subsonic filter */
+    cJSON_AddNumberToObject(root, "subsonic_freq", biamp.subsonic_freq);
+
+    /* Baffle step compensation */
+    cJSON *baffle = cJSON_CreateObject();
+    cJSON_AddNumberToObject(baffle, "width_cm", biamp.baffle_width_cm);
+    cJSON_AddNumberToObject(baffle, "placement", biamp.baffle_placement);
+    cJSON_AddItemToObject(root, "baffle_step", baffle);
+
+    /* Low output (woofer) - gains stored as x2, export as actual dB */
+    cJSON *low = cJSON_CreateObject();
+    cJSON_AddNumberToObject(low, "gain", biamp.low_gain / 2.0);
+    cJSON_AddNumberToObject(low, "phase_invert", biamp.low_phase_invert);
+    cJSON *low_peq = cJSON_CreateArray();
+    for (int i = 0; i < TAS5805M_BIAMP_PEQ_BANDS; i++) {
+        cJSON *band = cJSON_CreateObject();
+        cJSON_AddNumberToObject(band, "freq", biamp.low_peq[i].freq);
+        cJSON_AddNumberToObject(band, "gain", biamp.low_peq[i].gain / 2.0);
+        cJSON_AddNumberToObject(band, "q", biamp.low_peq[i].q_x10 / 10.0);
+        cJSON_AddItemToArray(low_peq, band);
+    }
+    cJSON_AddItemToObject(low, "peq", low_peq);
+    cJSON_AddItemToObject(root, "low_output", low);
+
+    /* High output (tweeter) - gains stored as x2, export as actual dB */
+    cJSON *high = cJSON_CreateObject();
+    cJSON_AddNumberToObject(high, "gain", biamp.high_gain / 2.0);
+    cJSON_AddNumberToObject(high, "phase_invert", biamp.high_phase_invert);
+    cJSON_AddNumberToObject(high, "delay_mm", biamp.tweeter_delay_mm);
+    cJSON_AddNumberToObject(high, "notch_freq", biamp.notch_freq);
+    cJSON_AddNumberToObject(high, "notch_gain", biamp.notch_gain / 2.0);
+    cJSON_AddNumberToObject(high, "notch_q", biamp.notch_q_x10 / 10.0);
+    cJSON_AddNumberToObject(high, "air_gain", biamp.air_gain / 2.0);
+    cJSON *high_peq = cJSON_CreateArray();
+    for (int i = 0; i < TAS5805M_BIAMP_PEQ_BANDS; i++) {
+        cJSON *band = cJSON_CreateObject();
+        cJSON_AddNumberToObject(band, "freq", biamp.high_peq[i].freq);
+        cJSON_AddNumberToObject(band, "gain", biamp.high_peq[i].gain / 2.0);
+        cJSON_AddNumberToObject(band, "q", biamp.high_peq[i].q_x10 / 10.0);
+        cJSON_AddItemToArray(high_peq, band);
+    }
+    cJSON_AddItemToObject(high, "peq", high_peq);
+    cJSON_AddItemToObject(root, "high_output", high);
+
+    /* Loudness compensation */
+    cJSON *loud = cJSON_CreateObject();
+    cJSON_AddNumberToObject(loud, "enabled", loudness.enabled);
+    cJSON *thresholds = cJSON_CreateArray();
+    for (int i = 0; i < TAS5805M_LOUDNESS_ZONES - 1; i++) {
+        cJSON_AddItemToArray(thresholds, cJSON_CreateNumber(loudness.thresholds[i]));
+    }
+    cJSON_AddItemToObject(loud, "thresholds", thresholds);
+    cJSON *bass = cJSON_CreateArray();
+    cJSON *treble = cJSON_CreateArray();
+    for (int i = 0; i < TAS5805M_LOUDNESS_ZONES; i++) {
+        cJSON_AddItemToArray(bass, cJSON_CreateNumber(loudness.bass_boost[i]));
+        cJSON_AddItemToArray(treble, cJSON_CreateNumber(loudness.treble_boost[i]));
+    }
+    cJSON_AddItemToObject(loud, "bass_boost", bass);
+    cJSON_AddItemToObject(loud, "treble_boost", treble);
+    cJSON_AddItemToObject(root, "loudness", loud);
+
+    /* Serialize to string */
+    char *json_str = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+
+    if (!json_str) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    size_t len = strlen(json_str);
+    if (len >= max_len) {
+        free(json_str);
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    strcpy(json_out, json_str);
+    free(json_str);
+
+    ESP_LOGI(TAG, "%s: Exported bi-amp preset (%d bytes)", __func__, len);
+    return ESP_OK;
+}
+
+esp_err_t tas5805m_biamp_preset_import(const char *json_in)
+{
+    if (!json_in) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    cJSON *root = cJSON_Parse(json_in);
+    if (!root) {
+        ESP_LOGE(TAG, "%s: Failed to parse JSON", __func__);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    /* Verify preset type and version */
+    cJSON *type = cJSON_GetObjectItem(root, "type");
+    if (!type || !cJSON_IsString(type) || strcmp(type->valuestring, "biamp_preset") != 0) {
+        ESP_LOGE(TAG, "%s: Invalid preset type", __func__);
+        cJSON_Delete(root);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    cJSON *version = cJSON_GetObjectItem(root, "version");
+    if (!version || !cJSON_IsNumber(version) || version->valueint > TAS5805M_BIAMP_PRESET_VERSION) {
+        ESP_LOGE(TAG, "%s: Unsupported preset version", __func__);
+        cJSON_Delete(root);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    /* Load current settings as defaults */
+    tas5805m_biamp_settings_t biamp;
+    tas5805m_biamp_init_defaults(&biamp);
+
+    tas5805m_loudness_settings_t loudness;
+    tas5805m_loudness_init_defaults(&loudness);
+
+    /* Parse crossover settings */
+    cJSON *crossover = cJSON_GetObjectItem(root, "crossover");
+    if (crossover) {
+        cJSON *freq = cJSON_GetObjectItem(crossover, "frequency");
+        if (freq && cJSON_IsNumber(freq)) {
+            /* Clamp crossover frequency to valid range (20Hz - 20000Hz) */
+            int f = freq->valueint;
+            if (f < 20) f = 20;
+            if (f > 20000) f = 20000;
+            biamp.crossover_freq = (uint16_t)f;
+        }
+
+        cJSON *slope = cJSON_GetObjectItem(crossover, "slope");
+        if (slope && cJSON_IsNumber(slope)) biamp.slope = (tas5805m_biamp_slope_t)slope->valueint;
+
+        cJSON *ftype = cJSON_GetObjectItem(crossover, "filter_type");
+        if (ftype && cJSON_IsNumber(ftype)) biamp.type = (tas5805m_biamp_type_t)ftype->valueint;
+    }
+
+    /* Parse subsonic filter */
+    cJSON *subsonic = cJSON_GetObjectItem(root, "subsonic_freq");
+    if (subsonic && cJSON_IsNumber(subsonic)) biamp.subsonic_freq = (uint16_t)subsonic->valueint;
+
+    /* Parse baffle step compensation */
+    cJSON *baffle = cJSON_GetObjectItem(root, "baffle_step");
+    if (baffle) {
+        cJSON *width = cJSON_GetObjectItem(baffle, "width_cm");
+        if (width && cJSON_IsNumber(width)) biamp.baffle_width_cm = (uint8_t)width->valueint;
+
+        cJSON *placement = cJSON_GetObjectItem(baffle, "placement");
+        if (placement && cJSON_IsNumber(placement)) biamp.baffle_placement = (tas5805m_baffle_placement_t)placement->valueint;
+    }
+
+    /* Parse low output - gains in preset are actual dB, store as x2 */
+    cJSON *low = cJSON_GetObjectItem(root, "low_output");
+    if (low) {
+        cJSON *gain = cJSON_GetObjectItem(low, "gain");
+        if (gain && cJSON_IsNumber(gain)) {
+            biamp.low_gain = (int8_t)(gain->valuedouble * 2.0 + (gain->valuedouble >= 0 ? 0.5 : -0.5));
+        }
+
+        cJSON *phase = cJSON_GetObjectItem(low, "phase_invert");
+        if (phase && cJSON_IsNumber(phase)) biamp.low_phase_invert = (uint8_t)phase->valueint;
+
+        cJSON *peq = cJSON_GetObjectItem(low, "peq");
+        if (peq && cJSON_IsArray(peq)) {
+            int idx = 0;
+            cJSON *band;
+            cJSON_ArrayForEach(band, peq) {
+                if (idx >= TAS5805M_BIAMP_PEQ_BANDS) break;
+                cJSON *f = cJSON_GetObjectItem(band, "freq");
+                cJSON *g = cJSON_GetObjectItem(band, "gain");
+                cJSON *q = cJSON_GetObjectItem(band, "q");
+                if (f && cJSON_IsNumber(f)) biamp.low_peq[idx].freq = (uint16_t)f->valueint;
+                if (g && cJSON_IsNumber(g)) {
+                    biamp.low_peq[idx].gain = (int8_t)(g->valuedouble * 2.0 + (g->valuedouble >= 0 ? 0.5 : -0.5));
+                }
+                if (q && cJSON_IsNumber(q)) biamp.low_peq[idx].q_x10 = (uint8_t)(q->valuedouble * 10.0 + 0.5);
+                idx++;
+            }
+        }
+    }
+
+    /* Parse high output - gains in preset are actual dB, store as x2 */
+    cJSON *high = cJSON_GetObjectItem(root, "high_output");
+    if (high) {
+        cJSON *gain = cJSON_GetObjectItem(high, "gain");
+        if (gain && cJSON_IsNumber(gain)) {
+            biamp.high_gain = (int8_t)(gain->valuedouble * 2.0 + (gain->valuedouble >= 0 ? 0.5 : -0.5));
+        }
+
+        cJSON *phase = cJSON_GetObjectItem(high, "phase_invert");
+        if (phase && cJSON_IsNumber(phase)) biamp.high_phase_invert = (uint8_t)phase->valueint;
+
+        cJSON *delay = cJSON_GetObjectItem(high, "delay_mm");
+        if (delay && cJSON_IsNumber(delay)) biamp.tweeter_delay_mm = (uint8_t)delay->valueint;
+
+        cJSON *notch_freq = cJSON_GetObjectItem(high, "notch_freq");
+        if (notch_freq && cJSON_IsNumber(notch_freq)) biamp.notch_freq = (uint16_t)notch_freq->valueint;
+
+        cJSON *notch_gain = cJSON_GetObjectItem(high, "notch_gain");
+        if (notch_gain && cJSON_IsNumber(notch_gain)) {
+            biamp.notch_gain = (int8_t)(notch_gain->valuedouble * 2.0 + (notch_gain->valuedouble >= 0 ? 0.5 : -0.5));
+        }
+
+        cJSON *notch_q = cJSON_GetObjectItem(high, "notch_q");
+        if (notch_q && cJSON_IsNumber(notch_q)) biamp.notch_q_x10 = (uint8_t)(notch_q->valuedouble * 10.0 + 0.5);
+
+        cJSON *air_gain_val = cJSON_GetObjectItem(high, "air_gain");
+        if (air_gain_val && cJSON_IsNumber(air_gain_val)) {
+            biamp.air_gain = (int8_t)(air_gain_val->valuedouble * 2.0 + (air_gain_val->valuedouble >= 0 ? 0.5 : -0.5));
+        }
+
+        cJSON *peq = cJSON_GetObjectItem(high, "peq");
+        if (peq && cJSON_IsArray(peq)) {
+            int idx = 0;
+            cJSON *band;
+            cJSON_ArrayForEach(band, peq) {
+                if (idx >= TAS5805M_BIAMP_PEQ_BANDS) break;
+                cJSON *f = cJSON_GetObjectItem(band, "freq");
+                cJSON *g = cJSON_GetObjectItem(band, "gain");
+                cJSON *q = cJSON_GetObjectItem(band, "q");
+                if (f && cJSON_IsNumber(f)) biamp.high_peq[idx].freq = (uint16_t)f->valueint;
+                if (g && cJSON_IsNumber(g)) {
+                    biamp.high_peq[idx].gain = (int8_t)(g->valuedouble * 2.0 + (g->valuedouble >= 0 ? 0.5 : -0.5));
+                }
+                if (q && cJSON_IsNumber(q)) biamp.high_peq[idx].q_x10 = (uint8_t)(q->valuedouble * 10.0 + 0.5);
+                idx++;
+            }
+        }
+    }
+
+    /* Parse loudness settings */
+    cJSON *loud = cJSON_GetObjectItem(root, "loudness");
+    if (loud) {
+        cJSON *enabled = cJSON_GetObjectItem(loud, "enabled");
+        if (enabled && cJSON_IsNumber(enabled)) loudness.enabled = (uint8_t)enabled->valueint;
+
+        cJSON *thresholds = cJSON_GetObjectItem(loud, "thresholds");
+        if (thresholds && cJSON_IsArray(thresholds)) {
+            int idx = 0;
+            cJSON *val;
+            cJSON_ArrayForEach(val, thresholds) {
+                if (idx >= TAS5805M_LOUDNESS_ZONES - 1) break;
+                if (cJSON_IsNumber(val)) loudness.thresholds[idx] = (uint8_t)val->valueint;
+                idx++;
+            }
+        }
+
+        cJSON *bass = cJSON_GetObjectItem(loud, "bass_boost");
+        if (bass && cJSON_IsArray(bass)) {
+            int idx = 0;
+            cJSON *val;
+            cJSON_ArrayForEach(val, bass) {
+                if (idx >= TAS5805M_LOUDNESS_ZONES) break;
+                if (cJSON_IsNumber(val)) loudness.bass_boost[idx] = (int8_t)val->valueint;
+                idx++;
+            }
+        }
+
+        cJSON *treble = cJSON_GetObjectItem(loud, "treble_boost");
+        if (treble && cJSON_IsArray(treble)) {
+            int idx = 0;
+            cJSON *val;
+            cJSON_ArrayForEach(val, treble) {
+                if (idx >= TAS5805M_LOUDNESS_ZONES) break;
+                if (cJSON_IsNumber(val)) loudness.treble_boost[idx] = (int8_t)val->valueint;
+                idx++;
+            }
+        }
+    }
+
+    cJSON_Delete(root);
+
+    /* Save and apply settings */
+    esp_err_t ret = tas5805m_settings_save_biamp(&biamp);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "%s: Failed to save bi-amp settings", __func__);
+        return ret;
+    }
+
+    ret = tas5805m_settings_save_loudness(&loudness);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "%s: Failed to save loudness settings", __func__);
+        return ret;
+    }
+
+    /* Apply the settings */
+    ret = tas5805m_biamp_apply(&biamp);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "%s: Failed to apply bi-amp settings (codec may not be ready)", __func__);
+    }
+
+    /* Re-apply loudness with current volume */
+    int vol = 50;
+    tas5805m_get_volume(&vol);
+    tas5805m_loudness_apply(vol);
+
+    ESP_LOGI(TAG, "%s: Imported bi-amp preset successfully", __func__);
+    return ESP_OK;
+}
+
+/* ============ Bi-Amp Reset to Defaults ============ */
+
+esp_err_t tas5805m_biamp_reset_defaults(void)
+{
+    ESP_LOGI(TAG, "%s: Resetting bi-amp settings to defaults", __func__);
+
+    nvs_handle_t nvs;
+    esp_err_t ret = nvs_open(TAS5805M_NVS_NAMESPACE, NVS_READWRITE, &nvs);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "%s: Failed to open NVS: %s", __func__, esp_err_to_name(ret));
+        return ret;
+    }
+
+    /* Erase all bi-amp related NVS keys */
+    nvs_erase_key(nvs, TAS5805M_NVS_KEY_BIAMP_XOVER_FREQ);
+    nvs_erase_key(nvs, TAS5805M_NVS_KEY_BIAMP_SLOPE);
+    nvs_erase_key(nvs, TAS5805M_NVS_KEY_BIAMP_TYPE);
+    nvs_erase_key(nvs, TAS5805M_NVS_KEY_BIAMP_LOW_GAIN);
+    nvs_erase_key(nvs, TAS5805M_NVS_KEY_BIAMP_LOW_PHASE);
+    nvs_erase_key(nvs, TAS5805M_NVS_KEY_BIAMP_HIGH_GAIN);
+    nvs_erase_key(nvs, TAS5805M_NVS_KEY_BIAMP_HIGH_PHASE);
+    nvs_erase_key(nvs, TAS5805M_NVS_KEY_BIAMP_SAMPLE_RATE);
+    nvs_erase_key(nvs, TAS5805M_NVS_KEY_BIAMP_SUBSONIC_FREQ);
+
+    /* Erase baffle step keys */
+    nvs_erase_key(nvs, TAS5805M_NVS_KEY_BAFFLE_WIDTH);
+    nvs_erase_key(nvs, TAS5805M_NVS_KEY_BAFFLE_PLACEMENT);
+
+    /* Erase tweeter-specific keys */
+    nvs_erase_key(nvs, TAS5805M_NVS_KEY_TWEETER_DELAY);
+    nvs_erase_key(nvs, TAS5805M_NVS_KEY_NOTCH_FREQ);
+    nvs_erase_key(nvs, TAS5805M_NVS_KEY_NOTCH_GAIN);
+    nvs_erase_key(nvs, TAS5805M_NVS_KEY_NOTCH_Q);
+    nvs_erase_key(nvs, TAS5805M_NVS_KEY_AIR_GAIN);
+
+    /* Erase PEQ keys for both channels */
+    char key[32];
+    for (int i = 0; i < TAS5805M_BIAMP_PEQ_BANDS; i++) {
+        snprintf(key, sizeof(key), "%s%d_f", TAS5805M_NVS_KEY_BIAMP_PEQ_PREFIX_L, i);
+        nvs_erase_key(nvs, key);
+        snprintf(key, sizeof(key), "%s%d_g", TAS5805M_NVS_KEY_BIAMP_PEQ_PREFIX_L, i);
+        nvs_erase_key(nvs, key);
+        snprintf(key, sizeof(key), "%s%d_q", TAS5805M_NVS_KEY_BIAMP_PEQ_PREFIX_L, i);
+        nvs_erase_key(nvs, key);
+
+        snprintf(key, sizeof(key), "%s%d_f", TAS5805M_NVS_KEY_BIAMP_PEQ_PREFIX_H, i);
+        nvs_erase_key(nvs, key);
+        snprintf(key, sizeof(key), "%s%d_g", TAS5805M_NVS_KEY_BIAMP_PEQ_PREFIX_H, i);
+        nvs_erase_key(nvs, key);
+        snprintf(key, sizeof(key), "%s%d_q", TAS5805M_NVS_KEY_BIAMP_PEQ_PREFIX_H, i);
+        nvs_erase_key(nvs, key);
+    }
+
+    /* Erase loudness keys */
+    nvs_erase_key(nvs, TAS5805M_NVS_KEY_LOUDNESS_ENABLED);
+    nvs_erase_key(nvs, TAS5805M_NVS_KEY_LOUDNESS_THRESH);
+    nvs_erase_key(nvs, TAS5805M_NVS_KEY_LOUDNESS_BASS);
+    nvs_erase_key(nvs, TAS5805M_NVS_KEY_LOUDNESS_TREBLE);
+
+    nvs_commit(nvs);
+    nvs_close(nvs);
+
+    /* Initialize bi-amp settings to defaults */
+    tas5805m_biamp_settings_t biamp;
+    tas5805m_biamp_init_defaults(&biamp);
+
+    /* Initialize loudness settings to defaults */
+    tas5805m_loudness_settings_t loudness;
+    tas5805m_loudness_init_defaults(&loudness);
+
+    /* Save the default settings */
+    ret = tas5805m_settings_save_biamp(&biamp);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "%s: Failed to save default bi-amp settings", __func__);
+        return ret;
+    }
+
+    ret = tas5805m_settings_save_loudness(&loudness);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "%s: Failed to save default loudness settings", __func__);
+        return ret;
+    }
+
+    /* Apply the default settings */
+    ret = tas5805m_biamp_apply(&biamp);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "%s: Failed to apply bi-amp settings (codec may not be ready)", __func__);
+    }
+
+    /* Re-apply loudness with current volume */
+    int vol = 50;
+    tas5805m_get_volume(&vol);
+    tas5805m_loudness_apply(vol);
+
+    ESP_LOGI(TAG, "%s: Bi-amp settings reset to defaults successfully", __func__);
     return ESP_OK;
 }
 
