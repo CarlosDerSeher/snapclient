@@ -1,0 +1,22 @@
+#
+# Snapclient Configuration
+#
+CONFIG_SNAPSERVER_USE_MDNS=y
+CONFIG_SNAPCLIENT_NAME="ESP32-LyraT"
+
+#
+# Audio Board
+#
+CONFIG_ESP_LYRAT_V4_3_BOARD=y
+
+#
+# ESP32 DSP processor config
+#
+CONFIG_USE_DSP_PROCESSOR=y
+
+
+#
+# IRAM optimizations
+#
+CONFIG_ESP_WIFI_EXTRA_IRAM_OPT=n
+CONFIG_LWIP_IRAM_OPTIMIZATION=n
