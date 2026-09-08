@@ -167,8 +167,8 @@ static esp_err_t root_post_handler(httpd_req_t *req) {
 	ESP_LOGD(TAG, "%s: uri=%s", __func__, req->uri);
 	URL_t urlBuf;
 	int ret = -1;
-	char param[16] = {0};
-	char valstr[64] = {0}; // Increased size for hostname
+	char param[32] = {0};
+	char valstr[64] = {0};
 
 	set_cors_headers(req);
 
@@ -1247,6 +1247,21 @@ static void http_server_task(void *pvParameters) {
 #else
 			active_flow = new_flow;
 			current_params.dspFlow = new_flow;
+#endif
+			continue;
+		}
+
+		// Handle global DSP settings (not flow-specific)
+		if (strcmp(urlBuf.key, "volume_curve_db_range") == 0) {
+#if CONFIG_USE_DSP_PROCESSOR
+			char json[64];
+			snprintf(json, sizeof(json), "{\"volume_curve_db_range\":%ld}",
+					 (long)urlBuf.int_value);
+			esp_err_t e = dsp_settings_set_from_json(json);
+			if (e != ESP_OK) {
+				ESP_LOGW(TAG, "%s: volume_curve_db_range set failed: %s",
+						 __func__, esp_err_to_name(e));
+			}
 #endif
 			continue;
 		}
