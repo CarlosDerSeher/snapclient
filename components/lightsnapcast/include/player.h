@@ -11,6 +11,12 @@
 extern "C" {
 #endif
 
+typedef enum {
+  DSP_CH_STEREO = 0,
+  DSP_CH_LEFT_ONLY = 1,
+  DSP_CH_RIGHT_ONLY = 2,
+} dsp_channel_mode_t;
+
 #define USE_TIMEFILTER  CONFIG_SNAPCLIENT_USE_TIMEFILTER
 
 #define I2S_PORT I2S_NUM_0
@@ -60,7 +66,7 @@ typedef struct playerSetting_s {
   i2s_data_bit_width_t bits;
 } playerSetting_t;
 
-int init_player(i2s_std_gpio_config_t pin_config0_, i2s_port_t i2sNum_, void (*set_mute_cb)(bool), void (*cb)(bool),  bool (*lock)(bool, TickType_t));
+int init_player(i2s_std_gpio_config_t pin_config0_, i2s_port_t i2sNum_, void (*set_mute_cb)(bool), void (*cb)(bool), bool (*lock)(bool, TickType_t), dsp_channel_mode_t channel_mode);
 int deinit_player(void);
 int start_player(void);
 void pause_player(bool pause);
