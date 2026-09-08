@@ -204,7 +204,8 @@ menu "Audio Board"
 					When enabled, build includes optional TAS5805M equalizer support.
 					Equalizer configuration and runtime control remain available via
 					the device UI. Default: disabled.
-	    endmenu
+
+		    endmenu
 
 		menu "Merus MA120x0 interface Configuration"
 			 depends on DAC_MA120X0
