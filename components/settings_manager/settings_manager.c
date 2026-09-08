@@ -525,6 +525,13 @@ esp_err_t settings_get_json(char *json_out, size_t max_len) {
     cJSON_AddBoolToObject(root, "eq_available", false);
 #endif
 
+    // Add web OTA availability flag
+#if CONFIG_SNAPCLIENT_WEB_OTA
+    cJSON_AddBoolToObject(root, "web_ota_enabled", true);
+#else
+    cJSON_AddBoolToObject(root, "web_ota_enabled", false);
+#endif
+
     // Render to string
     char *json_str = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);

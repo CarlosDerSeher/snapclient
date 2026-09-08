@@ -23,6 +23,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "settings_manager.h"
+#include "ota_handlers.h"
 
 #if CONFIG_DAC_TAS5805M
 #include "tas5805m_settings.h"
@@ -51,6 +52,10 @@ extern const uint8_t dac_settings_html_start[] asm("_binary_dac_settings_html_st
 extern const uint8_t dac_settings_html_end[] asm("_binary_dac_settings_html_end");
 extern const uint8_t eq_settings_html_start[] asm("_binary_eq_settings_html_start");
 extern const uint8_t eq_settings_html_end[] asm("_binary_eq_settings_html_end");
+#if CONFIG_SNAPCLIENT_WEB_OTA
+extern const uint8_t ota_update_html_start[] asm("_binary_ota_update_html_start");
+extern const uint8_t ota_update_html_end[] asm("_binary_ota_update_html_end");
+#endif
 extern const uint8_t favicon_ico_start[] asm("_binary_favicon_ico_start");
 extern const uint8_t favicon_ico_end[] asm("_binary_favicon_ico_end");
 
@@ -72,6 +77,9 @@ static const embedded_file_t embedded_files[] = {
 	{"/dsp-settings.html", dsp_settings_html_start, dsp_settings_html_end, "text/html; charset=utf-8"},
 	{"/dac-settings.html", dac_settings_html_start, dac_settings_html_end, "text/html; charset=utf-8"},
 	{"/eq-settings.html", eq_settings_html_start, eq_settings_html_end, "text/html; charset=utf-8"},
+#if CONFIG_SNAPCLIENT_WEB_OTA
+	{"/ota-update.html", ota_update_html_start, ota_update_html_end, "text/html; charset=utf-8"},
+#endif
 	{"/favicon.ico", favicon_ico_start, favicon_ico_end, "image/x-icon"},
 };
 
@@ -1176,6 +1184,10 @@ esp_err_t start_server(const char *base_path, int port) {
 	};
 	httpd_register_uri_handler(server, &_options_eq_schema_handler);
 #endif /* CONFIG_DAC_TAS5805M */
+
+#if CONFIG_SNAPCLIENT_WEB_OTA
+	ota_register_handlers(server);
+#endif
 
 	/* URI handler for static files (catch-all, must be last) */
 	httpd_uri_t _static_file_handler = {
