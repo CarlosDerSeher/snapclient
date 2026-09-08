@@ -179,7 +179,10 @@
     const uiMode = (currentSettings && currentSettings.eq_ui_mode !== undefined) ? currentSettings.eq_ui_mode : 0;
     
     if (layout === 'eq-bands') {
-      if (uiMode === 1) {
+      // PCM5122: visibility controlled by proc_flow when eq_ui_mode is absent
+      if (currentSettings && currentSettings.proc_flow !== undefined && currentSettings.eq_ui_mode === undefined) {
+        groupDiv.style.display = (currentSettings.proc_flow === 5) ? 'block' : 'none';
+      } else if (uiMode === 1) {
         groupDiv.style.display = (channel === 'left') ? 'block' : 'none';
       } else if (uiMode === 2) {
         groupDiv.style.display = 'block';

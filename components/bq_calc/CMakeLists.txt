@@ -1,0 +1,6 @@
+set(COMPONENT_REQUIRES)
+set(COMPONENT_PRIV_REQUIRES)
+
+list(APPEND COMPONENT_ADD_INCLUDEDIRS ./include)
+set(COMPONENT_SRCS ./bq_calc.c)
+register_component()

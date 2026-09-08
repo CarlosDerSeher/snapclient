@@ -1,0 +1,71 @@
+name: build_platformio
+
+on: [push, pull_request]
+
+jobs:
+  # ── Step 1: parse platformio.ini and produce the matrix list ──────────────
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      envs: ${{ steps.get-envs.outputs.envs }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Discover buildable PlatformIO environments
+        id: get-envs
+        run: |
+          python3 - <<'EOF'
+          import re, json, os
+          with open("platformio.ini") as f:
+              content = f.read()
+          envs = re.findall(r"^\[env:([^\]]+)\]", content, re.MULTILINE)
+          # Skip abstract base templates and debug-only variants
+          envs = [e for e in envs if not e.startswith("base-") and not e.endswith("-debug")]
+          output = json.dumps(envs)
+          print(f"Discovered environments: {output}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as gh_out:
+              gh_out.write(f"envs={output}\n")
+          EOF
+
+  # ── Step 2: build each environment in parallel ────────────────────────────
+  build:
+    needs: discover
+    strategy:
+      fail-fast: false          # let other envs finish even if one fails
+      matrix:
+        environment: ${{ fromJson(needs.discover.outputs.envs) }}
+
+    runs-on: ubuntu-latest
+    name: build / ${{ matrix.environment }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      # Cache the PlatformIO home directory (toolchains, platform packages)
+      # and the per-env build output so incremental builds are faster.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            .pio/build/${{ matrix.environment }}
+          key: pio-${{ matrix.environment }}-${{ hashFiles('platformio.ini', 'sdkconfig.defaults', 'sdkconfig.defaults.*') }}
+          restore-keys: |
+            pio-${{ matrix.environment }}-
+
+      - name: Install PlatformIO Core
+        run: pip install --quiet platformio
+
+      - name: Build ${{ matrix.environment }}
+        run: |
+          # On the first completely clean build, cmake configure runs *after*
+          # extra_scripts are evaluated, so pre_build.py finds no build.ninja
+          # and skips ESP-IDF embed-file stub generation → ninja fails.
+          # The second attempt finds the freshly created build.ninja and succeeds.
+          platformio run --environment ${{ matrix.environment }} \
+            || platformio run --environment ${{ matrix.environment }}

@@ -44,6 +44,7 @@
 #include <sys/time.h>
 
 #include "driver/i2s_std.h"
+
 #if CONFIG_USE_DSP_PROCESSOR
 #include "dsp_processor.h"
 #include "dsp_processor_settings.h"
@@ -63,6 +64,9 @@
 #include "ui_http_server.h"
 #if CONFIG_DAC_TAS5805M
 #include "tas5805m_settings.h"
+#endif
+#if defined(CONFIG_DAC_PCM51XX) && defined(CONFIG_DAC_PCM51XX_EQ_SUPPORT)
+#include "pcm51xx_settings.h"
 #endif
 
 static bool isCachedChunk = false;
@@ -1636,10 +1640,11 @@ void app_main(void) {
   esp_log_level_set("wifi", ESP_LOG_WARN);
   esp_log_level_set("wifi_init", ESP_LOG_WARN);
   esp_log_level_set("httpd_uri", ESP_LOG_WARN);
-  esp_log_level_set("settings", ESP_LOG_DEBUG);
-  esp_log_level_set("dsp_settings", ESP_LOG_DEBUG);
+  esp_log_level_set("pcm51xx_settings", ESP_LOG_DEBUG);
+  // esp_log_level_set("dsp_settings", ESP_LOG_DEBUG);
   esp_log_level_set("UI_HTTP", ESP_LOG_WARN);
-  esp_log_level_set("dspProc", ESP_LOG_DEBUG);
+  esp_log_level_set("PCM51XX", ESP_LOG_DEBUG);
+  esp_log_level_set("TAS5805M", ESP_LOG_DEBUG);
 
   t_main_task = xTaskGetCurrentTaskHandle();
 
@@ -1798,6 +1803,13 @@ void app_main(void) {
   // Apply persisted TAS5805M settings now that the codec has been initialized
   if (tas5805m_settings_init() != ESP_OK) {
     ESP_LOGW(TAG, "Failed to init persisted TAS5805M settings");
+  }
+  #endif
+
+  #if defined(CONFIG_DAC_PCM51XX) && defined(CONFIG_DAC_PCM51XX_EQ_SUPPORT)
+  // Apply persisted PCM5122 DSP settings (process flow + per-band EQ gains)
+  if (pcm51xx_settings_init() != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to init persisted PCM5122 EQ settings");
   }
   #endif
 

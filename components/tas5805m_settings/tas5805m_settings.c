@@ -15,11 +15,9 @@
 #include "freertos/semphr.h"
 #include "cJSON.h"
 
-/* When EQ support is disabled at build time the driver headers may not
- * declare EQ-related constants such as TAS5805M_EQ_BANDS. The settings
- * module intentionally keeps persistence and UI helpers compiled even
- * when driver EQ support is disabled; provide a safe fallback value so
- * those helpers still build without pulling in the driver headers.
+/* When EQ support is disabled at build time, tas5805m_eq_config.h (pulled in
+ * transitively by tas5805m.h) is not included and TAS5805M_EQ_BANDS is
+ * undefined.  Provide a safe fallback so EQ-related helpers still compile.
  */
 #if !defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
 #ifndef TAS5805M_EQ_BANDS
@@ -52,14 +50,19 @@ static void tas5805m_poll_for_play_task(void *arg)
         if (tas5805m_get_state(&st) == ESP_OK) {
             if ((st.state & TAS5805M_CTRL_PLAY) == TAS5805M_CTRL_PLAY) {
                 ESP_LOGI(TAG, "%s: Codec entered PLAY — applying delayed persisted settings", __func__);
-                // Call delayed apply (requires codec to be running)
+                // Call delayed apply (requires codec to be running with I2S clock)
                 esp_err_t r = tas5805m_settings_apply_delayed();
                 if (r == ESP_OK) {
                     tas5805m_settings_restored = true;
+                    break;
+                } else if (r == ESP_ERR_INVALID_STATE) {
+                    // Clock fault detected — I2S clock not yet stable.
+                    // Stay in the loop and retry after the next poll interval.
+                    ESP_LOGW(TAG, "%s: Clock not ready, will retry", __func__);
                 } else {
-                    ESP_LOGW(TAG, "%s: tas5805m_settings_apply_delayed() returned %s", __func__, esp_err_to_name(r));
+                    ESP_LOGE(TAG, "%s: tas5805m_settings_apply_delayed() returned %s", __func__, esp_err_to_name(r));
+                    break;
                 }
-                break;
             }
         }
         vTaskDelay(poll_interval);
@@ -1848,9 +1851,10 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
         snprintf(key_l, sizeof(key_l), "%s%d", TAS5805M_NVS_KEY_EQ_GAIN_L_PREFIX, band);
         snprintf(key_r, sizeof(key_r), "%s%d", TAS5805M_NVS_KEY_EQ_GAIN_R_PREFIX, band);
 
-        // Frequency label for this band (Hz) - use tas5805m_eq_bands
+        // Frequency label and limits from the central band config table
+        const tas5805m_eq_band_cfg_t *bcfg = &tas5805m_eq_band_cfg[band];
         char freq_label[32] = {0};
-        snprintf(freq_label, sizeof(freq_label), "%d Hz", tas5805m_eq_bands[band]);
+        snprintf(freq_label, sizeof(freq_label), "%d Hz", (int)bcfg->freq_hz);
 
         cJSON *param_l = cJSON_CreateObject();
         cJSON_AddStringToObject(param_l, "key", key_l);
@@ -1861,8 +1865,8 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
         cJSON_AddStringToObject(param_l, "layout", "vertical");
         cJSON_AddStringToObject(param_l, "channel", "L");
         cJSON_AddNumberToObject(param_l, "band", band);
-        cJSON_AddNumberToObject(param_l, "min", TAS5805M_EQ_MIN_DB);
-        cJSON_AddNumberToObject(param_l, "max", TAS5805M_EQ_MAX_DB);
+        cJSON_AddNumberToObject(param_l, "min", bcfg->min_db);
+        cJSON_AddNumberToObject(param_l, "max", bcfg->max_db);
         cJSON_AddNumberToObject(param_l, "step", 1);
         cJSON_AddNumberToObject(param_l, "default", 0);
         cJSON_AddNumberToObject(param_l, "current", cur_l);
@@ -1877,8 +1881,8 @@ esp_err_t tas5805m_settings_get_schema_json(char *json_out, size_t max_len) {
         cJSON_AddStringToObject(param_r, "layout", "vertical");
         cJSON_AddStringToObject(param_r, "channel", "R");
         cJSON_AddNumberToObject(param_r, "band", band);
-        cJSON_AddNumberToObject(param_r, "min", TAS5805M_EQ_MIN_DB);
-        cJSON_AddNumberToObject(param_r, "max", TAS5805M_EQ_MAX_DB);
+        cJSON_AddNumberToObject(param_r, "min", bcfg->min_db);
+        cJSON_AddNumberToObject(param_r, "max", bcfg->max_db);
         cJSON_AddNumberToObject(param_r, "step", 1);
         cJSON_AddNumberToObject(param_r, "default", 0);
         cJSON_AddNumberToObject(param_r, "current", cur_r);
@@ -2508,7 +2512,7 @@ esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
         char key[32];
         char freq_label[32];
         snprintf(key, sizeof(key), "eq_gain_l_%d", band);
-        snprintf(freq_label, sizeof(freq_label), "%d Hz", tas5805m_eq_bands[band]);
+        snprintf(freq_label, sizeof(freq_label), "%d Hz", (int)tas5805m_eq_band_cfg[band].freq_hz);
         
         cJSON_AddStringToObject(band_param, "key", key);
         cJSON_AddStringToObject(band_param, "name", freq_label);
@@ -2517,8 +2521,8 @@ esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
         cJSON_AddStringToObject(band_param, "label", freq_label);
         cJSON_AddStringToObject(band_param, "layout", "vertical");
         cJSON_AddNumberToObject(band_param, "band", band);
-        cJSON_AddNumberToObject(band_param, "min", TAS5805M_EQ_MIN_DB);
-        cJSON_AddNumberToObject(band_param, "max", TAS5805M_EQ_MAX_DB);
+        cJSON_AddNumberToObject(band_param, "min", tas5805m_eq_band_cfg[band].min_db);
+        cJSON_AddNumberToObject(band_param, "max", tas5805m_eq_band_cfg[band].max_db);
         cJSON_AddNumberToObject(band_param, "step", 1);
         cJSON_AddNumberToObject(band_param, "default", 0);
         cJSON_AddNumberToObject(band_param, "current", gain);
@@ -2551,7 +2555,7 @@ esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
         char key[32];
         char freq_label[32];
         snprintf(key, sizeof(key), "eq_gain_r_%d", band);
-        snprintf(freq_label, sizeof(freq_label), "%d Hz", tas5805m_eq_bands[band]);
+        snprintf(freq_label, sizeof(freq_label), "%d Hz", (int)tas5805m_eq_band_cfg[band].freq_hz);
         
         cJSON_AddStringToObject(band_param, "key", key);
         cJSON_AddStringToObject(band_param, "name", freq_label);
@@ -2560,8 +2564,8 @@ esp_err_t tas5805m_settings_get_eq_schema_json(char *json_out, size_t max_len) {
         cJSON_AddStringToObject(band_param, "label", freq_label);
         cJSON_AddStringToObject(band_param, "layout", "vertical");
         cJSON_AddNumberToObject(band_param, "band", band);
-        cJSON_AddNumberToObject(band_param, "min", TAS5805M_EQ_MIN_DB);
-        cJSON_AddNumberToObject(band_param, "max", TAS5805M_EQ_MAX_DB);
+        cJSON_AddNumberToObject(band_param, "min", tas5805m_eq_band_cfg[band].min_db);
+        cJSON_AddNumberToObject(band_param, "max", tas5805m_eq_band_cfg[band].max_db);
         cJSON_AddNumberToObject(band_param, "step", 1);
         cJSON_AddNumberToObject(band_param, "default", 0);
         cJSON_AddNumberToObject(band_param, "current", gain);
@@ -2644,6 +2648,24 @@ esp_err_t tas5805m_settings_apply_early(void) {
 * This restores EQ mode, per-band gains, profiles and channel gains.
 */
 esp_err_t tas5805m_settings_apply_delayed(void) {
+    // Guard: verify I2S clock is actually present before touching DSP registers.
+    // The TAS5805M may report PLAY state while still buffering (no I2S clock yet);
+    // in that case the clock-fault bit (err1[2]) will be set.
+    tas5805m_fault_t fault = {0};
+    if (tas5805m_get_faults(&fault) == ESP_OK) {
+        if (fault.err1 & (1 << 2)) {
+            ESP_LOGW(TAG, "%s: Clock fault active — I2S clock not yet present, deferring", __func__);
+            // Mute the DAC to prevent any playback before settings are applied.
+            tas5805m_set_mute(true);
+            // Clear the fault so the register reflects actual state on the next poll,
+            // since the clock-fault bit does not self-clear once the clock is present.
+            tas5805m_clear_faults();
+            return ESP_ERR_INVALID_STATE;
+        }
+    } else {
+        ESP_LOGW(TAG, "%s: Could not read fault registers, proceeding anyway", __func__);
+    }
+
     ESP_LOGI(TAG, "%s: Applying delayed TAS5805M settings from NVS", __func__);
     
     // Mark I2S clock as ready (codec is running and can be queried)
@@ -2771,6 +2793,12 @@ esp_err_t tas5805m_settings_apply_delayed(void) {
         }
     }
 #endif
+
+    // Unmute the DAC now that all settings have been applied.
+    // This pairs with the mute applied on clock-fault detection.
+    if (tas5805m_set_mute(false) != ESP_OK) {
+        ESP_LOGW(TAG, "%s: Failed to unmute DAC after settings restore", __func__);
+    }
 
     ESP_LOGI(TAG, "%s: Delayed persisted settings application complete", __func__);
     return ESP_OK;
