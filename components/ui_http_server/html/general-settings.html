@@ -272,11 +272,13 @@
       // Hide/disable host and port if using mDNS
       hostInput.disabled = mdns;
       portInput.disabled = mdns;
-      currentSnapUseMDNS = mdns;
       // Mark dirty
       const changed = (currentSnapUseMDNS !== ((document.getElementById('snap-mdns').value === '1'))
                        || hostInput.value !== currentSnapHost
                        || portInput.value !== currentSnapPort);
+
+      //set global currentSnapUseMDNS to its newly selected value AFTER performing the above comparison
+      currentSnapUseMDNS = mdns;
       saveBtn.disabled = !changed;
     }
 
@@ -343,6 +345,11 @@
         currentSnapUseMDNS = mdns;
         currentSnapHost = host;
         currentSnapPort = port;
+
+        //set restart flag and enable restart button
+        needsRestart = true;
+        updateRestartButton();
+
         document.getElementById('save-snap-btn').textContent = 'Save Changes';
       } catch (err) {
         alert(err.message || 'Failed to save settings');
