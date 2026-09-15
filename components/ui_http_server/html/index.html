@@ -92,6 +92,7 @@
       <li id="dsp-tab" style="display: none;"><a href="#" class="nav-link" data-page="dsp-settings.html">DSP Settings</a></li>
       <li id="dac-tab" style="display: none;"><a href="#" class="nav-link" data-page="dac-settings.html">DAC Settings</a></li>
       <li id="eq-tab" style="display: none;"><a href="#" class="nav-link" data-page="eq-settings.html">EQ</a></li>
+      <li id="ota-tab" style="display: none;"><a href="#" class="nav-link" data-page="ota-update.html">OTA Update</a></li>
     </ul>
   </nav>
 
@@ -133,6 +134,14 @@
           const eqTab = document.getElementById('eq-tab');
           if (eqTab) {
             eqTab.style.display = 'block';
+          }
+        }
+
+        // Show OTA tab if web_ota_enabled is true
+        if (capabilities.web_ota_enabled === true) {
+          const otaTab = document.getElementById('ota-tab');
+          if (otaTab) {
+            otaTab.style.display = 'block';
           }
         }
       } catch (error) {
