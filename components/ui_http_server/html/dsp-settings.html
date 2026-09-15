@@ -256,6 +256,7 @@
     // Debounce timers stored per parameter to avoid flooding the device
     const debounceTimers = {};
     
+    // Handle parameter value changes
     function handleParameterChange(paramKey, value, unit) {
       const valueSpan = document.getElementById(`${paramKey}-value`);
       if (valueSpan) {
@@ -322,6 +323,8 @@
     // Ensure pending updates are sent if user navigates away
     window.addEventListener('beforeunload', flushPendingUpdates);
     window.addEventListener('pagehide', flushPendingUpdates);
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', loadCapabilities);
   </script>
 </body>
 </html>

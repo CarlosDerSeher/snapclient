@@ -499,11 +499,16 @@ int init_player(i2s_std_gpio_config_t pin_config0_, i2s_port_t i2sNum_, void (*s
 
   // create message queue to inform task of changed settings
   snapcastSettingQueueHandle = xQueueCreate(1, sizeof(playerSetting_t));
+  if (snapcastSettingQueueHandle == NULL) {
+    ESP_LOGE(TAG, "Failed to create snapcast settings queue");
+    return -1;
+  }
 
   if (playerStateMux == NULL) {
     playerStateMux = xSemaphoreCreateMutex();
     xSemaphoreGive(playerStateMux);
   }
+
 
   // create semaphore for time diff buffer to server
   if (latencyBufSemaphoreHandle == NULL) {
@@ -593,6 +598,15 @@ int start_player() {
     entries -= ((i2sDmaBufMaxLen * i2sDmaBufCnt) / scSet->chkInFrames);
 
     pcmChkQHdl = xQueueCreate(entries, sizeof(pcm_chunk_message_t *));
+    if (pcmChkQHdl == NULL) {
+      ESP_LOGE(TAG, "Failed to create pcm chunk queue (%d entries)", entries);
+      tg0_timer_deinit();
+#if CONFIG_PM_ENABLE
+      esp_pm_lock_release(player_pm_lock_handle);
+#endif
+      playerStarted = false;
+      return -1;
+    }
 
     ESP_LOGI(TAG, "created new queue with %d", entries);
   }
@@ -1544,10 +1558,16 @@ static void player_task(void *pvParameters) {
           // so we can save a little RAM here
           entries -= (i2sDmaBufMaxLen * i2sDmaBufCnt) / __scSet.chkInFrames;
 
+          QueueHandle_t newQHdl = xQueueCreate(entries, sizeof(pcm_chunk_message_t *));
+          if (newQHdl == NULL) {
+            // Don't overwrite pcmChkQHdl with NULL — surrounding code (and other
+            // tasks) would then dereference a NULL handle. Abort the player task
+            // here, same pattern as the player_setup_i2s failure above.
+            ESP_LOGE(TAG, "Failed to create pcm chunk queue (%d entries); aborting player task", entries);
+            return;
+          }
           queueCreatedWithChkInFrames = __scSet.chkInFrames;
-
-          pcmChkQHdl = xQueueCreate(entries, sizeof(pcm_chunk_message_t *));
-
+          pcmChkQHdl = newQHdl;
           ESP_LOGI(TAG, "created new queue with %d", entries);
         }
 
