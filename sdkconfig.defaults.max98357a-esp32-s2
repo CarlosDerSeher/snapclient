@@ -1,0 +1,47 @@
+#
+# Snapclient Configuration
+#
+CONFIG_SNAPSERVER_USE_MDNS=y
+CONFIG_SNAPCLIENT_NAME="esp-snapclient"
+
+#
+# Audio Board
+#
+CONFIG_AUDIO_BOARD_CUSTOM=y
+
+#
+# Custom Audio Board
+#
+CONFIG_DAC_MAX98357=y
+
+#
+# I2S master interface
+#
+CONFIG_MASTER_I2S_MCLK_PIN=-1
+CONFIG_MASTER_I2S_BCK_PIN=10
+CONFIG_MASTER_I2S_LRCK_PIN=11
+CONFIG_MASTER_I2S_DATAOUT_PIN=12
+# end of I2S master interface
+
+#
+# MAX98357 interface Configuration
+#
+CONFIG_MAX98357_MUTE_PIN=13
+# end of MAX98357 interface Configuration
+
+#
+# ESP32 DSP processor config
+#
+CONFIG_USE_DSP_PROCESSOR=y
+CONFIG_SNAPCLIENT_USE_SOFT_VOL=y
+# end of ESP32 DSP processor config
+
+#
+# Snapclient Ethernet Configuration
+#
+CONFIG_ENV_GPIO_RANGE_MIN=0
+CONFIG_ENV_GPIO_RANGE_MAX=46
+CONFIG_ENV_GPIO_IN_RANGE_MAX=46
+CONFIG_ENV_GPIO_OUT_RANGE_MAX=45
+# CONFIG_SNAPCLIENT_USE_SPI_ETHERNET is not set
+# end of Snapclient Ethernet Configuration
