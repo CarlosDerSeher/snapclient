@@ -42,7 +42,10 @@ extern "C"
 
 #define I2C_TAS5805M_MASTER_NUM I2C_MASTER_NUM /*!< I2C port number for master dev */
 
-#define TAS5805M_ADDRESS 0x2D /*!< 7-bit address with a 15k pull up resistor */
+#ifndef CONFIG_DAC_I2C_ADDR
+#define CONFIG_DAC_I2C_ADDR 0x2D /*!< 7-bit address with a 15k pull up resistor */
+#endif
+#define TAS5805M_ADDRESS CONFIG_DAC_I2C_ADDR
 
 #define TAS5805M_GPIO_PDN CONFIG_PIN_DAC_PWDN
 #define TAS5805M_GPIO_PDN_MASK ((1ULL << TAS5805M_GPIO_PDN))
