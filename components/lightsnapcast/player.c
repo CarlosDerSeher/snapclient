@@ -1426,6 +1426,7 @@ static void player_task(void *pvParameters) {
   size_t written;
   int64_t clientDacLatency_us = 0;
   int64_t diff2Server = 0;
+  static int64_t s_last_resync_log_us = 0;
   int64_t outputBufferDacTime_us = 0;
   int64_t dmaDescDuration_us = 0;
   size_t alreadyWritten = 0;
@@ -1720,18 +1721,21 @@ static void player_task(void *pvParameters) {
             chnk = NULL;
           }
 
-          wifi_ap_record_t ap;
-          esp_wifi_sta_get_ap_info(&ap);
-
           my_gptimer_stop(gptimer);
-          
+
           int msgWaiting = uxQueueMessagesWaiting(pcmChkQHdl);
 
-          ESP_LOGW(TAG,
-                   "RESYNCING HARD 1: age %lldus, latency %lldus, free %d, "
-                   "largest block %d, rssi: %d, left in queue %d",
-                   age, diff2Server, heap_caps_get_free_size(MALLOC_CAP_32BIT),
-                   heap_caps_get_largest_free_block(MALLOC_CAP_32BIT), ap.rssi, msgWaiting);
+          int64_t now_us = esp_timer_get_time();
+          if (now_us - s_last_resync_log_us >= 1000000LL) {
+            s_last_resync_log_us = now_us;
+            wifi_ap_record_t ap;
+            esp_wifi_sta_get_ap_info(&ap);
+            ESP_LOGW(TAG,
+                     "RESYNCING HARD 1: age %lldus, latency %lldus, free %d, "
+                     "largest block %d, rssi: %d, left in queue %d",
+                     age, diff2Server, heap_caps_get_free_size(MALLOC_CAP_32BIT),
+                     heap_caps_get_largest_free_block(MALLOC_CAP_32BIT), ap.rssi, msgWaiting);
+          }
                    
           // get count of chunks we are late for
           uint32_t c = ceil((float)age / (float)chunkDuration_us);  // round up
@@ -1994,16 +1998,19 @@ static void player_task(void *pvParameters) {
               chnk = NULL;
             }
 
-            wifi_ap_record_t ap;
-            esp_wifi_sta_get_ap_info(&ap);
-
-            ESP_LOGW(TAG,
-                     "RESYNCING HARD 2: age %lldus, latency %lldus, free "
-                     "%d, largest block %d, %d, rssi: %d",
-                     age, diff2Server,
-                     heap_caps_get_free_size(MALLOC_CAP_32BIT),
-                     heap_caps_get_largest_free_block(MALLOC_CAP_32BIT),
-                     msgWaiting, ap.rssi);
+            int64_t now_us2 = esp_timer_get_time();
+            if (now_us2 - s_last_resync_log_us >= 1000000LL) {
+              s_last_resync_log_us = now_us2;
+              wifi_ap_record_t ap;
+              esp_wifi_sta_get_ap_info(&ap);
+              ESP_LOGW(TAG,
+                       "RESYNCING HARD 2: age %lldus, latency %lldus, free "
+                       "%d, largest block %d, %d, rssi: %d",
+                       age, diff2Server,
+                       heap_caps_get_free_size(MALLOC_CAP_32BIT),
+                       heap_caps_get_largest_free_block(MALLOC_CAP_32BIT),
+                       msgWaiting, ap.rssi);
+            }
 
             my_gptimer_stop(gptimer);
 
