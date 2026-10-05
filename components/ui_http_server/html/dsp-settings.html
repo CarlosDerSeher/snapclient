@@ -140,6 +140,13 @@
       color: #666;
       font-style: italic;
     }
+    .parameter-control select {
+      padding: 8px 12px;
+      font-size: 16px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      width: 100%;
+    }
   </style>
 </head>
 <body>
@@ -179,9 +186,11 @@
     // Render the complete UI based on capabilities
     async function renderUI() {
       const app = document.getElementById('app');
-      
+
+      let html = '';
+
       // Create flow selector
-      let html = '<div class="flow-selector">';
+      html += '<div class="flow-selector">';
       html += '<label for="flow-select">DSP Mode:</label>';
       html += '<select id="flow-select" onchange="handleFlowChange(this.value)">';
       

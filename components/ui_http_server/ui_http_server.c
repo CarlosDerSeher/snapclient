@@ -1251,6 +1251,16 @@ static void http_server_task(void *pvParameters) {
 			continue;
 		}
 
+		// Handle channel mode (global I2S routing, not DSP-specific)
+		if (strcmp(urlBuf.key, "channel_mode") == 0) {
+			esp_err_t e = settings_set_channel_mode((int32_t)urlBuf.int_value);
+			if (e != ESP_OK) {
+				ESP_LOGW(TAG, "%s: channel_mode set failed: %s", __func__,
+						 esp_err_to_name(e));
+			}
+			continue;
+		}
+
 		// Handle parameter updates for current flow
 		bool param_recognized = false;
 

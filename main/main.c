@@ -892,13 +892,14 @@ void handle_chunk_message(codec_type_t codec, playerSetting_t *scSet,
         free(audio);
         audio = NULL;
 
-#if CONFIG_USE_DSP_PROCESSOR
         if (new_pcmChunk->fragment->payload) {
+#if CONFIG_USE_DSP_PROCESSOR
           dsp_processor_worker(new_pcmChunk->fragment->payload,
             new_pcmChunk->fragment->size / ((scSet->bits / 8) * scSet->ch),
             scSet->sr, scSet->ch);
-        }
 #endif
+          player_apply_channel_mode(new_pcmChunk, scSet->bits, scSet->ch);
+        }
 
         insert_pcm_chunk(new_pcmChunk);
       }
@@ -993,14 +994,14 @@ void handle_chunk_message(codec_type_t codec, playerSetting_t *scSet,
 
         new_pcmChunk->timestamp = wire_chnk->timestamp;
 
-#if CONFIG_USE_DSP_PROCESSOR
         if (new_pcmChunk->fragment->payload) {
+#if CONFIG_USE_DSP_PROCESSOR
           dsp_processor_worker(new_pcmChunk->fragment->payload,
             new_pcmChunk->fragment->size / ((scSet->bits / 8) * scSet->ch),
             scSet->sr, scSet->ch);
-        }
-
 #endif
+          player_apply_channel_mode(new_pcmChunk, scSet->bits, scSet->ch);
+        }
 
         insert_pcm_chunk(new_pcmChunk);
 //        free_pcm_chunk(new_pcmChunk);
@@ -1050,13 +1051,14 @@ void handle_chunk_message(codec_type_t codec, playerSetting_t *scSet,
         chkInFrames = scSet->chkInFrames;
       }
 
-#if CONFIG_USE_DSP_PROCESSOR
       if ((*pcmData) && ((*pcmData)->fragment->payload)) {
+#if CONFIG_USE_DSP_PROCESSOR
         dsp_processor_worker((*pcmData)->fragment->payload,
             (*pcmData)->fragment->size / ((scSet->bits / 8) * scSet->ch),
             scSet->sr, scSet->ch);
-      }
 #endif
+        player_apply_channel_mode(*pcmData, scSet->bits, scSet->ch);
+      }
       if (*pcmData) {
         insert_pcm_chunk(*pcmData);
       }
