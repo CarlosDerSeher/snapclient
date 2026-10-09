@@ -34,8 +34,7 @@
 #include "tas5805m_types.h"
 
 #if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
-#include "tas5805m_eq.h"
-#include "tas5805m_eq_profiles.h"
+#include "tas5805m_eq_config.h"
 #endif
 
 #ifdef __cplusplus
