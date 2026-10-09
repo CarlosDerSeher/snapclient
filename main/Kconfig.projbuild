@@ -40,7 +40,7 @@ menu "Snapclient Configuration"
 	menu "HTTP Server Setting"
 		config WEB_PORT
 			int "User interface HTTP Server Port"
-			default 8000
+			default 80
 			help
 				HTTP server port to use.
 	endmenu

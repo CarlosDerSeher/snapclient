@@ -2,7 +2,8 @@ build
 libopus
 managed_components
 sdkconfig
-sdkconfig.old
+sdkconfig.*
+!sdkconfig.defaults.*
 dependencies.lock
 
 # Created by https://www.toptal.com/developers/gitignore/api/c,c++,eclipse
@@ -149,3 +150,5 @@ local.properties
 
 # End of https://www.toptal.com/developers/gitignore/api/c,c++,eclipse
 .vscode-ctags
+.vscode/c_cpp_properties.json
+.vscode/launch.json

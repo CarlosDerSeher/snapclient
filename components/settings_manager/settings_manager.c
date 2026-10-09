@@ -519,7 +519,7 @@ esp_err_t settings_get_json(char *json_out, size_t max_len) {
 #endif
 
     // Add EQ availability flag
-#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT)
+#if defined(CONFIG_DAC_TAS5805M_EQ_SUPPORT) || (defined(CONFIG_DAC_PCM51XX) && defined(CONFIG_DAC_PCM51XX_EQ_SUPPORT))
     cJSON_AddBoolToObject(root, "eq_available", true);
 #else
     cJSON_AddBoolToObject(root, "eq_available", false);

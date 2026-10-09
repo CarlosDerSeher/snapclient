@@ -1,0 +1,15 @@
+#
+# Snapclient Configuration
+#
+CONFIG_SNAPSERVER_USE_MDNS=y
+CONFIG_SNAPCLIENT_NAME="ESP32-AI-Thinker"
+
+#
+# Audio Board
+#
+CONFIG_ESP_AI_THINKER_ES8388_BOARD=y
+
+#
+# ESP32 DSP processor config
+#
+CONFIG_USE_DSP_PROCESSOR=y

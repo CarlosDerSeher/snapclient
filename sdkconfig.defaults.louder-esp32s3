@@ -1,0 +1,49 @@
+#
+# Snapclient Configuration
+#
+CONFIG_SNAPSERVER_USE_MDNS=y
+CONFIG_SNAPCLIENT_NAME="louder-esp32s3"
+
+#
+# Audio Board
+#
+CONFIG_AUDIO_BOARD_CUSTOM=y
+
+#
+# Custom Audio Board
+#
+CONFIG_DAC_TAS5805M=y
+
+#
+# DAC I2C control interface
+#
+CONFIG_DAC_I2C_SDA=8
+CONFIG_DAC_I2C_SCL=9
+CONFIG_DAC_I2C_ADDR=0x2D
+# end of DAC I2C control interface
+
+#
+# I2S master interface
+#
+CONFIG_MASTER_I2S_MCLK_PIN=0
+CONFIG_MASTER_I2S_BCK_PIN=14
+CONFIG_MASTER_I2S_LRCK_PIN=15
+CONFIG_MASTER_I2S_DATAOUT_PIN=16
+# end of I2S master interface
+
+#
+# TAS5805M interface Configuration
+#
+CONFIG_PIN_DAC_PWDN=17
+# end of TAS5805M interface Configuration
+
+#
+# TAS5805M DSP Support
+#
+CONFIG_DAC_TAS5805M_EQ_SUPPORT=y
+# end of TAS5805M DSP Support
+
+#
+# ESP32 DSP processor config
+#
+CONFIG_USE_DSP_PROCESSOR=y

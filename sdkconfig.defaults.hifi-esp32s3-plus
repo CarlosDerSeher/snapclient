@@ -1,0 +1,57 @@
+#
+# Snapclient Configuration
+#
+CONFIG_SNAPSERVER_USE_MDNS=y
+CONFIG_SNAPCLIENT_NAME="hifi-esp32s3-plus"
+
+#
+# Audio Board
+#
+CONFIG_AUDIO_BOARD_CUSTOM=y
+
+#
+# Custom Audio Board
+#
+CONFIG_DAC_PCM51XX=y
+
+#
+# DAC I2C control interface
+# This is pinout for Rev H1, rev H0 has I2C pins swapped and different DAC address
+#
+CONFIG_DAC_I2C_SDA=42
+CONFIG_DAC_I2C_SCL=41
+CONFIG_DAC_I2C_ADDR=0x4D
+#
+#   Rev H0 pinout below
+#
+# CONFIG_DAC_I2C_SDA=41
+# CONFIG_DAC_I2C_SCL=42
+# CONFIG_DAC_I2C_ADDR=0x4c
+# end of DAC I2C control interface
+
+#
+# I2S master interface
+#
+CONFIG_MASTER_I2S_MCLK_PIN=0
+CONFIG_MASTER_I2S_BCK_PIN=14
+CONFIG_MASTER_I2S_LRCK_PIN=15
+CONFIG_MASTER_I2S_DATAOUT_PIN=16
+# end of I2S master interface
+
+#
+# TI PCM51XX interface Configuration
+#
+CONFIG_PCM51XX_MUTE_PIN=4
+# end of TI PCM51XX interface Configuration
+
+
+#
+# TI PCM51XX DSP Support
+#
+CONFIG_DAC_PCM51XX_EQ_SUPPORT=y
+
+#
+# ESP32 DSP processor config
+#
+CONFIG_USE_DSP_PROCESSOR=y
+# end of ESP32 DSP processor config

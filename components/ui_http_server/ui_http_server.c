@@ -28,6 +28,10 @@
 #include "tas5805m_settings.h"
 #endif
 
+#if defined(CONFIG_DAC_PCM51XX) && defined(CONFIG_DAC_PCM51XX_EQ_SUPPORT)
+#include "pcm51xx_settings.h"
+#endif
+
 static const char *TAG = "UI_HTTP";
 
 static QueueHandle_t xQueueHttp = NULL;
@@ -815,17 +819,35 @@ static esp_err_t get_eq_settings_handler(httpd_req_t *req) {
   free(eq_json);
   
   return ESP_OK;
+#elif defined(CONFIG_DAC_PCM51XX) && defined(CONFIG_DAC_PCM51XX_EQ_SUPPORT)
+  char *eq_json = (char *)malloc(1024);
+  if (!eq_json) {
+    ESP_LOGE(TAG, "%s: Failed to allocate memory for EQ JSON", __func__);
+    httpd_resp_set_status(req, "500 Internal Server Error");
+    httpd_resp_sendstr(req, "{\"error\": \"Memory allocation failed\"}");
+    return ESP_OK;
+  }
+
+  esp_err_t ret = pcm51xx_settings_get_eq_json(eq_json, 1024);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "%s: Failed to get EQ settings JSON: %s", __func__, esp_err_to_name(ret));
+    free(eq_json);
+    httpd_resp_set_status(req, "500 Internal Server Error");
+    httpd_resp_sendstr(req, "{\"error\": \"Failed to retrieve EQ settings\"}");
+    return ESP_OK;
+  }
+
+  httpd_resp_set_status(req, "200 OK");
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_sendstr(req, eq_json);
+  free(eq_json);
+  return ESP_OK;
 #else
   httpd_resp_set_status(req, "404 Not Found");
   httpd_resp_sendstr(req, "{\"error\": \"TAS5805M not configured\"}");
   return ESP_OK;
 #endif
 }
-
-/*
- * GET /api/eq/schema handler
- * Returns TAS5805M EQ settings schema as JSON
- */
 static esp_err_t get_eq_schema_handler(httpd_req_t *req) {
   ESP_LOGD(TAG, "%s: uri=%s", __func__, req->uri);
   
@@ -857,6 +879,31 @@ static esp_err_t get_eq_schema_handler(httpd_req_t *req) {
   httpd_resp_sendstr(req, schema_json);
   free(schema_json);
   
+  return ESP_OK;
+#elif defined(CONFIG_DAC_PCM51XX) && defined(CONFIG_DAC_PCM51XX_EQ_SUPPORT)
+  const size_t schema_buf_size = 4 * 1024; /* PCM5122 schema is small (~1-2 KB) */
+
+  char *schema_json = (char *)malloc(schema_buf_size);
+  if (!schema_json) {
+    ESP_LOGE(TAG, "%s: Failed to allocate memory for EQ schema JSON", __func__);
+    httpd_resp_set_status(req, "500 Internal Server Error");
+    httpd_resp_sendstr(req, "{\"error\": \"Memory allocation failed\"}");
+    return ESP_OK;
+  }
+
+  esp_err_t ret = pcm51xx_settings_get_eq_schema_json(schema_json, schema_buf_size);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "%s: Failed to get EQ schema JSON: %s", __func__, esp_err_to_name(ret));
+    free(schema_json);
+    httpd_resp_set_status(req, "500 Internal Server Error");
+    httpd_resp_sendstr(req, "{\"error\": \"Failed to retrieve EQ schema\"}");
+    return ESP_OK;
+  }
+
+  httpd_resp_set_status(req, "200 OK");
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_sendstr(req, schema_json);
+  free(schema_json);
   return ESP_OK;
 #else
   httpd_resp_set_status(req, "404 Not Found");
@@ -916,6 +963,45 @@ static esp_err_t post_eq_settings_handler(httpd_req_t *req) {
   httpd_resp_set_type(req, "application/json");
   httpd_resp_sendstr(req, "{\"success\": true}");
   
+  return ESP_OK;
+#elif defined(CONFIG_DAC_PCM51XX) && defined(CONFIG_DAC_PCM51XX_EQ_SUPPORT)
+  char *buf = (char *)malloc(req->content_len + 1);
+  if (!buf) {
+    ESP_LOGE(TAG, "%s: Failed to allocate buffer for request body", __func__);
+    httpd_resp_set_status(req, "500 Internal Server Error");
+    httpd_resp_sendstr(req, "{\"error\": \"Memory allocation failed\"}");
+    return ESP_OK;
+  }
+
+  int ret = httpd_req_recv(req, buf, req->content_len);
+  if (ret <= 0) {
+    free(buf);
+    if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+      httpd_resp_set_status(req, "408 Request Timeout");
+      httpd_resp_sendstr(req, "{\"error\": \"Request timeout\"}");
+    } else {
+      httpd_resp_set_status(req, "500 Internal Server Error");
+      httpd_resp_sendstr(req, "{\"error\": \"Failed to read request body\"}");
+    }
+    return ESP_OK;
+  }
+  buf[ret] = '\0';
+
+  ESP_LOGI(TAG, "%s: Received JSON: %s", __func__, buf);
+
+  esp_err_t err = pcm51xx_settings_set_eq_from_json(buf);
+  free(buf);
+
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "%s: Failed to update EQ settings: %s", __func__, esp_err_to_name(err));
+    httpd_resp_set_status(req, "500 Internal Server Error");
+    httpd_resp_sendstr(req, "{\"error\": \"Failed to update EQ settings\"}");
+    return ESP_OK;
+  }
+
+  httpd_resp_set_status(req, "200 OK");
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_sendstr(req, "{\"success\": true}");
   return ESP_OK;
 #else
   httpd_resp_set_status(req, "404 Not Found");
@@ -1176,6 +1262,45 @@ esp_err_t start_server(const char *base_path, int port) {
 	};
 	httpd_register_uri_handler(server, &_options_eq_schema_handler);
 #endif /* CONFIG_DAC_TAS5805M */
+
+#if defined(CONFIG_DAC_PCM51XX) && defined(CONFIG_DAC_PCM51XX_EQ_SUPPORT)
+	/* URI handlers for PCM5122 EQ settings API */
+	httpd_uri_t _pcm_get_eq_settings_handler = {
+		.uri = "/api/eq/settings",
+		.method = HTTP_GET,
+		.handler = get_eq_settings_handler,
+	};
+	httpd_register_uri_handler(server, &_pcm_get_eq_settings_handler);
+
+	httpd_uri_t _pcm_get_eq_schema_handler = {
+		.uri = "/api/eq/schema",
+		.method = HTTP_GET,
+		.handler = get_eq_schema_handler,
+	};
+	httpd_register_uri_handler(server, &_pcm_get_eq_schema_handler);
+
+	httpd_uri_t _pcm_post_eq_settings_handler = {
+		.uri = "/api/eq/settings",
+		.method = HTTP_POST,
+		.handler = post_eq_settings_handler,
+	};
+	httpd_register_uri_handler(server, &_pcm_post_eq_settings_handler);
+
+	/* OPTIONS handlers for CORS preflight - PCM5122 EQ endpoints */
+	httpd_uri_t _pcm_options_eq_settings_handler = {
+		.uri = "/api/eq/settings",
+		.method = HTTP_OPTIONS,
+		.handler = options_handler,
+	};
+	httpd_register_uri_handler(server, &_pcm_options_eq_settings_handler);
+
+	httpd_uri_t _pcm_options_eq_schema_handler = {
+		.uri = "/api/eq/schema",
+		.method = HTTP_OPTIONS,
+		.handler = options_handler,
+	};
+	httpd_register_uri_handler(server, &_pcm_options_eq_schema_handler);
+#endif /* CONFIG_DAC_PCM51XX && CONFIG_DAC_PCM51XX_EQ_SUPPORT */
 
 	/* URI handler for static files (catch-all, must be last) */
 	httpd_uri_t _static_file_handler = {
