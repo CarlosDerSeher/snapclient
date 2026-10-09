@@ -108,6 +108,8 @@ static uint32_t i2sDmaBufCnt;
 static uint32_t i2sDmaBufMaxLen;
 static playerSetting_t *scSet;  // should be used only from http_task
 
+static dsp_channel_mode_t s_channel_mode = DSP_CH_STEREO;
+
 static void tg0_timer_init(void);
 static void tg0_timer_deinit(void);
 
@@ -352,6 +354,12 @@ static esp_err_t player_setup_i2s(playerSetting_t *setting, bool lock) {
   // 16-bit samples are zero-padded by the IDF automatically.
   tx_std_cfg.slot_cfg.slot_bit_width = I2S_SLOT_BIT_WIDTH_32BIT;
 #endif
+  if (s_channel_mode == DSP_CH_LEFT_ONLY) {
+    tx_std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_LEFT;
+  } else if (s_channel_mode == DSP_CH_RIGHT_ONLY) {
+    tx_std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_RIGHT;
+  }
+  ESP_LOGI(TAG, "player_setup_i2s: channel_mode=%d slot_mask=%d", s_channel_mode, tx_std_cfg.slot_cfg.slot_mask);
 
   ESP_ERROR_CHECK(i2s_channel_init_std_mode(tx_chan, &tx_std_cfg));
   // This prevents pops/clicks on some I2S codecs
@@ -481,7 +489,7 @@ void call_state_cb(void) {
 /**
  *  call before http task creation!
  */
-int init_player(i2s_std_gpio_config_t pin_config0_, i2s_port_t i2sNum_, void (*set_mute_cb)(bool), void (*cb)(bool), bool (*lock)(bool, TickType_t)) {
+int init_player(i2s_std_gpio_config_t pin_config0_, i2s_port_t i2sNum_, void (*set_mute_cb)(bool), void (*cb)(bool), bool (*lock)(bool, TickType_t), dsp_channel_mode_t channel_mode) {
   if (set_mute_cb == NULL) {
     ESP_LOGE(TAG, "set_mute_cb is NULL");
     return -1;
@@ -490,6 +498,7 @@ int init_player(i2s_std_gpio_config_t pin_config0_, i2s_port_t i2sNum_, void (*s
   audio_set_mute = set_mute_cb;
   state_cb = cb; // can be NULL
   lock_i2s = lock; // can be NULL
+  s_channel_mode = channel_mode;
 
 
   deinit_player();

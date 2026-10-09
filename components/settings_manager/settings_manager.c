@@ -21,6 +21,7 @@ static const char *NVS_KEY_HOSTNAME = "hostname";
 static const char *NVS_KEY_MDNS = "mdns";        // int32 0/1
 static const char *NVS_KEY_SERVER_HOST = "server_host"; // string
 static const char *NVS_KEY_SERVER_PORT = "server_port"; // int32
+static const char *NVS_KEY_CHANNEL_MODE = "ch_mode";    // int32
 
 // Mutex for thread-safe NVS access
 static SemaphoreHandle_t hostname_mutex = NULL;
@@ -469,6 +470,45 @@ esp_err_t settings_clear_server_port(void) {
     return err;
 }
 
+esp_err_t settings_get_channel_mode(int32_t *mode) {
+    if (!mode) return ESP_ERR_INVALID_ARG;
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &h);
+    if (err == ESP_OK) {
+        err = nvs_get_i32(h, NVS_KEY_CHANNEL_MODE, mode);
+        nvs_close(h);
+    }
+    xSemaphoreGive(hostname_mutex);
+    if (err == ESP_ERR_NVS_NOT_FOUND || err == ESP_ERR_NVS_INVALID_HANDLE) {
+        *mode = 0; // default: stereo
+        return ESP_OK;
+    }
+    return err;
+}
+
+esp_err_t settings_set_channel_mode(int32_t mode) {
+    if (mode < 0 || mode > 2) return ESP_ERR_INVALID_ARG;
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) { xSemaphoreGive(hostname_mutex); return err; }
+
+    err = nvs_set_i32(h, NVS_KEY_CHANNEL_MODE, mode);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    xSemaphoreGive(hostname_mutex);
+    if (err == ESP_OK)
+        ESP_LOGI(TAG, "%s: channel_mode saved: %ld", __func__, (long)mode);
+    else
+        ESP_LOGE(TAG, "%s: Failed to save channel_mode: %s", __func__, esp_err_to_name(err));
+    return err;
+}
+
 esp_err_t settings_get_json(char *json_out, size_t max_len) {
     ESP_LOGD(TAG, "%s: entered", __func__);
     
@@ -502,6 +542,12 @@ esp_err_t settings_get_json(char *json_out, size_t max_len) {
     int32_t port = 0;
     if (settings_get_server_port(&port) == ESP_OK && port != 0) {
         cJSON_AddNumberToObject(root, "server_port", port);
+    }
+
+    // Get channel mode
+    int32_t ch_mode = 0;
+    if (settings_get_channel_mode(&ch_mode) == ESP_OK) {
+        cJSON_AddNumberToObject(root, "channel_mode", ch_mode);
     }
 
     // Add DSP availability flag
@@ -597,6 +643,16 @@ esp_err_t settings_set_from_json(const char *json_in) {
         esp_err_t save_err = settings_set_server_port((int32_t)port->valueint);
         if (save_err != ESP_OK) {
             ESP_LOGW(TAG, "%s: Failed to save server_port", __func__);
+            err = save_err;
+        }
+    }
+
+    // Update channel_mode if present
+    cJSON *ch_mode = cJSON_GetObjectItem(root, "channel_mode");
+    if (cJSON_IsNumber(ch_mode)) {
+        esp_err_t save_err = settings_set_channel_mode((int32_t)ch_mode->valueint);
+        if (save_err != ESP_OK) {
+            ESP_LOGW(TAG, "%s: Failed to save channel_mode", __func__);
             err = save_err;
         }
     }
