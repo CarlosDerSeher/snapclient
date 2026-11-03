@@ -252,7 +252,7 @@ endmenu
 menu "Wifi Configuration"
     config ENABLE_WIFI_PROVISIONING
         bool "enable WiFi provisioning"
-        default n
+        default y
         help
             Enable WiFi provisioning through improv WiFi (https://github.com/improv-wifi), try it using https://web.esphome.io/
 
