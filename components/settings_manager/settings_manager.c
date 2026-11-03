@@ -21,6 +21,7 @@ static const char *NVS_KEY_HOSTNAME = "hostname";
 static const char *NVS_KEY_MDNS = "mdns";        // int32 0/1
 static const char *NVS_KEY_SERVER_HOST = "server_host"; // string
 static const char *NVS_KEY_SERVER_PORT = "server_port"; // int32
+static const char *NVS_KEY_WIFI_TX_POWER = "wifi_tx_pwr"; // int32, ESP-IDF units (0.25 dBm each)
 
 // Mutex for thread-safe NVS access
 static SemaphoreHandle_t hostname_mutex = NULL;
@@ -469,6 +470,60 @@ esp_err_t settings_clear_server_port(void) {
     return err;
 }
 
+#ifdef CONFIG_SNAPCLIENT_WIFI_TX_POWER_CONTROL
+esp_err_t settings_get_wifi_tx_power(int32_t *power_raw) {
+    ESP_LOGD(TAG, "%s: entered", __func__);
+    if (!power_raw) return ESP_ERR_INVALID_ARG;
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &h);
+    if (err == ESP_OK) {
+        int32_t v = 0;
+        err = nvs_get_i32(h, NVS_KEY_WIFI_TX_POWER, &v);
+        nvs_close(h);
+        if (err == ESP_OK) {
+            *power_raw = v;
+            ESP_LOGD(TAG, "%s: wifi_tx_power from NVS: %.2f dBm (raw %ld)", __func__, (float)v / 4.0f, (long)v);
+            xSemaphoreGive(hostname_mutex);
+            return ESP_OK;
+        }
+        if (err != ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGW(TAG, "%s: NVS read error: %s", __func__, esp_err_to_name(err));
+        }
+    }
+    *power_raw = 80; // default: 20 dBm (ESP-IDF max)
+    xSemaphoreGive(hostname_mutex);
+    return ESP_OK;
+}
+
+esp_err_t settings_set_wifi_tx_power(int32_t power_raw) {
+    ESP_LOGD(TAG, "%s: power_raw=%ld (%.2f dBm)", __func__, (long)power_raw, (float)power_raw / 4.0f);
+    if (!hostname_mutex) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(hostname_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        xSemaphoreGive(hostname_mutex);
+        return err;
+    }
+
+    err = nvs_set_i32(h, NVS_KEY_WIFI_TX_POWER, power_raw);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    xSemaphoreGive(hostname_mutex);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "%s: wifi_tx_power saved: %.2f dBm (raw %ld)", __func__, (float)power_raw / 4.0f, (long)power_raw);
+    } else {
+        ESP_LOGE(TAG, "%s: Failed to save wifi_tx_power: %s", __func__, esp_err_to_name(err));
+    }
+    return err;
+}
+#endif // CONFIG_SNAPCLIENT_WIFI_TX_POWER_CONTROL
+
 esp_err_t settings_get_json(char *json_out, size_t max_len) {
     ESP_LOGD(TAG, "%s: entered", __func__);
     
@@ -503,6 +558,14 @@ esp_err_t settings_get_json(char *json_out, size_t max_len) {
     if (settings_get_server_port(&port) == ESP_OK && port != 0) {
         cJSON_AddNumberToObject(root, "server_port", port);
     }
+
+#ifdef CONFIG_SNAPCLIENT_WIFI_TX_POWER_CONTROL
+    // Get WiFi TX power (raw ESP-IDF units, 0.25 dBm each)
+    int32_t tx_power = 80;
+    if (settings_get_wifi_tx_power(&tx_power) == ESP_OK) {
+        cJSON_AddNumberToObject(root, "wifi_tx_power", tx_power);
+    }
+#endif
 
     // Add DSP availability flag
 #if CONFIG_USE_DSP_PROCESSOR
