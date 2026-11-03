@@ -551,6 +551,12 @@
 
     // Update a setting
     async function updateSetting(key, value) {
+      // PCM5122: update proc_flow visibility immediately before any async work
+      if (key === 'proc_flow') {
+        currentSettings[key] = value;
+        updateAllGroupVisibility();
+      }
+
       try {
           const update = { [key]: value };
           console.log(`Updating ${key} = ${value}`);
@@ -562,7 +568,7 @@
           const isAutoMode = (currentMode === 1 || currentMode === 2 || currentMode === 3); // 15-band, 15-band biamp, or preset
           const isGainOrPresetChange = key.startsWith('eq_gain_') || key.startsWith('eq_profile_');
           
-          // Update local state after checking
+          // Update local state after checking (proc_flow already updated above)
           currentSettings[key] = value;
           
           if (isModeChange) {
