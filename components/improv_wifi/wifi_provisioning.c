@@ -9,6 +9,7 @@
 
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_pm.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
@@ -27,6 +28,11 @@
 #endif
 
 #define TAG "IMPROV"
+
+#ifdef CONFIG_PM_ENABLE
+// UART RX doesn't work in light sleep, so stay awake while Improv is active
+static esp_pm_lock_handle_t improv_pm_lock = NULL;
+#endif
 
 #ifdef CONFIG_ESP_CONSOLE_UART_DEFAULT
 #define RD_BUF_SIZE (UART_FIFO_LEN)
@@ -288,6 +294,14 @@ void improv_init(void) {
   improv_wifi_setCustomIsConnected(improv_wifi_is_connected);
   improv_wifi_setCustomGetLocalIpCallback(improv_wifi_get_local_ip);
 
+#ifdef CONFIG_PM_ENABLE
+  if (improv_pm_lock == NULL &&
+      esp_pm_lock_create(ESP_PM_APB_FREQ_MAX, 0, "improv", &improv_pm_lock) ==
+          ESP_OK) {
+    esp_pm_lock_acquire(improv_pm_lock);
+  }
+#endif
+
 #ifdef CONFIG_ESP_CONSOLE_UART_DEFAULT
   // Set UART number from config
   uart_num = CONFIG_ESP_CONSOLE_UART_NUM;
@@ -349,4 +363,12 @@ void improv_deinit(void) {
 #endif
 
   improv_wifi_destroy();
+
+#ifdef CONFIG_PM_ENABLE
+  if (improv_pm_lock) {
+    esp_pm_lock_release(improv_pm_lock);
+    esp_pm_lock_delete(improv_pm_lock);
+    improv_pm_lock = NULL;
+  }
+#endif
 }
