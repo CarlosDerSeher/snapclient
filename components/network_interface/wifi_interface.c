@@ -9,6 +9,7 @@
 #include <string.h>  // for memcpy
 
 #include "esp_event.h"
+#include "esp_eth.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_netif_types.h"
@@ -19,6 +20,7 @@
 #include "freertos/portmacro.h"
 #include "freertos/semphr.h"
 #include "network_interface.h"
+#include "network_interface_priv.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
 
@@ -70,11 +72,46 @@ static char mac_address[18];
 
 static int s_retry_num = 0;
 
+/* Power save mode to use while audio is not playing */
+static wifi_ps_type_t wifi_idle_ps_mode(void) {
+#if defined(CONFIG_WIFI_PS_NONE_MODE)
+  return WIFI_PS_NONE;
+#elif defined(CONFIG_WIFI_PS_MAX_MODEM_MODE)
+  return WIFI_PS_MAX_MODEM;
+#else
+  return WIFI_PS_MIN_MODEM;
+#endif
+}
+
+/* Apply a power save mode, skipping the call if it is already active.
+ * network_state_cb() re-signals playback on every state callback, so without
+ * this guard esp_wifi_set_ps() and its log line would repeat continuously. */
+static void wifi_apply_ps_mode(wifi_ps_type_t mode) {
+  static wifi_ps_type_t current_mode = WIFI_PS_MIN_MODEM;  // ESP-IDF default
+
+  if (mode == current_mode) {
+    return;
+  }
+
+  esp_err_t err = esp_wifi_set_ps(mode);
+  if (err != ESP_OK) {
+    ESP_LOGW(TAG, "failed to set wifi power save: %s", esp_err_to_name(err));
+    return;
+  }
+
+  current_mode = mode;
+  ESP_LOGI(TAG, "wifi power save: %s",
+           (mode == WIFI_PS_NONE)        ? "NONE"
+           : (mode == WIFI_PS_MAX_MODEM) ? "MAX_MODEM"
+                                         : "MIN_MODEM");
+}
+
 static esp_netif_t *esp_wifi_netif = NULL;
 
 static esp_netif_ip_info_t ip_info = {{0}, {0}, {0}};
 static bool connected = false;
 static SemaphoreHandle_t connIpSemaphoreHandle = NULL;
+static volatile bool wifi_suppressed_for_takeover = false;
 
 /* The event group allows multiple bits for each event,
    but we only care about one event - are we connected
@@ -87,11 +124,13 @@ static void event_handler(void *arg, esp_event_base_t event_base, int event_id,
     esp_wifi_connect();
   } else if (event_base == WIFI_EVENT &&
              event_id == WIFI_EVENT_STA_DISCONNECTED) {
-    if ((s_retry_num < WIFI_MAXIMUM_RETRY) || (WIFI_MAXIMUM_RETRY == 0)) {
-      xSemaphoreTake(connIpSemaphoreHandle, portMAX_DELAY);
-      connected = false;
-      xSemaphoreGive(connIpSemaphoreHandle);
+    xSemaphoreTake(connIpSemaphoreHandle, portMAX_DELAY);
+    connected = false;
+    xSemaphoreGive(connIpSemaphoreHandle);
 
+    if (wifi_suppressed_for_takeover) {
+      ESP_LOGI(TAG, "WiFi disconnected (suppressed for ETH takeover, not reconnecting)");
+    } else if ((s_retry_num < WIFI_MAXIMUM_RETRY) || (WIFI_MAXIMUM_RETRY == 0)) {
       esp_wifi_connect();
       s_retry_num++;
       ESP_LOGV(TAG, "retry to connect to the AP");
@@ -131,6 +170,14 @@ static void got_ip_event_handler(void *arg, esp_event_base_t event_base,
   connected = true;
 
   xSemaphoreGive(connIpSemaphoreHandle);
+
+  // Log WiFi MAC for verification
+  uint8_t wifi_mac[ETH_ADDR_LEN];
+  if (network_get_unified_mac_internal(wifi_mac) == ESP_OK) {
+    ESP_LOGI(TAG, "WiFi MAC: %02X:%02X:%02X:%02X:%02X:%02X",
+             wifi_mac[0], wifi_mac[1], wifi_mac[2],
+             wifi_mac[3], wifi_mac[4], wifi_mac[5]);
+  }
 
   ESP_LOGI(TAG, "Wifi Got IP Address");
   ESP_LOGI(TAG, "~~~~~~~~~~~");
@@ -177,6 +224,24 @@ bool wifi_get_ip(esp_netif_ip_info_t *ip) {
   return _connected;
 }
 
+void wifi_suppress_for_takeover(void) {
+    wifi_suppressed_for_takeover = true;
+    ESP_LOGI(TAG, "WiFi suppressed for Ethernet takeover");
+}
+
+void wifi_clear_suppression(bool reconnect) {
+    wifi_suppressed_for_takeover = false;
+    ESP_LOGI(TAG, "WiFi suppression cleared (reconnect=%d)", reconnect);
+    if (reconnect) {
+        s_retry_num = 0;
+        esp_wifi_connect();
+    }
+}
+
+bool wifi_is_suppressed(void) {
+    return wifi_suppressed_for_takeover;
+}
+
 /**
  */
 void wifi_start(void) {
@@ -195,9 +260,6 @@ void wifi_start(void) {
   esp_netif_config.route_prio = 128;
   esp_wifi_netif = esp_netif_create_wifi(WIFI_IF_STA, &esp_netif_config);
   esp_wifi_set_default_wifi_sta_handlers();
-
-  // esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
-  //   esp_wifi_set_ps(WIFI_PS_NONE);
 
 #if ENABLE_WIFI_PROVISIONING
   /* Start Wi-Fi station */
@@ -221,6 +283,7 @@ void wifi_start(void) {
                                              &lost_ip_event_handler, NULL));
 
   ESP_ERROR_CHECK(esp_wifi_start());
+  wifi_apply_ps_mode(wifi_idle_ps_mode());
 
   ESP_LOGI(TAG, "Starting provisioning");
 
@@ -263,8 +326,28 @@ void wifi_start(void) {
                                              &lost_ip_event_handler, NULL));
 
   ESP_ERROR_CHECK(esp_wifi_start());
+  wifi_apply_ps_mode(wifi_idle_ps_mode());
 
   ESP_LOGI(TAG, "wifi_init_sta finished. Trying to connect to %s",
            wifi_config.sta.ssid);
+#endif
+}
+
+/**
+ * Set WiFi power save mode based on playback state.
+ * enable=false pins the radio awake during playback for best throughput,
+ * enable=true returns it to the configured idle mode.
+ */
+void wifi_set_power_save(bool enable) {
+#if defined(CONFIG_WIFI_DYNAMIC_POWER_SAVE)
+  // While Ethernet has taken over, WiFi carries no audio - stay in the idle
+  // mode rather than holding the radio awake for an unused link.
+  if (enable || wifi_is_suppressed()) {
+    wifi_apply_ps_mode(wifi_idle_ps_mode());
+  } else {
+    wifi_apply_ps_mode(WIFI_PS_NONE);
+  }
+#else
+  (void)enable;  // power save mode is static
 #endif
 }

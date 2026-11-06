@@ -105,6 +105,7 @@ TaskHandle_t t_http_get_task = NULL;
 /* Logging tag */
 static const char *TAG = "SC";
 
+
 // static QueueHandle_t playerChunkQueueHandle = NULL;
 SemaphoreHandle_t timeSyncSemaphoreHandle = NULL;
 
@@ -1116,7 +1117,7 @@ void update_state(bool *received_wire_chnk, bool *playback, bool paused) {
       *received_wire_chnk = false;
     }
   }
-  
+
 }
 
 
@@ -1232,6 +1233,18 @@ void before_receive_callback(before_receive_callback_data_t *data) {
   }
 }
 
+
+void network_state_cb(void) {
+  static snapclient_state_t prev_state = STOPPED;
+  snapclient_state_t state = sc_get_snapclient_state();
+  if (state == PLAYING) {
+    network_playback_started();
+  } else if (prev_state == PLAYING) {
+    network_playback_stopped();
+  }
+  prev_state = state;
+}
+
 /**
  *
  */
@@ -1328,19 +1341,27 @@ static void http_get_task(void *pvParameters) {
     uint8_t base_mac[6];
 #if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
     CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
-    // Get MAC address for Eth Interface
+    // Get runtime MAC address for Eth Interface (reflects unified MAC if applied)
     char eth_mac_address[18];
-
-    esp_read_mac(base_mac, ESP_MAC_ETH);
-    sprintf(eth_mac_address, "%02X:%02X:%02X:%02X:%02X:%02X", base_mac[0],
-            base_mac[1], base_mac[2], base_mac[3], base_mac[4], base_mac[5]);
+    {
+      esp_netif_t *eth_nif = network_get_netif_from_desc(NETWORK_INTERFACE_DESC_ETH);
+      if (eth_nif && esp_netif_get_mac(eth_nif, base_mac) == ESP_OK) {
+        // Use runtime MAC from netif (matches what's on the wire)
+      } else {
+        esp_read_mac(base_mac, ESP_MAC_ETH);  // fallback to eFuse
+      }
+    }
+    snprintf(eth_mac_address, sizeof(eth_mac_address),
+             "%02X:%02X:%02X:%02X:%02X:%02X", base_mac[0],
+             base_mac[1], base_mac[2], base_mac[3], base_mac[4], base_mac[5]);
     ESP_LOGI(TAG, "eth mac: %s", eth_mac_address);
 #endif
     // Get MAC address for WiFi station
     char mac_address[18];
     esp_read_mac(base_mac, ESP_MAC_WIFI_STA);
-    sprintf(mac_address, "%02X:%02X:%02X:%02X:%02X:%02X", base_mac[0],
-            base_mac[1], base_mac[2], base_mac[3], base_mac[4], base_mac[5]);
+    snprintf(mac_address, sizeof(mac_address),
+             "%02X:%02X:%02X:%02X:%02X:%02X", base_mac[0],
+             base_mac[1], base_mac[2], base_mac[3], base_mac[4], base_mac[5]);
     ESP_LOGI(TAG, "sta mac: %s", mac_address);
 
     time_sync_data.now = esp_timer_get_time();
@@ -1446,37 +1467,7 @@ static void http_get_task(void *pvParameters) {
 
     // Main connection loop - state machine + data processing
     while (1) {
-      bool restart = false;
       static bool playback_old = false;
-      if (xTaskNotifyWait(0, 0, &command, 1) == pdTRUE) {
-        switch(command) {
-          case STOP:
-            stop_player_task();  // stop player task for faster teardown
-            xSemaphoreTake(snapclientStateMux, portMAX_DELAY);
-            sc_state = STOPPED;
-            xSemaphoreGive(snapclientStateMux);
-            // fall through to restart connection and wait for START command
-          case RESTART:
-            restart = true;
-            break;
-          case UNPAUSE:
-            paused = false;
-            break;
-          case PAUSE:
-            paused = true;
-            break;
-          default:
-            break;
-        }
-      //ESP_LOGI(TAG, "http got cb. %s", paused ? "paused" : "playing/idle");
-      }
-      if (restart) {
-        //restart required
-        netconn_close(lwipNetconn);
-        netconn_delete(lwipNetconn);
-        lwipNetconn = NULL;
-        break; // restart connection
-      }
 
       if (playback_old != playback) {
         if (playback) {
@@ -1498,8 +1489,48 @@ static void http_get_task(void *pvParameters) {
       int result =
           process_data(&parser, &time_sync_data, &received_codec_header, &codec,
                        &scSet, &pcmData, &playback, paused);
-      if (result != 0) {
-        break;  // restart connection
+
+      // Handle commands after process_data() so a notification arriving during
+      // the blocking recv is acted upon instead of only being drained.
+      bool restart = false;
+      bool stopped = false;
+      if (xTaskNotifyWait(0, 0, &command, 1) == pdTRUE) {
+        switch(command) {
+          case STOP:
+            stop_player_task();  // stop player task for faster teardown
+            xSemaphoreTake(snapclientStateMux, portMAX_DELAY);
+            sc_state = STOPPED;
+            xSemaphoreGive(snapclientStateMux);
+            stopped = true;  // close connection and wait for START command
+            break;
+          case RESTART:
+            restart = true;
+            break;
+          case UNPAUSE:
+            paused = false;
+            break;
+          case PAUSE:
+            paused = true;
+            break;
+          default:
+            break;
+        }
+      //ESP_LOGI(TAG, "http got cb. %s", paused ? "paused" : "playing/idle");
+      }
+
+      if (restart || stopped) {
+        netconn_close(lwipNetconn);
+        netconn_delete(lwipNetconn);
+        lwipNetconn = NULL;
+      }
+
+      // No back-off when stopping, the outer loop blocks on START anyway
+      if (!stopped && (restart || result != 0)) {
+        vTaskDelay(pdMS_TO_TICKS(2000)); // back-off before reconnecting
+      }
+
+      if (restart || stopped || result != 0) {
+        break; // restart connection
       }
     }
   }
@@ -1670,10 +1701,13 @@ void app_main(void) {
   gpio_config(&cfg);
 #endif
 
-  network_if_init();
-
   board_i2s_pin_t pin_config0;
   get_i2s_pins(I2S_NUM_0, &pin_config0);
+
+  // Initialize settings and network early so connection starts during codec init
+  settings_manager_init();
+  network_events_init();
+  network_if_init();
 
 #if CONFIG_AUDIO_BOARD_CUSTOM && CONFIG_DAC_ADAU1961
   // some codecs need i2s mclk for initialization
@@ -1786,6 +1820,7 @@ void app_main(void) {
   //init_player(i2s_pin_config0, I2S_NUM_0, player_set_mute);
   sc_add_state_cb(on_sc_state_changed);
   sc_add_state_cb(ota_on_sc_state_changed);
+  sc_add_state_cb(network_state_cb);
 
   // Create binary semaphore for player state change notification
   snapclientStateChangedMutex = xSemaphoreCreateBinary();
@@ -1801,9 +1836,6 @@ void app_main(void) {
   }
   #endif
 
-  // Initialize settings manager (hostname + snapserver settings)
-  settings_manager_init();
-  
   // Get hostname for mDNS
   char mdns_hostname[64] = {0};
   if (settings_get_hostname(mdns_hostname, sizeof(mdns_hostname)) != ESP_OK) {
