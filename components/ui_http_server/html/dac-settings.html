@@ -453,26 +453,39 @@
     }
 
     // Fetch DAC schema from the device
-    async function loadSchema() {
+    async function loadSchema(retryCount = 0) {
       try {
+        // Check if getRequest is available (index.js loaded)
+        if (typeof getRequest !== 'function') {
+          throw new Error('Script not loaded - please refresh the page');
+        }
+
         const response = await getRequest('/api/dac/schema');
         if (!response.ok) {
-          throw new Error('Failed to fetch DAC schema');
+          throw new Error(`Server error: ${response.status}`);
         }
         schema = await response.json();
-        
+
         // Load current settings
         await loadCurrentSettings();
-        
+
         renderUI();
-        
+
         // Initialize polling UI and start periodic polling if enabled
         initPollingControls();
         startPolling();
       } catch (error) {
         console.error('Error loading DAC schema:', error);
-        document.getElementById('app').innerHTML = 
-          '<div class="error">Error loading DAC settings. Please refresh the page.</div>';
+
+        // Retry once after a short delay (helps with mobile timing issues)
+        if (retryCount < 1) {
+          console.log('Retrying DAC schema load...');
+          setTimeout(() => loadSchema(retryCount + 1), 500);
+          return;
+        }
+
+        document.getElementById('app').innerHTML =
+          `<div class="error">Error loading DAC settings: ${error.message}<br><button onclick="loadSchema()">Retry</button></div>`;
       }
     }
 

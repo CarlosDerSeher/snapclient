@@ -279,6 +279,169 @@
       box-sizing: border-box;
     }
 
+    /* Radio button group styles */
+    .radio-group-label {
+      display: block;
+      font-weight: bold;
+      margin-bottom: 8px;
+      color: #333;
+    }
+
+    .radio-group {
+      display: flex;
+      gap: 15px;
+      flex-wrap: wrap;
+    }
+
+    .radio-option {
+      display: inline-flex;
+      align-items: center;
+      cursor: pointer;
+      padding: 8px 16px;
+      border: 2px solid #ddd;
+      border-radius: 20px;
+      background-color: #f8f9fa;
+      transition: all 0.2s ease;
+      font-weight: normal;
+    }
+
+    .radio-option:hover {
+      border-color: #007bff;
+      background-color: #e7f3ff;
+    }
+
+    .radio-option input[type="radio"] {
+      margin-right: 6px;
+      accent-color: #007bff;
+    }
+
+    .radio-option:has(input[type="radio"]:checked) {
+      border-color: #007bff;
+      background-color: #007bff;
+      color: white;
+    }
+
+    .radio-option input[type="radio"]:checked + span {
+      color: white;
+    }
+
+    .radio-option input[type="radio"]:disabled {
+      cursor: not-allowed;
+    }
+
+    .radio-option:has(input[type="radio"]:disabled) {
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+
+    /* PEQ Subgroup styles */
+    .peq-subgroup {
+      background-color: #f8f9fa;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+
+    .peq-subgroup-header {
+      font-weight: bold;
+      font-size: 14px;
+      color: #555;
+      margin-bottom: 8px;
+      padding-bottom: 5px;
+      border-bottom: 1px solid #ddd;
+    }
+
+    .peq-subgroup-params {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .peq-param {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .peq-param label {
+      font-size: 11px;
+      color: #666;
+      margin-bottom: 4px;
+      font-weight: normal;
+    }
+
+    .peq-param input[type="range"] {
+      width: 100%;
+      height: 6px;
+      margin: 0;
+    }
+
+    .peq-param-value {
+      font-size: 12px;
+      color: #007bff;
+      font-weight: bold;
+      margin-top: 4px;
+    }
+
+    /* Output channel section styles */
+    .section-output-channel .section-params {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .section-output-channel .parameter-control {
+      margin-bottom: 0;
+    }
+
+    /* Preset buttons */
+    .preset-buttons {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      margin-top: 20px;
+      padding-top: 15px;
+      border-top: 1px solid #e0e0e0;
+    }
+
+    .preset-btn {
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: bold;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .preset-btn.export-btn {
+      background-color: #28a745;
+      color: white;
+    }
+
+    .preset-btn.export-btn:hover {
+      background-color: #218838;
+    }
+
+    .preset-btn.import-btn {
+      background-color: #007bff;
+      color: white;
+    }
+
+    .preset-btn.import-btn:hover {
+      background-color: #0056b3;
+    }
+
+    .preset-btn.reset-btn {
+      background-color: #dc3545;
+      color: white;
+    }
+
+    .preset-btn.reset-btn:hover {
+      background-color: #c82333;
+    }
+
     .info-box {
       background-color: #d1ecf1;
       color: #0c5460;
@@ -382,9 +545,238 @@
       gap: 10px;
       margin-top: 20px;
     }
-    
+
     .button-group button {
       flex: 1;
+    }
+
+    /* Bi-Amp Crossover Sections Layout */
+    .biamp-sections-container {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .biamp-columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 768px) {
+      .biamp-columns {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .biamp-section {
+      background-color: #f8f9fa;
+      border-radius: 8px;
+      padding: 15px;
+    }
+
+    .biamp-section .section-title {
+      margin: 0 0 15px 0;
+      font-size: 16px;
+      font-weight: bold;
+      color: #495057;
+      border-bottom: 1px solid #dee2e6;
+      padding-bottom: 8px;
+    }
+
+    .biamp-section.section-vertical-sliders .section-params {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+      justify-content: center;
+    }
+
+    .biamp-section.section-vertical-sliders .eq-band-slider {
+      min-width: 50px;
+    }
+
+    .biamp-section.section-vertical-sliders .eq-band-slider input[type="range"] {
+      height: 150px;
+    }
+
+    .biamp-section.section-loudness .section-params {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    /* Loudness Zone grouped layout */
+    .loudness-zone {
+      background-color: #f8f9fa;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+
+    .loudness-zone-header {
+      font-weight: bold;
+      font-size: 14px;
+      color: #495057;
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #dee2e6;
+    }
+
+    .loudness-zone-params {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+      gap: 12px;
+    }
+
+    .loudness-zone-param {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .loudness-zone-param label {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 4px;
+      font-weight: 500;
+    }
+
+    .loudness-zone-param input[type="range"] {
+      width: 100%;
+      height: 6px;
+      margin: 4px 0;
+    }
+
+    .loudness-zone-value {
+      font-size: 13px;
+      color: #007bff;
+      font-weight: bold;
+      margin-top: 4px;
+    }
+
+    /* Section-specific layout for loudness */
+    .section-loudness .section-params {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    /* Mobile responsive styles */
+    @media (max-width: 768px) {
+      body {
+        padding: 10px;
+        margin: 10px auto;
+      }
+
+      h1 {
+        font-size: 22px;
+        margin-bottom: 15px;
+      }
+
+      .group-container,
+      .parameter-group {
+        padding: 12px;
+      }
+
+      .group-title {
+        font-size: 18px;
+      }
+
+      .parameter-group h2 {
+        font-size: 16px;
+      }
+
+      .peq-subgroup-params {
+        grid-template-columns: 1fr;
+        gap: 8px;
+      }
+
+      .peq-param {
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .peq-param label {
+        margin-bottom: 0;
+        min-width: 50px;
+      }
+
+      .peq-param input[type="range"] {
+        flex: 1;
+        margin: 0 10px;
+      }
+
+      .radio-group {
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .radio-option {
+        width: 100%;
+        justify-content: center;
+      }
+
+      .preset-buttons {
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .preset-btn {
+        width: 100%;
+      }
+
+      .current-state {
+        flex-direction: column;
+        gap: 8px;
+        text-align: center;
+      }
+
+      .eq-bands-container {
+        justify-content: flex-start;
+      }
+
+      .eq-band-slider input[type="range"] {
+        height: 150px;
+      }
+    }
+
+    /* Extra small mobile */
+    @media (max-width: 480px) {
+      body {
+        padding: 8px;
+        margin: 5px;
+      }
+
+      h1 {
+        font-size: 18px;
+      }
+
+      .group-container,
+      .parameter-group {
+        padding: 10px;
+      }
+
+      .parameter-control .param-name {
+        font-size: 14px;
+      }
+
+      .parameter-control .param-value {
+        font-size: 16px;
+      }
+
+      .biamp-section {
+        padding: 10px;
+      }
+
+      .biamp-section .section-title {
+        font-size: 14px;
+      }
+
+      .loudness-zone-params {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
 </head>
@@ -399,6 +791,7 @@
 
     let currentSettings = {};
     let schema = {};
+    const debounceTimers = {};
 
     // Get backend URL from query parameter or default to current origin
     function getBackendUrl() {
@@ -408,31 +801,43 @@
     }
 
     // Fetch EQ schema and current settings
-    async function loadSettings() {
+    async function loadSettings(retryCount = 0) {
       try {
         const backendUrl = getBackendUrl();
-        
-        // Fetch schema
+
+        // Fetch schema first
         const schemaResponse = await fetch(`${backendUrl}/api/eq/schema`);
         if (!schemaResponse.ok) {
-          throw new Error('Failed to fetch EQ schema');
+          throw new Error(`Schema fetch failed: ${schemaResponse.status}`);
         }
         schema = await schemaResponse.json();
-        
+
+        // Delay between requests to allow ESP32 memory recovery after 64KB schema
+        await new Promise(resolve => setTimeout(resolve, 300));
+
         // Fetch current settings
         const settingsResponse = await fetch(`${backendUrl}/api/eq/settings`);
         if (!settingsResponse.ok) {
-          throw new Error('Failed to fetch EQ settings');
+          throw new Error(`Settings fetch failed: ${settingsResponse.status}`);
         }
         currentSettings = await settingsResponse.json();
-        
+
         // Render UI
         renderUI();
       } catch (error) {
         console.error('Error loading EQ settings:', error);
+
+        // Retry once after a short delay (helps with mobile timing issues)
+        if (retryCount < 1) {
+          console.log('Retrying EQ settings load...');
+          setTimeout(() => loadSettings(retryCount + 1), 500);
+          return;
+        }
+
         document.getElementById('content').innerHTML = `
           <div class="error">
             Error loading EQ settings: ${error.message}
+            <br><button onclick="loadSettings()">Retry</button>
           </div>
         `;
       }
@@ -504,13 +909,121 @@
       if (group.layout === 'eq-bands' && group.parameters) {
         const bandsContainer = document.createElement('div');
         bandsContainer.className = 'eq-bands-container';
-        
+
         group.parameters.forEach(param => {
           const sliderDiv = settingsUI.renderVerticalSlider(param, currentSettings, async (k, v) => { await updateSetting(k, v); });
           bandsContainer.appendChild(sliderDiv);
         });
-        
+
         contentWrapper.appendChild(bandsContainer);
+        groupDiv.appendChild(contentWrapper);
+        updateGroupVisibility(groupDiv);
+        return groupDiv;
+      }
+
+      // Handle biamp-crossover layout with sections
+      if (group.layout === 'biamp-crossover' && group.sections) {
+        const sectionsContainer = document.createElement('div');
+        sectionsContainer.className = 'biamp-sections-container';
+
+        group.sections.forEach(section => {
+          if (section.columns) {
+            // Handle columned sections (Low/High side by side)
+            const columnsDiv = document.createElement('div');
+            columnsDiv.className = 'biamp-columns';
+            section.columns.forEach(col => {
+              const colSection = settingsUI.renderSection(col, currentSettings, async (k, v) => {
+                await updateSetting(k, v);
+                // Update conditional visibility after setting change
+                settingsUI.updateConditionalVisibility(groupDiv, currentSettings);
+              });
+              columnsDiv.appendChild(colSection);
+            });
+            sectionsContainer.appendChild(columnsDiv);
+          } else {
+            // Regular section
+            const sectionDiv = settingsUI.renderSection(section, currentSettings, async (k, v) => {
+              await updateSetting(k, v);
+              // Update conditional visibility after setting change
+              settingsUI.updateConditionalVisibility(groupDiv, currentSettings);
+            });
+            sectionsContainer.appendChild(sectionDiv);
+          }
+        });
+
+        // Add preset export/import buttons
+        const presetButtonsDiv = document.createElement('div');
+        presetButtonsDiv.className = 'preset-buttons';
+
+        const exportBtn = document.createElement('button');
+        exportBtn.className = 'preset-btn export-btn';
+        exportBtn.textContent = 'Export Preset';
+        exportBtn.onclick = async () => {
+          try {
+            const response = await fetch(`${getBackendUrl()}/api/biamp/preset`);
+            if (!response.ok) throw new Error('Export failed');
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'biamp_preset.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          } catch (err) {
+            alert('Failed to export preset: ' + err.message);
+          }
+        };
+        presetButtonsDiv.appendChild(exportBtn);
+
+        const importBtn = document.createElement('button');
+        importBtn.className = 'preset-btn import-btn';
+        importBtn.textContent = 'Import Preset';
+        importBtn.onclick = () => {
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.accept = '.json';
+          input.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            try {
+              const text = await file.text();
+              const response = await fetch(`${getBackendUrl()}/api/biamp/preset`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: text
+              });
+              if (!response.ok) throw new Error('Import failed');
+              alert('Preset imported successfully! Refreshing...');
+              location.reload();
+            } catch (err) {
+              alert('Failed to import preset: ' + err.message);
+            }
+          };
+          input.click();
+        };
+        presetButtonsDiv.appendChild(importBtn);
+
+        const resetBtn = document.createElement('button');
+        resetBtn.className = 'preset-btn reset-btn';
+        resetBtn.textContent = 'Reset to Defaults';
+        resetBtn.onclick = async () => {
+          if (!confirm('Reset all Advanced Bi-Amp settings to defaults?\n\nThis will clear all crossover, PEQ, and loudness settings.')) return;
+          try {
+            const response = await fetch(`${getBackendUrl()}/api/biamp/reset`, { method: 'POST' });
+            if (!response.ok) throw new Error('Reset failed');
+            alert('Settings reset to defaults! Refreshing...');
+            location.reload();
+          } catch (err) {
+            alert('Failed to reset settings: ' + err.message);
+          }
+        };
+        presetButtonsDiv.appendChild(resetBtn);
+
+        sectionsContainer.appendChild(presetButtonsDiv);
+
+        contentWrapper.appendChild(sectionsContainer);
         groupDiv.appendChild(contentWrapper);
         updateGroupVisibility(groupDiv);
         return groupDiv;
@@ -520,6 +1033,12 @@
       if (group.parameters) {
         group.parameters.forEach(param => {
           const controlDiv = settingsUI.renderParameter(param, currentSettings, async (k, v) => { await updateSetting(k, v); });
+          if (param.visibleWhen) {
+            controlDiv.setAttribute('data-visible-when', JSON.stringify(param.visibleWhen));
+            if (!settingsUI.isParameterVisible(param, currentSettings)) {
+              controlDiv.style.display = 'none';
+            }
+          }
           contentWrapper.appendChild(controlDiv);
         });
       }
@@ -549,56 +1068,103 @@
       settingsUI.updateAllGroupVisibility(currentSettings);
     }
 
-    // Update a setting
+    // Flush any pending debounced updates (called on page unload)
+    function flushPendingUpdates() {
+      Object.keys(debounceTimers).forEach(key => {
+        if (debounceTimers[key]) {
+          clearTimeout(debounceTimers[key].timerId);
+          // Send the pending update synchronously
+          const { value } = debounceTimers[key];
+          navigator.sendBeacon(`${getBackendUrl()}/api/eq/settings`, JSON.stringify({ [key]: value }));
+          delete debounceTimers[key];
+        }
+      });
+    }
+
+    // Flush pending updates before page unload
+    window.addEventListener('beforeunload', flushPendingUpdates);
+    window.addEventListener('pagehide', flushPendingUpdates);
+
+    // Update a setting with debouncing (300ms delay to match DSP/DAC pages)
     async function updateSetting(key, value) {
-      try {
+      // Update local state immediately for responsive UI
+      currentSettings[key] = value;
+
+      // Check if this is a mode change - these should happen immediately
+      const isModeChange = (key === 'eq_ui_mode');
+
+      if (isModeChange) {
+        // Mode changes happen immediately without debounce
+        try {
           const update = { [key]: value };
-          console.log(`Updating ${key} = ${value}`);
+          console.log(`Updating ${key} = ${value} (immediate)`);
           await postRequest('/api/eq/settings', update);
-          
-          // Check if this is a mode change or gain/preset change BEFORE updating local state
-          const isModeChange = (key === 'eq_ui_mode');
-          const currentMode = currentSettings.eq_ui_mode;
-          const isAutoMode = (currentMode === 1 || currentMode === 2 || currentMode === 3); // 15-band, 15-band biamp, or preset
-          const isGainOrPresetChange = key.startsWith('eq_gain_') || key.startsWith('eq_profile_');
-          
-          // Update local state after checking
-          currentSettings[key] = value;
-          
-          if (isModeChange) {
-            // Mode change - always reload schema and settings
-            console.log('Mode changed, reloading schema and settings...');
-            const backendUrl = getBackendUrl();
-            const [schemaResponse, settingsResponse] = await Promise.all([
-              fetch(`${backendUrl}/api/eq/schema`),
-              fetch(`${backendUrl}/api/eq/settings`)
-            ]);
-            if (schemaResponse.ok && settingsResponse.ok) {
-              schema = await schemaResponse.json();
+
+          // Mode change - reload schema and settings (staged to avoid ESP32 socket/memory issues)
+          console.log('Mode changed, reloading schema and settings...');
+          const backendUrl = getBackendUrl();
+          const schemaResponse = await fetch(`${backendUrl}/api/eq/schema`);
+          if (schemaResponse.ok) {
+            schema = await schemaResponse.json();
+            await new Promise(resolve => setTimeout(resolve, 300));
+            const settingsResponse = await fetch(`${backendUrl}/api/eq/settings`);
+            if (settingsResponse.ok) {
               currentSettings = await settingsResponse.json();
               renderUI();
             } else {
               updateAllGroupVisibility();
             }
-          } else if (isAutoMode && isGainOrPresetChange) {
-            // In auto modes, when gains or presets change, the DAC calculates new BQ coefficients
-            // Reload both schema and settings to get the actual coefficients that were applied to the DAC
-            console.log('Reloading schema and settings to fetch actual DAC coefficients...');
-            const backendUrl = getBackendUrl();
-            const [schemaResponse, settingsResponse] = await Promise.all([
-              fetch(`${backendUrl}/api/eq/schema`),
-              fetch(`${backendUrl}/api/eq/settings`)
-            ]);
-            if (schemaResponse.ok && settingsResponse.ok) {
-              schema = await schemaResponse.json();
-              currentSettings = await settingsResponse.json();
-              renderUI(); // Re-render to show updated coefficients
-            }
+          } else {
+            updateAllGroupVisibility();
           }
-      } catch (error) {
-        console.error('Error updating setting:', error);
-        alert(`Error updating setting: ${error.message}`);
+        } catch (error) {
+          console.error('Error updating setting:', error);
+          alert(`Error updating setting: ${error.message}`);
+        }
+        return;
       }
+
+      // Debounce: clear any pending update for this parameter
+      if (debounceTimers[key]) {
+        clearTimeout(debounceTimers[key].timerId);
+      }
+
+      // Store the pending value and set a new timer
+      debounceTimers[key] = {
+        value: value,
+        timerId: setTimeout(async () => {
+          try {
+            const update = { [key]: value };
+            console.log(`Updating ${key} = ${value} (debounced)`);
+            await postRequest('/api/eq/settings', update);
+
+            // Check if we need to reload for coefficient updates
+            const currentMode = currentSettings.eq_ui_mode;
+            const isAutoMode = (currentMode === 1 || currentMode === 2 || currentMode === 3);
+            const isGainOrPresetChange = key.startsWith('eq_gain_') || key.startsWith('eq_profile_');
+
+            if (isAutoMode && isGainOrPresetChange) {
+              // In auto modes, reload to get actual DAC coefficients (staged fetch)
+              console.log('Reloading schema and settings to fetch actual DAC coefficients...');
+              const backendUrl = getBackendUrl();
+              const schemaResponse = await fetch(`${backendUrl}/api/eq/schema`);
+              if (schemaResponse.ok) {
+                schema = await schemaResponse.json();
+                await new Promise(resolve => setTimeout(resolve, 300));
+                const settingsResponse = await fetch(`${backendUrl}/api/eq/settings`);
+                if (settingsResponse.ok) {
+                  currentSettings = await settingsResponse.json();
+                  renderUI();
+                }
+              }
+            }
+          } catch (error) {
+            console.error('Error updating setting:', error);
+            alert(`Error updating setting: ${error.message}`);
+          }
+          delete debounceTimers[key];
+        }, 300) // 300ms debounce delay
+      };
     }
 
     // Load settings on page load
