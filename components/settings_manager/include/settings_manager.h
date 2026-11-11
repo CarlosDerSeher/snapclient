@@ -41,6 +41,12 @@ esp_err_t settings_get_server_port(int32_t *port);
 esp_err_t settings_set_server_port(int32_t port);
 esp_err_t settings_clear_server_port(void);
 
+#ifdef CONFIG_SNAPCLIENT_WIFI_TX_POWER_CONTROL
+/* WiFi TX power in ESP-IDF units (0.25 dBm each, range 34–80, default 80 = 20 dBm) */
+esp_err_t settings_get_wifi_tx_power(int32_t *power_raw);
+esp_err_t settings_set_wifi_tx_power(int32_t power_raw);
+#endif
+
 /**
  * Get all settings as a JSON string
  * @param json_out Buffer to store JSON string (caller must allocate)
