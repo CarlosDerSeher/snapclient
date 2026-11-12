@@ -34,6 +34,7 @@
 #include "TimeFilter.h"
 #include "driver/gptimer.h"
 #include "driver/i2s_std.h"
+#include "settings_manager.h"
 #include "player.h"
 #include "snapcast.h"
 
@@ -127,6 +128,9 @@ static bool (*lock_i2s)(bool, TickType_t) = NULL;
 static i2s_chan_handle_t tx_chan = NULL;  // I2S tx channel handler
 static bool i2sEnabled = false;
 
+// Tracks the channel mode I2S was last configured for.
+static volatile dsp_channel_mode_t s_i2s_mode = DSP_CH_STEREO;
+
 i2s_std_gpio_config_t pin_config0;
 i2s_port_t i2sNum;
 
@@ -207,6 +211,93 @@ static void ensure_noiseless(i2s_chan_handle_t tx) {
 
   // Disable I2S channel again. Leaving it enabled may cause pops later.
   my_i2s_channel_disable(tx);
+}
+
+static dsp_channel_mode_t read_channel_mode(void) {
+  int32_t raw = (int32_t)DSP_CH_STEREO;
+  settings_get_channel_mode(&raw);
+  return (raw >= 0 && raw < (int32_t)DSP_CH_MODE_MAX) ? (dsp_channel_mode_t)raw : DSP_CH_STEREO;
+}
+
+// Returns the slot config for the given bit width and slot mode, respecting
+// the board's format (MSB vs Philips) and 32-bit slot override.
+static i2s_std_slot_config_t make_slot_cfg(i2s_data_bit_width_t bits,
+                                           i2s_slot_mode_t slot_mode) {
+#if CONFIG_I2S_USE_MSB_FORMAT
+  i2s_std_slot_config_t cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(bits, slot_mode);
+#else
+  i2s_std_slot_config_t cfg =
+      I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(bits, slot_mode);
+#endif
+#if CONFIG_I2S_SLOT_32BIT
+  cfg.slot_bit_width = I2S_SLOT_BIT_WIDTH_32BIT;
+#endif
+  cfg.slot_mask = I2S_STD_SLOT_BOTH;
+  return cfg;
+}
+
+// Keeps one channel from every stereo frame, packing the result at the front
+// of the buffer. Shrinks each fragment's allocation to free the unused half.
+static void decimate_stereo_inplace(pcm_chunk_message_t *chunk, int bits,
+                                    bool keep_left) {
+  int bps = bits >> 3;
+  pcm_chunk_fragment_t *frag = chunk->fragment;
+  while (frag) {
+    size_t n_frames = frag->size / (bps * 2);
+    char *src = frag->payload + (keep_left ? 0 : bps);
+    char *dst = frag->payload;
+    for (size_t i = 0; i < n_frames; i++, src += bps * 2, dst += bps) {
+      memmove(dst, src, bps);
+    }
+    size_t new_size = n_frames * bps;
+    frag->size = new_size;
+    char *shrunk = heap_caps_realloc(frag->payload, new_size,
+                                     chunk->caps ? chunk->caps : MALLOC_CAP_8BIT);
+    if (shrunk) frag->payload = shrunk;
+    frag = frag->nextFragment;
+  }
+}
+
+// Averages L+R from every stereo frame into a single mono sample, packing
+// results at the front of the buffer and shrinking the allocation.
+static void mix_stereo_to_mono_inplace(pcm_chunk_message_t *chunk, int bits) {
+  int bps = bits >> 3;
+  pcm_chunk_fragment_t *frag = chunk->fragment;
+  while (frag) {
+    size_t n_frames = frag->size / (bps * 2);
+    for (size_t i = 0; i < n_frames; i++) {
+      char *l = frag->payload + i * bps * 2;
+      char *r = frag->payload + i * bps * 2 + bps;
+      char *o = frag->payload + i * bps;
+      if (bps == 2) {
+        *(int16_t *)o = (int16_t)(((int32_t)*(int16_t *)l + *(int16_t *)r) >> 1);
+      } else if (bps == 4) {
+        *(int32_t *)o = (int32_t)(((int64_t)*(int32_t *)l + *(int32_t *)r) >> 1);
+      } else {
+        memmove(o, l, bps); // fallback: take left
+      }
+    }
+    size_t new_size = n_frames * bps;
+    frag->size = new_size;
+    char *shrunk = heap_caps_realloc(frag->payload, new_size,
+                                     chunk->caps ? chunk->caps : MALLOC_CAP_8BIT);
+    if (shrunk) frag->payload = shrunk;
+    frag = frag->nextFragment;
+  }
+}
+
+// Reduces a freshly-decoded stereo chunk to mono in-place. Uses s_i2s_mode so
+// the decision is always consistent with the framesToBytes calculation in
+// player_task. I2S runs in MONO+BOTH so the hardware drives both outputs.
+void player_apply_channel_mode(pcm_chunk_message_t *chunk, int bits, int ch) {
+  dsp_channel_mode_t mode = s_i2s_mode;
+  if (mode != DSP_CH_STEREO && ch == 2) {
+    if (mode == DSP_CH_MONO) {
+      mix_stereo_to_mono_inplace(chunk, bits);
+    } else {
+      decimate_stereo_inplace(chunk, bits, mode == DSP_CH_LEFT_ONLY);
+    }
+  }
 }
 
 /**
@@ -336,22 +427,17 @@ static esp_err_t player_setup_i2s(playerSetting_t *setting, bool lock) {
     i2s_clkcfg.mclk_multiple = I2S_MCLK_MULTIPLE_384;
   }
 
+  dsp_channel_mode_t ch_mode = read_channel_mode();
+  i2s_slot_mode_t slot_mode =
+      (ch_mode != DSP_CH_STEREO) ? I2S_SLOT_MODE_MONO : I2S_SLOT_MODE_STEREO;
+
   i2s_std_config_t tx_std_cfg = {
       .clk_cfg = i2s_clkcfg,
-#if CONFIG_I2S_USE_MSB_FORMAT
-      .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(bits, I2S_SLOT_MODE_STEREO),
-#else
-      .slot_cfg =
-          I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(bits, I2S_SLOT_MODE_STEREO),
-#endif
+      .slot_cfg = make_slot_cfg(bits, slot_mode),
       .gpio_cfg = pin_config0,
   };
-#if CONFIG_I2S_SLOT_32BIT
-  // MA120X0P (and similar) only support 32-bit or 24-bit BCLK frames.
-  // Override slot width so the ESP32 sends 32 BCLK pulses per channel;
-  // 16-bit samples are zero-padded by the IDF automatically.
-  tx_std_cfg.slot_cfg.slot_bit_width = I2S_SLOT_BIT_WIDTH_32BIT;
-#endif
+
+  s_i2s_mode = ch_mode;
 
   ESP_ERROR_CHECK(i2s_channel_init_std_mode(tx_chan, &tx_std_cfg));
   // This prevents pops/clicks on some I2S codecs
@@ -1567,6 +1653,34 @@ static void player_task(void *pvParameters) {
 
     }
 
+    // Reconfigure I2S slot mode when the channel mode changes.
+    // MONO+BOTH routes the single decimated sample to both physical outputs.
+    {
+      dsp_channel_mode_t cur_mode = read_channel_mode();
+      if (cur_mode != s_i2s_mode) {
+        i2s_slot_mode_t slot_mode = (cur_mode != DSP_CH_STEREO)
+                                        ? I2S_SLOT_MODE_MONO
+                                        : I2S_SLOT_MODE_STEREO;
+        i2s_std_slot_config_t slot_cfg = make_slot_cfg(scSet.bits, slot_mode);
+        audio_set_mute(true);
+        my_i2s_channel_disable(tx_chan);
+        if (chnk != NULL) {
+          free_pcm_chunk(chnk);
+          chnk = NULL;
+        }
+        size = 0;
+        ESP_ERROR_CHECK(i2s_channel_reconfig_std_slot(tx_chan, &slot_cfg));
+        my_i2s_channel_enable(tx_chan);
+        audio_set_mute(false);
+        if (pcmChkQHdl) {
+          pcm_chunk_message_t *stale;
+          while (xQueueReceive(pcmChkQHdl, &stale, 0) == pdTRUE)
+            free_pcm_chunk(stale);
+        }
+        s_i2s_mode = cur_mode;
+      }
+    }
+
     if (chnk == NULL) {
       if (pcmChkQHdl != NULL) {
         ret = xQueueReceive(pcmChkQHdl, &chnk, pdMS_TO_TICKS(2000));
@@ -1775,7 +1889,8 @@ static void player_task(void *pvParameters) {
         if (p_payload != NULL) {
           #if 1
           do {
-              size_t framesToBytes = (scSet.ch + (scSet.bits >> 3));
+              size_t eff_ch = (s_i2s_mode != DSP_CH_STEREO) ? 1 : scSet.ch;
+              size_t framesToBytes = eff_ch * (scSet.bits >> 3);
 #if USE_SAMPLE_INSERTION
               uint32_t sampleSizeInBytes =
                   framesToBytes * INSERT_SAMPLES;
@@ -1835,7 +1950,8 @@ static void player_task(void *pvParameters) {
             }
 #endif
             int64_t alreadyWrittenTime_us = 0;
-            size_t framesToBytes = (scSet.ch + (scSet.bits >> 3));
+            size_t eff_ch = (s_i2s_mode != DSP_CH_STEREO) ? 1 : scSet.ch;
+            size_t framesToBytes = eff_ch * (scSet.bits >> 3);
             while (size) {
               size_t i2sWriteLen;
               size_t tmpSize = i2sDmaBufMaxLen * framesToBytes;

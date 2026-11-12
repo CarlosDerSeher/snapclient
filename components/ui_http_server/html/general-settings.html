@@ -182,6 +182,7 @@
     let currentSnapUseMDNS = true;
     let currentSnapHost = '';
     let currentSnapPort = '';
+    let currentChannelMode = 0;
     let needsRestart = false; // Track if device needs restart
     let isDirty = false;
 
@@ -202,6 +203,7 @@
         currentSnapUseMDNS = capabilities.mdns_enabled !== undefined ? capabilities.mdns_enabled : true;
         currentSnapHost = capabilities.server_host || '';
         currentSnapPort = capabilities.server_port || '';
+        currentChannelMode = capabilities.channel_mode !== undefined ? capabilities.channel_mode : 0;
         
         renderUI();
       } catch (error) {
@@ -253,14 +255,32 @@
       html += '</div>';
       html += '</div>'; // .setting-control.setting-section
       html += '</div>';
-      
+
+      // Channel mode setting
+      html += '<div class="setting-control">';
+      html += '<label for="channel-mode">Channel Mode</label>';
+      html += '<div class="description">Select which audio channel is routed to both outputs. Applied immediately.</div>';
+      html += `<select id="channel-mode" onchange="handleChannelModeChange(this.value)">`;
+      html += `<option value="0" ${currentChannelMode === 0 ? 'selected' : ''}>Stereo</option>`;
+      html += `<option value="1" ${currentChannelMode === 1 ? 'selected' : ''}>Left Only</option>`;
+      html += `<option value="2" ${currentChannelMode === 2 ? 'selected' : ''}>Right Only</option>`;
+      html += `<option value="3" ${currentChannelMode === 3 ? 'selected' : ''}>Mono (L+R mix)</option>`;
+      html += '</select>';
+      html += '</div>';
+
       // Info message
       html += '<div class="info">';
-      html += '<strong>Note:</strong> After changing the settings, you will need to restart the device for the changes to take effect.';
+      html += '<strong>Note:</strong> Channel mode is applied immediately. Other settings take effect after restart.';
       html += '</div>';
       
       app.innerHTML = html;
       updateRestartButton();
+    }
+
+    async function handleChannelModeChange(value) {
+      const mode = parseInt(value, 10);
+      await setParameter('channel_mode', mode);
+      currentChannelMode = mode;
     }
 
     // Handle snapserver mDNS selection change
