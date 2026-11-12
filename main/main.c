@@ -1508,7 +1508,7 @@ static void http_get_task(void *pvParameters) {
 /**
  *
  */
-int init_snapclient(void (*set_volume)(int), void (*set_mute)(bool, bool), i2s_std_gpio_config_t i2s_pin_config0, i2s_port_t I2S_NUM_0, bool (*lock)(bool, TickType_t)) {
+int init_snapclient(void (*set_volume)(int), void (*set_mute)(bool, bool), i2s_std_gpio_config_t i2s_pin_config0, i2s_port_t I2S_NUM_0, bool (*lock)(bool, TickType_t), dsp_channel_mode_t channel_mode) {
   if (set_volume == NULL) {
     ESP_LOGE(TAG, "Volume callback is NULL");
 
@@ -1524,7 +1524,7 @@ int init_snapclient(void (*set_volume)(int), void (*set_mute)(bool, bool), i2s_s
   if (snapclientStateMux == NULL) {
     snapclientStateMux = xSemaphoreCreateMutex();
   }
-  init_player(i2s_pin_config0, I2S_NUM_0, player_set_mute, on_player_state_paused, lock);
+  init_player(i2s_pin_config0, I2S_NUM_0, player_set_mute, on_player_state_paused, lock, channel_mode);
 
   xTaskCreatePinnedToCore(&http_get_task, "http", 15 * 1024, NULL,
                         HTTP_TASK_PRIORITY, &t_http_get_task,
@@ -1782,7 +1782,18 @@ void app_main(void) {
 
   i2sLockMutex = xSemaphoreCreateBinary();
 
-  init_snapclient(audio_set_volume, audio_set_mute, i2s_pin_config0, I2S_NUM_0, i2s_lock);
+  // Initialize settings manager before reading any persisted settings
+  settings_manager_init();
+
+  int32_t channel_mode_raw = 0;
+  settings_get_channel_mode(&channel_mode_raw);
+  if (channel_mode_raw < DSP_CH_STEREO || channel_mode_raw > DSP_CH_RIGHT_ONLY) {
+    ESP_LOGW(TAG, "Invalid channel_mode %ld in NVS, defaulting to stereo", channel_mode_raw);
+    channel_mode_raw = DSP_CH_STEREO;
+  }
+  dsp_channel_mode_t channel_mode = (dsp_channel_mode_t)channel_mode_raw;
+
+  init_snapclient(audio_set_volume, audio_set_mute, i2s_pin_config0, I2S_NUM_0, i2s_lock, channel_mode);
   //init_player(i2s_pin_config0, I2S_NUM_0, player_set_mute);
   sc_add_state_cb(on_sc_state_changed);
   sc_add_state_cb(ota_on_sc_state_changed);
@@ -1801,9 +1812,6 @@ void app_main(void) {
   }
   #endif
 
-  // Initialize settings manager (hostname + snapserver settings)
-  settings_manager_init();
-  
   // Get hostname for mDNS
   char mdns_hostname[64] = {0};
   if (settings_get_hostname(mdns_hostname, sizeof(mdns_hostname)) != ESP_OK) {
