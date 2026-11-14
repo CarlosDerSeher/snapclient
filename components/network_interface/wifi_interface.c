@@ -142,16 +142,14 @@ static void event_handler(void *arg, esp_event_base_t event_base, int event_id,
 
 #if ENABLE_WIFI_PROVISIONING
 /*
- * Short-lived task to deinitialize Improv provisioning after a delay.
- * Defined at file scope because C does not support nested functions.
+ * One-shot esp_timer callback to deinitialize Improv provisioning after a
+ * delay. Runs in the esp_timer task, so no extra task stack is needed.
  */
-static void improv_deinit_task(void *pv) {
-  (void)pv;
-  vTaskDelay(pdMS_TO_TICKS(IMPROV_DEINIT_DELAY_MS));
+static void improv_deinit_timer_cb(void *arg) {
+  (void)arg;
   ESP_LOGI(TAG, "Deinitiating improv provisioning (after %u ms)",
            (unsigned)IMPROV_DEINIT_DELAY_MS);
   improv_deinit();
-  vTaskDelete(NULL);
 }
 #endif
 
@@ -289,16 +287,19 @@ void wifi_start(void) {
 
   improv_init();
 #if ENABLE_WIFI_PROVISIONING
-  /* Start a short-lived task that will deinit improv after a configurable
+  /* Start a one-shot timer that will deinit improv after a configurable
      delay from startup. This ensures we deinit even if we never connect. */
-  static bool improv_deinit_task_created = false;
-  if (!improv_deinit_task_created) {
-    BaseType_t r = xTaskCreate(improv_deinit_task, "improv_deinit", 4096,
-                               NULL, tskIDLE_PRIORITY + 1, NULL);
-    if (r != pdPASS) {
-      ESP_LOGW(TAG, "failed to create improv_deinit task");
-    } else {
-      improv_deinit_task_created = true;
+  static esp_timer_handle_t improv_deinit_timer = NULL;
+  if (improv_deinit_timer == NULL) {
+    const esp_timer_create_args_t timer_args = {
+        .callback = &improv_deinit_timer_cb,
+        .name = "improv_deinit",
+    };
+    if (esp_timer_create(&timer_args, &improv_deinit_timer) != ESP_OK ||
+        esp_timer_start_once(improv_deinit_timer,
+                             (uint64_t)IMPROV_DEINIT_DELAY_MS * 1000) !=
+            ESP_OK) {
+      ESP_LOGW(TAG, "failed to start improv_deinit timer");
     }
   }
 #endif
