@@ -56,4 +56,28 @@ menu "Snapclient Configuration"
 
             Both approaches have similar performance keeping clients in sync <= 500µs
 
+    config SNAPCLIENT_HEAP_DIAG
+        bool "Runtime heap and stack diagnostics"
+        default n
+        select FREERTOS_USE_TRACE_FACILITY
+        help
+            Log free / largest free block / minimum free heap (8-bit and IRAM) and the
+            stack high-water mark of every task at boot, got IP, 10 s and 10 min after
+            playback started, and periodically. Uses a static 3 KB task stack.
+
+    config SNAPCLIENT_HEAP_DIAG_INTERVAL_S
+        int "Heap diagnostics periodic interval (s)"
+        default 60
+        range 5 3600
+        depends on SNAPCLIENT_HEAP_DIAG
+
+    config SNAPCLIENT_HEAP_DIAG_PLAY_LONG_S
+        int "Heap diagnostics long-playback snapshot (s)"
+        default 600
+        range 20 86400
+        depends on SNAPCLIENT_HEAP_DIAG
+        help
+            Seconds after playback start for the "long playback" snapshot. 600 (10 min)
+            for acceptance runs, shorter for quick comparisons.
+
 endmenu
