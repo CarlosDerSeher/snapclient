@@ -12,6 +12,11 @@ CONFIG_FREERTOS_PLACE_FUNCTIONS_INTO_FLASH=n
 CONFIG_ESP_WIFI_IRAM_OPT=y
 CONFIG_ESP_WIFI_EXTRA_IRAM_OPT=y
 CONFIG_LWIP_IRAM_OPTIMIZATION=y
+# With PSRAM the audio buffers live in PSRAM, so keep the Wi-Fi RX path in IRAM
+# for speed. Heap and ringbuffer functions stay in flash (sdkconfig.defaults):
+# with the extra Wi-Fi/lwIP IRAM options above, ESP32 boards with large codec
+# drivers (e.g. LyraT 4.2, LyraT Mini) would otherwise overflow IRAM.
+CONFIG_ESP_WIFI_RX_IRAM_OPT=y
 
 #
 # Ethernet
