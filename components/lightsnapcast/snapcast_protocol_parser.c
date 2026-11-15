@@ -193,7 +193,7 @@ parser_return_state_t parse_codec_header_message(
     if (!read_data(parser, (uint8_t *)codecString, sizeof(codecString)-1)) return PARSER_RESTART_CONNECTION;
     
     codecString[sizeof(codecString)-1] = 0; // null terminate
-    ESP_LOGE(TAG, "Codec : %s... not supported", codecString);
+    ESP_LOGE(TAG, "Codec : %s... not supported (length: %lu)", codecString, codecStringLen);
     ESP_LOGI(TAG,
              "Change encoder codec to "
              "opus, flac or pcm in "
