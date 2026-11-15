@@ -1,0 +1,35 @@
+#
+# Snapclient Configuration
+#
+CONFIG_SNAPSERVER_USE_MDNS=y
+CONFIG_SNAPCLIENT_NAME="esparagus-echo"
+
+#
+# Audio Board
+#
+CONFIG_AUDIO_BOARD_CUSTOM=y
+
+#
+# Custom Audio Board
+#
+CONFIG_DAC_MAX98357=y
+
+#
+# I2S master interface
+#
+CONFIG_MASTER_I2S_MCLK_PIN=0
+CONFIG_MASTER_I2S_BCK_PIN=14
+CONFIG_MASTER_I2S_LRCK_PIN=15
+CONFIG_MASTER_I2S_DATAOUT_PIN=16
+
+#
+# MAX98357 interface Configuration
+#
+CONFIG_MAX98357_MUTE_PIN=17
+# end of MAX98357 interface Configuration
+
+#
+# ESP32 DSP processor config
+#
+CONFIG_USE_DSP_PROCESSOR=y
+CONFIG_SNAPCLIENT_USE_SOFT_VOL=y
