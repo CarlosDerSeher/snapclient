@@ -249,6 +249,7 @@
 
     let currentSha256  = null;
     let selectedDesc   = null;
+    let uploadedSha256 = null;  // SHA256 of the image being uploaded, if known
 
     // ── Utilities ────────────────────────────────────────────────────────────
 
@@ -394,8 +395,12 @@
           progressBar.classList.add('done');
           progressText.textContent = '';
 
-          const isNew    = currentSha256 && data.sha256 && data.sha256 !== currentSha256;
-          const isFailed = currentSha256 && data.sha256 && data.sha256 === currentSha256;
+          // Compare with the uploaded image when its SHA256 is known, so
+          // re-flashing the running firmware is not reported as a failure
+          const isNew    = uploadedSha256
+            ? data.sha256 === uploadedSha256
+            : currentSha256 && data.sha256 && data.sha256 !== currentSha256;
+          const isFailed = !isNew && currentSha256 && data.sha256 && data.sha256 === currentSha256;
           const meta  = renderMeta(data);
           currentSha256 = data.sha256 || null;
 
@@ -433,6 +438,7 @@
       uploadBtn.disabled = true;
       fileInput.disabled = true;
       showStatus('');
+      uploadedSha256 = selectedDesc ? selectedDesc.sha256 : null;
 
       progressContainer.style.display = 'block';
       progressBar.style.width = '0%';
@@ -472,7 +478,21 @@
         }
       };
 
-      xhr.onerror   = onUploadDone; // connection dropped = device restarted
+      // the device restarts right after answering, which may drop the
+      // connection before the response arrives; that only counts as success
+      // once the whole image was sent
+      let uploadSent = false;
+      xhr.upload.addEventListener('load', function () { uploadSent = true; });
+      xhr.onerror = function () {
+        if (uploadSent) {
+          onUploadDone();
+          return;
+        }
+        progressText.textContent = '';
+        showStatus('<div class="error">Error: Connection lost during upload.</div>');
+        uploadBtn.disabled = false;
+        fileInput.disabled = false;
+      };
       xhr.ontimeout = function () {
         showStatus('<div class="error">Error: Upload timed out.</div>');
         uploadBtn.disabled = false;
