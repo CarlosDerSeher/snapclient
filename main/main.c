@@ -56,7 +56,7 @@
 #include "FLAC/stream_decoder.h"
 #include "connection_handler.h"
 #include "heap_diag.h"
-#include "ota_server.h"
+#include "esp_ota_ops.h"
 #include "player.h"
 #include "settings_manager.h"
 #include "snapcast.h"
@@ -89,12 +89,7 @@ const char *VERSION_STRING = "0.0.4";
 #define HTTP_TASK_PRIORITY 17
 #define HTTP_TASK_CORE_ID 1
 
-#define OTA_TASK_PRIORITY 6
-#define OTA_TASK_CORE_ID tskNO_AFFINITY
-// 1  // tskNO_AFFINITY
-
 TaskHandle_t t_main_task = NULL;
-TaskHandle_t t_ota_task = NULL;
 TaskHandle_t t_http_get_task = NULL;
 
 #define FAST_SYNC_LATENCY_BUF 10000      // in µs
@@ -1828,7 +1823,6 @@ void app_main(void) {
   init_snapclient(audio_set_volume, audio_set_mute, i2s_pin_config0, I2S_NUM_0, i2s_lock);
   //init_player(i2s_pin_config0, I2S_NUM_0, player_set_mute);
   sc_add_state_cb(on_sc_state_changed);
-  sc_add_state_cb(ota_on_sc_state_changed);
   sc_add_state_cb(network_state_cb);
 
   // Create binary semaphore for player state change notification
@@ -1875,8 +1869,13 @@ void app_main(void) {
   set_time_from_sntp();
 #endif
 
-  xTaskCreatePinnedToCore(&ota_server_task, "ota", 15 * 256, NULL,
-                          OTA_TASK_PRIORITY, &t_ota_task, OTA_TASK_CORE_ID);
+#if !CONFIG_SNAPCLIENT_WEB_OTA
+  // Booting this far counts as a working image: keep it instead of rolling
+  // back to the previous OTA partition on the next reset. With web OTA this
+  // is done once the web server runs.
+  esp_ota_mark_app_valid_cancel_rollback();
+#endif
+
   sc_start_snapclient();
 
   //  while (1) {
