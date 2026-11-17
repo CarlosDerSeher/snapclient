@@ -11,7 +11,7 @@ extern "C" {
 void init_http_server_task(void);
 
 typedef struct {
-  char key[16];
+  char key[32];
   int32_t int_value;
 } URL_t;
 
