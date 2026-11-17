@@ -8,7 +8,7 @@ extern "C" {
 #include <stdint.h>
 #include <esp_err.h>
 
-void init_http_server_task(void);
+void init_http_server(void);
 
 typedef struct {
   char key[16];
