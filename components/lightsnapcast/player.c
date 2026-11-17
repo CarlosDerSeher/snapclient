@@ -1565,7 +1565,8 @@ static void player_task(void *pvParameters) {
           if (ret < 0) {
             ESP_LOGE(TAG, "player_setup_i2s failed: %d", ret);
 
-            return;
+            // A task function must not return: clean up and delete it
+            goto player_exit;
           }
 
           dmaDescDuration_us =
@@ -1597,10 +1598,10 @@ static void player_task(void *pvParameters) {
           QueueHandle_t newQHdl = xQueueCreate(entries, sizeof(pcm_chunk_message_t *));
           if (newQHdl == NULL) {
             // Don't overwrite pcmChkQHdl with NULL — surrounding code (and other
-            // tasks) would then dereference a NULL handle. Abort the player task
-            // here, same pattern as the player_setup_i2s failure above.
-            ESP_LOGE(TAG, "Failed to create pcm chunk queue (%d entries); aborting player task", entries);
-            return;
+            // tasks) would then dereference a NULL handle. Stop the player
+            // task, same as the player_setup_i2s failure above.
+            ESP_LOGE(TAG, "Failed to create pcm chunk queue (%d entries); stopping player task", entries);
+            goto player_exit;
           }
           queueCreatedWithChkInFrames = __scSet.chkInFrames;
           pcmChkQHdl = newQHdl;
@@ -2156,10 +2157,14 @@ static void player_task(void *pvParameters) {
       break;
     }
   }
+
+player_exit:
   audio_set_mute(true);
   my_i2s_channel_disable(tx_chan);
-  i2s_del_channel(tx_chan);
-  tx_chan = NULL;
+  if (tx_chan != NULL) {
+    i2s_del_channel(tx_chan);
+    tx_chan = NULL;
+  }
   if (lock_i2s != NULL) {
     lock_i2s(false, 0);
   }
