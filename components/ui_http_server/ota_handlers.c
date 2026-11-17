@@ -259,7 +259,9 @@ static esp_err_t get_ota_status_handler(httpd_req_t *req) {
 		snprintf(sha256 + i * 2, 3, "%02x", desc->app_elf_sha256[i]);
 	}
 
-	char json[256];
+	// Worst case: 5 esp_app_desc_t strings (31+31+15+15+31) + 64 hex
+	// digits + 97 B of keys and punctuation = 284 B + NUL
+	char json[288];
 	snprintf(json, sizeof(json),
 		"{\"version\":\"%s\",\"project_name\":\"%s\","
 		"\"compile_date\":\"%s\",\"compile_time\":\"%s\","
