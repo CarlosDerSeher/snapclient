@@ -23,6 +23,7 @@
 #include "network_interface_priv.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
+#include "settings_manager.h"
 
 #if ENABLE_WIFI_PROVISIONING
 #include "wifi_provisioning.h"
@@ -285,6 +286,15 @@ void wifi_start(void) {
   ESP_ERROR_CHECK(esp_wifi_start());
   wifi_apply_ps_mode(wifi_idle_ps_mode());
 
+#ifdef CONFIG_SNAPCLIENT_WIFI_TX_POWER_CONTROL
+  {
+    int32_t tx_raw = 80;
+    settings_get_wifi_tx_power(&tx_raw);
+    esp_wifi_set_max_tx_power((int8_t)tx_raw);
+    ESP_LOGI(TAG, "WiFi TX power set to %.2f dBm (raw %ld)", (float)tx_raw / 4.0f, (long)tx_raw);
+  }
+#endif
+
   ESP_LOGI(TAG, "Starting provisioning");
 
   improv_init();
@@ -327,6 +337,15 @@ void wifi_start(void) {
 
   ESP_ERROR_CHECK(esp_wifi_start());
   wifi_apply_ps_mode(wifi_idle_ps_mode());
+
+#ifdef CONFIG_SNAPCLIENT_WIFI_TX_POWER_CONTROL
+  {
+    int32_t tx_raw = 80;
+    settings_get_wifi_tx_power(&tx_raw);
+    esp_wifi_set_max_tx_power((int8_t)tx_raw);
+    ESP_LOGI(TAG, "WiFi TX power set to %.2f dBm (raw %ld)", (float)tx_raw / 4.0f, (long)tx_raw);
+  }
+#endif
 
   ESP_LOGI(TAG, "wifi_init_sta finished. Trying to connect to %s",
            wifi_config.sta.ssid);

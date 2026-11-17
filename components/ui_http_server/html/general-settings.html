@@ -188,6 +188,8 @@
     let currentEthGateway = '';
     let currentEthDns = '';
     let ethAvailable = true; // whether Ethernet settings should be shown
+    let currentTxPower = 80;
+    let hasTxPowerControl = false;
     let isDirty = false;
     let needsRestart = false;
 
@@ -216,6 +218,8 @@
         currentEthNetmask = capabilities.eth_netmask || '255.255.255.0';
         currentEthGateway = capabilities.eth_gateway || '';
         currentEthDns = capabilities.eth_dns || '';
+        hasTxPowerControl = capabilities.wifi_tx_power !== undefined;
+        currentTxPower = hasTxPowerControl ? capabilities.wifi_tx_power : 80;
 
         renderUI();
       } catch (error) {
@@ -264,6 +268,19 @@
       html += '<button class="btn btn-secondary" onclick="resetSnapserverSettings()">Reset</button>';
       html += '</div>';
       html += '</div>'; // .setting-control.setting-section (snapserver)
+
+      // WiFi TX power slider (only shown when firmware was built with TX power control)
+      if (hasTxPowerControl) {
+        html += '<div class="setting-control">';
+        html += '<label for="wifi-tx-power">WiFi TX Power</label>';
+        html += '<div class="description">Reduce transmit power to limit interference. Default (20 dBm) gives maximum range. Takes effect immediately.</div>';
+        html += '<div class="param-info" style="display:flex;justify-content:space-between;margin-bottom:6px;">';
+        html += `<span id="wifi-tx-power-value" style="font-weight:bold;">${(currentTxPower / 4).toFixed(1)} dBm</span>`;
+        html += '</div>';
+        html += `<input type="range" id="wifi-tx-power" min="34" max="80" step="2" value="${currentTxPower}" oninput="handleTxPowerChange(this.value)" style="width:100%;" aria-label="WiFi TX Power">`;
+        html += '<div style="display:flex;justify-content:space-between;font-size:12px;color:#888;margin-top:4px;"><span>8.5 dBm</span><span>20.0 dBm (default)</span></div>';
+        html += '</div>';
+      }
 
       // Ethernet Configuration Section (render only if available)
       if (ethAvailable) {
@@ -812,6 +829,20 @@
         console.error('Error clearing hostname:', error);
         alert('Failed to clear hostname. Please try again.');
       });
+    }
+
+    // Handle WiFi TX power slider with debouncing
+    let txPowerTimer = null;
+    function handleTxPowerChange(value) {
+      const raw = parseInt(value, 10);
+      const span = document.getElementById('wifi-tx-power-value');
+      if (span) span.textContent = `${(raw / 4).toFixed(1)} dBm`;
+      if (txPowerTimer) clearTimeout(txPowerTimer);
+      txPowerTimer = setTimeout(() => {
+        setParameter('wifi_tx_power', raw);
+        currentTxPower = raw;
+        txPowerTimer = null;
+      }, 300);
     }
 
     // Initialize on page load
