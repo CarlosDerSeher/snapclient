@@ -8,7 +8,7 @@
 - WiFi provisioning via [ImprovWifi via Serial](https://www.improv-wifi.com/) (e.g. via [this link](https://web.esphome.io/))<br>
   Ensure your browser supports this, Chrome or Edge will handle serial communication just fine.
 - Auto connect to snapcast server on network
-- Buffers up to 758ms on Wroom modules (tested with 44100:16:2)
+- Buffers up to ~1 s on Wroom modules (FLAC 44.1 kHz), see [Boards without PSRAM](#boards-without-psram)
 - Buffers more than enough on Wrover modules
 - Multiroom sync delay controlled from Snapcast server (user has to ensure not to set this too high on the server)
 - DSP / EQ functionality configurable through menuconfig and partly controllable through HTTP server running on ESP client (work in progress)
@@ -94,6 +94,32 @@ which is determined by the server.
 
 ### Hardware
 You will need an ESP32 or ESP32-S2 and an I2S DAC. For pinout see the default config options in menuconfig (Audio Board).
+
+### Boards without PSRAM
+On modules without PSRAM (e.g. ESP32-WROOM) internal RAM is the limit, and most of it holds the
+decoded audio buffer. Its length is the server buffer (`buffer` in `/etc/snapserver.conf`), so the
+largest buffer the client can hold depends on the codec, the sample rate and whether Opus support is
+built in:
+
+| Stream (16 bit, stereo) | Opus enabled (default) | Opus disabled |
+|---|---|---|
+| FLAC 44.1 kHz | 1025 ms | 1100 ms |
+| FLAC 48 kHz | 925 ms | 1000 ms |
+| PCM 44.1 kHz | 1250 ms | 1300 ms |
+| Opus 48 kHz | 1000 ms | – |
+
+These are the largest buffers that played without dropouts or hard resyncs, measured in 25 ms steps
+on an ESP32-WROOM (Wi-Fi, no Ethernet, no DSP, no UDP logger, web UI on, idle). At that point only
+10–20 KB of RAM are left, so **stay about 100 ms below** these values: weak Wi-Fi, using the web UI
+or an OTA update need more. DSP, Ethernet, the UDP logger and Improv Wi-Fi provisioning (first
+3 minutes after boot) lower the limits further; `sdkconfig.defaults` enables the last two.
+
+- PCM fits the largest buffer (no decoder memory) but needs about twice the network bandwidth of
+  FLAC (1.4 Mbit/s at 44.1 kHz). FLAC is the best trade-off.
+- Build with **Disable Opus support** (`CONFIG_SNAPCLIENT_DISABLE_OPUS`, menuconfig → Snapclient
+  Configuration) if you don't stream Opus. The Opus decoder needs a much larger task stack; without
+  it the client task needs 4 KB instead of 13 KB, which buys 50–75 ms of buffer, and the firmware is
+  about 90 KB smaller. A build without Opus rejects Opus streams with an error in the log.
 
 ## Installation
 
