@@ -45,6 +45,22 @@ esp_err_t dsp_settings_init(void) {
 	}
 
 	ESP_LOGI(TAG, "%s: DSP settings manager initialized", __func__);
+
+#ifdef CONFIG_SNAPCLIENT_USE_SOFT_VOL
+	// Load volume curve from NVS now that the mutex exists, before
+	// restoring DSP params. This must happen here (not in dsp_processor_init)
+	// because the NVS helpers require dsp_settings_mutex.
+	float saved_db_range;
+	if (dsp_settings_load_volume_curve_db_range(&saved_db_range) == ESP_OK) {
+		dsp_processor_set_volume_curve_db_range(saved_db_range);
+		ESP_LOGI(TAG, "Restored volume curve from NVS: %.0f dB",
+				 saved_db_range);
+	} else {
+		ESP_LOGI(TAG, "No saved volume curve in NVS, using default (%.0f dB)",
+				 (float)CONFIG_SNAPCLIENT_VOLUME_CURVE_DB_RANGE);
+	}
+#endif
+
 	// Restore DSP parameters into dsp_processor so the processor has the
 	// persisted configuration after both modules are initialized.
 	// Note: caller (main) must initialize dsp_processor before calling
@@ -257,6 +273,11 @@ esp_err_t dsp_settings_get_json(char *json_out, size_t max_len) {
 	dspFlows_t active_flow = dspfStereo; // default
 	(void)dsp_settings_load_active_flow(&active_flow);
 	cJSON_AddNumberToObject(root, "active_flow", (int)active_flow);
+
+#ifdef CONFIG_SNAPCLIENT_USE_SOFT_VOL
+	cJSON_AddNumberToObject(root, "volume_curve_db_range",
+							dsp_processor_get_volume_curve_db_range());
+#endif
 
 	// Add flow schema with current values
 	cJSON *schema = cJSON_CreateArray();
@@ -499,6 +520,30 @@ esp_err_t dsp_settings_set_from_json(const char *json_in) {
 		}
 	}
 
+#ifdef CONFIG_SNAPCLIENT_USE_SOFT_VOL
+	// Handle volume curve dB range
+	cJSON *vol_curve = cJSON_GetObjectItem(root, "volume_curve_db_range");
+	if (cJSON_IsNumber(vol_curve)) {
+		float vol_curve_val = (float)vol_curve->valueint;
+		if (vol_curve_val < 0.0f || vol_curve_val > 90.0f) {
+			ESP_LOGW(TAG, "%s: volume_curve_db_range %f out of range (0-90)",
+					 __func__, vol_curve_val);
+			if (err == ESP_OK)
+				err = ESP_ERR_INVALID_ARG;
+		} else {
+			dsp_processor_set_volume_curve_db_range(vol_curve_val);
+			esp_err_t save_err =
+				dsp_settings_save_volume_curve_db_range(vol_curve_val);
+			if (save_err != ESP_OK) {
+				ESP_LOGW(TAG, "%s: Failed to save volume_curve_db_range",
+						 __func__);
+				if (err == ESP_OK)
+					err = save_err;
+			}
+		}
+	}
+#endif
+
 	// Iterate through all items and save flow parameters
 	// Expecting keys like "flow_5_fc_1", "flow_5_gain_1", etc.
 	cJSON *item = NULL;
@@ -649,5 +694,78 @@ esp_err_t dsp_settings_switch_active_flow(dspFlows_t flow) {
 		}
 	}
 
+	return err;
+}
+
+static const char *NVS_KEY_VOLUME_CURVE_DB_RANGE = "vol_crv_db_rng";
+
+esp_err_t dsp_settings_save_volume_curve_db_range(float db_range) {
+	ESP_LOGD(TAG, "%s: db_range=%f", __func__, db_range);
+
+	if (!dsp_settings_mutex)
+		return ESP_ERR_INVALID_STATE;
+
+	if (db_range < 0.0f || db_range > 90.0f) {
+		ESP_LOGW(TAG, "%s: db_range %f out of range (0-90)", __func__,
+				 db_range);
+		return ESP_ERR_INVALID_ARG;
+	}
+
+	if (xSemaphoreTake(dsp_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE)
+		return ESP_ERR_TIMEOUT;
+
+	nvs_handle_t h;
+	esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+	if (err != ESP_OK) {
+		xSemaphoreGive(dsp_settings_mutex);
+		ESP_LOGE(TAG, "%s: Failed to open NVS: %s", __func__,
+				 esp_err_to_name(err));
+		return err;
+	}
+
+	// Store as int32 (multiply by 10 for 1 decimal place precision)
+	int32_t val = (int32_t)(db_range * 10.0f);
+	err = nvs_set_i32(h, NVS_KEY_VOLUME_CURVE_DB_RANGE, val);
+	if (err == ESP_OK)
+		err = nvs_commit(h);
+
+	nvs_close(h);
+	xSemaphoreGive(dsp_settings_mutex);
+
+	if (err == ESP_OK)
+		ESP_LOGI(TAG, "%s: Saved volume curve dB range: %f", __func__,
+				 db_range);
+	else
+		ESP_LOGE(TAG, "%s: Failed to save: %s", __func__, esp_err_to_name(err));
+
+	return err;
+}
+
+esp_err_t dsp_settings_load_volume_curve_db_range(float *db_range) {
+	ESP_LOGD(TAG, "%s: entered", __func__);
+
+	if (!db_range || !dsp_settings_mutex)
+		return ESP_ERR_INVALID_ARG;
+
+	if (xSemaphoreTake(dsp_settings_mutex, pdMS_TO_TICKS(5000)) != pdTRUE)
+		return ESP_ERR_TIMEOUT;
+
+	nvs_handle_t h;
+	esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &h);
+	if (err == ESP_OK) {
+		int32_t val = 0;
+		err = nvs_get_i32(h, NVS_KEY_VOLUME_CURVE_DB_RANGE, &val);
+		nvs_close(h);
+		if (err == ESP_OK) {
+			*db_range = (float)val / 10.0f;
+			ESP_LOGI(TAG, "%s: Loaded volume curve dB range: %f", __func__,
+					 *db_range);
+		} else if (err != ESP_ERR_NVS_NOT_FOUND) {
+			ESP_LOGW(TAG, "%s: NVS read error: %s", __func__,
+					 esp_err_to_name(err));
+		}
+	}
+
+	xSemaphoreGive(dsp_settings_mutex);
 	return err;
 }
