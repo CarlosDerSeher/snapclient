@@ -114,6 +114,12 @@ settings and schemas. Needs a TAS5805M board to test.
   is plugged in (auto-negotiation timeout). Lower `autonego_timeout_ms` in
   `components/network_interface/eth_interface.c`, then check boot timing and that a plugged-in cable
   still gets link and IP.
+- Sample rate change without a reboot is missed: when the server switches from 48 kHz to
+  44.1 kHz (e.g. FLAC 48 kHz → FLAC 44.1 kHz across a reconnect), the player keeps the 48 kHz chunk
+  duration (24000 µs instead of 26122 µs), never logs `reinitializing i2s`, and hard-resyncs every
+  ~2.6 s (`age -210 ms`). Suspects: `player_send_snapcast_setting()` drops the setting while the
+  player task is stopped, and `handle_chunk_message()` only resends settings when the frame count
+  changes.
 - Hard resyncs: #117, #191, #226 (see 1.3).
 
 ## 3. Features
