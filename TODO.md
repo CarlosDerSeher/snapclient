@@ -115,6 +115,28 @@ settings and schemas. Needs a TAS5805M board to test.
   `components/network_interface/eth_interface.c`, then check boot timing and that a plugged-in cable
   still gets link and IP.
 - Hard resyncs: #117, #191, #226 (see 1.3).
+- Update libFLAC: the submodule is at 1.3.3+85 (July 2021, already has the 1.3.4 CVE fix), upstream
+  is at 1.5.0. Upstream has oss-fuzz fixes for malformed frames. The most important one is a heap
+  overflow when a frame's predictor order is larger than its blocksize (`2f209573`); others are
+  `79e462fb` (partition order vs. blocksize), `1bec35e3` (residual overflow), `0e1535cc`
+  (blocksize 65536) and `c65ef589` (invalid subframes). These only matter with a broken or hostile
+  server, but mDNS discovery accepts any server on the LAN. Seeking, Ogg, 32-bit and MD5 fixes
+  don't apply to us.
+  <details>
+  <summary>RAM trade-off (measured with 1.5.0 on an ESP32 without PSRAM)</summary>
+
+  - About 2 KB more decoder heap (45.2 vs 43.1 KB).
+  - `read_frame_()` keeps a 3.5 KB `FLAC__Frame` on the stack to insert silence for missing frames
+    (new in 1.4.0, no compile switch to turn it off). The `http` task then peaks at 4.8 KB with
+    FLAC instead of 2.5 KB, which overflows the 4 KB stack used when Opus is disabled (#255) and
+    crashes on the first frames.
+  - Options: raise the `http` stack to 6 KB (+2 KB RAM), patch the padding out of
+    `stream_decoder.c`, or stay on 1.3.3 and backport only the small checks above. Patch libFLAC
+    as a copy in the build directory from `components/flac/CMakeLists.txt`, not in the submodule.
+  - The 1.5.0 build also needs `metadata_iterators.c` excluded (it calls `lstat()`, which newlib
+    lacks; snapclient doesn't use it).
+
+  </details>
 
 ## 3. Features
 
