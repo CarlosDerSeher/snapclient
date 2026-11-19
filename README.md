@@ -236,6 +236,7 @@ Replace `snapclient.local` with your clients IP address. If you have multiple cl
 You are very welcome to help and provide [Pull
 Requests](https://docs.github.com/en/github/collaborating-with-issues-and-pull-requests/about-pull-requests)
 to the project. Use [develop](https://github.com/CarlosDerSeher/snapclient/tree/develop) branch for your PRs as this is the place where new features will go.
+Looking for something to work on? See [TODO.md](TODO.md).
 
 We strongly suggest you activate [pre-commit](https://pre-commit.com) hooks in
 this git repository before starting to hack and make commits.
@@ -252,16 +253,7 @@ Then on every `git commit`, a few sanity/formatting checks will be performed.
 
 
 ## Task list
-- [ ] put kconfig to better locations in tree
-- [ ] add missing codecs (ogg)
-- [ ] dsp_processor: add equalizer
-- [ ] Control interface for equalizer (component: ui_http_server)
-- [ ] clean and polish code (remove all unused variables etc.)
-- [ ] Improve Documentation
-- [ ] Throw out ADF copied components from project tree and use CmakeLists.txt to pull in necessary files from ADF
-
-## Minor task
-- [ ] fill in missing component descriptions in Readme.md
+Open work, sorted by priority, is in [TODO.md](TODO.md).
 
 ## Known issues
 - The ADF introduced a bug in `components/audio_hal/driver/es8388/es8388.c` which results in loud noise between i2s channel initialization and i2s enabling. The issue was caused by three lines setting undocumented registers. This was fixed by a simple hack in this repo: we modified the file to comment out these lines.
