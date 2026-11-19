@@ -49,8 +49,10 @@
 #include "dsp_processor_settings.h"
 #endif
 
+#if !CONFIG_SNAPCLIENT_DISABLE_OPUS
 // Opus decoder is implemented as a subcomponet from master git repo
 #include "opus.h"
+#endif
 
 // flac decoder is implemented as a subcomponet from master git repo
 #include "FLAC/stream_decoder.h"
@@ -88,6 +90,13 @@ const char *VERSION_STRING = "0.0.4";
 
 #define HTTP_TASK_PRIORITY 17
 #define HTTP_TASK_CORE_ID 1
+// Measured peak ~11.7 KB with Opus (its decoder keeps large arrays on the
+// stack), ~2.5 KB with FLAC and PCM
+#if CONFIG_SNAPCLIENT_DISABLE_OPUS
+#define HTTP_TASK_STACK_SIZE (4 * 1024)
+#else
+#define HTTP_TASK_STACK_SIZE (13 * 1024)
+#endif
 
 TaskHandle_t t_main_task = NULL;
 TaskHandle_t t_http_get_task = NULL;
@@ -143,7 +152,9 @@ struct netconn *lwipNetconn;
 
 static int id_counter = 0;
 
+#if !CONFIG_SNAPCLIENT_DISABLE_OPUS
 static OpusDecoder *opusDecoder = NULL;
+#endif
 
 static decoderData_t decoderChunk = {
     .type = SNAPCAST_MESSAGE_INVALID,
@@ -688,6 +699,7 @@ void codec_header_received(char *codecPayload, uint32_t codecPayloadLen,
     flacDecoder = NULL;
   }
 
+#if !CONFIG_SNAPCLIENT_DISABLE_OPUS
   if (opusDecoder != NULL) {
     opus_decoder_destroy(opusDecoder);
     opusDecoder = NULL;
@@ -721,7 +733,9 @@ void codec_header_received(char *codecPayload, uint32_t codecPayloadLen,
     }
 
     ESP_LOGI(TAG, "Initialized opus Decoder: %d", error);
-  } else if (codec == FLAC) {
+  } else
+#endif
+  if (codec == FLAC) {
     decoderChunk.bytes = codecPayloadLen;
     do {
       decoderChunk.inData = (uint8_t *)malloc(decoderChunk.bytes);
@@ -804,6 +818,7 @@ void handle_chunk_message(codec_type_t codec, playerSetting_t *scSet,
                           pcm_chunk_message_t **pcmData,
                           wire_chunk_message_t *wire_chnk) {
   switch (codec) {
+#if !CONFIG_SNAPCLIENT_DISABLE_OPUS
     case OPUS: {
       int frame_size = -1;
       int samples_per_frame;
@@ -909,6 +924,7 @@ void handle_chunk_message(codec_type_t codec, playerSetting_t *scSet,
 
       break;
     }
+#endif
 
     case FLAC: {
       isCachedChunk = true;
@@ -1294,10 +1310,12 @@ static void http_get_task(void *pvParameters) {
       id_counter = 0;
       xSemaphoreGive(idCounterSemaphoreHandle);
 
+#if !CONFIG_SNAPCLIENT_DISABLE_OPUS
       if (opusDecoder != NULL) {
         opus_decoder_destroy(opusDecoder);
         opusDecoder = NULL;
       }
+#endif
 
       if (flacDecoder != NULL) {
         FLAC__stream_decoder_finish(flacDecoder);
@@ -1560,9 +1578,7 @@ int init_snapclient(void (*set_volume)(int), void (*set_mute)(bool, bool), i2s_s
   }
   init_player(i2s_pin_config0, I2S_NUM_0, player_set_mute, on_player_state_paused, lock);
 
-  // Measured peak ~11.7 KB with Opus (its decoder keeps large arrays on the
-  // stack); FLAC and PCM need far less
-  xTaskCreatePinnedToCore(&http_get_task, "http", 13 * 1024, NULL,
+  xTaskCreatePinnedToCore(&http_get_task, "http", HTTP_TASK_STACK_SIZE, NULL,
                         HTTP_TASK_PRIORITY, &t_http_get_task,
                         HTTP_TASK_CORE_ID);
 
