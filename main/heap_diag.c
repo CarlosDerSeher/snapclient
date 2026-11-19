@@ -14,6 +14,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "player.h"
 
 static const char *TAG = "HEAPDIAG";
 
@@ -69,6 +70,11 @@ static void heap_diag_dump(const char *label) {
   ESP_LOGI(TAG, "IRAM-only (32BIT minus 8BIT) free %u",
            heap_caps_get_free_size(MALLOC_CAP_32BIT) -
                heap_caps_get_free_size(MALLOC_CAP_8BIT));
+
+  uint32_t waiting, length, chunkUs, dmaUs;
+  player_get_buffer_fill(&waiting, &length, &chunkUs, &dmaUs);
+  ESP_LOGI(TAG, "pcm queue %lu/%lu chunks of %lu us: %lu ms queued + %lu ms DMA",
+           waiting, length, chunkUs, waiting * chunkUs / 1000, dmaUs / 1000);
 
   UBaseType_t n =
       uxTaskGetSystemState(taskStatus, HEAP_DIAG_MAX_TASKS, NULL);

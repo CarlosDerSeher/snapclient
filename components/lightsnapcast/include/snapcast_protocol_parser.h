@@ -12,6 +12,7 @@ typedef struct decoderData_s {
   tv_t timestamp;
   uint8_t *outData;
   uint32_t bytes;
+  uint32_t capacity;  // allocated size of inData
 } decoderData_t;
 
 typedef int (*get_byte_callback_t)(void* connection_data, char* buffer);
@@ -25,6 +26,10 @@ typedef enum {
   PARSER_OK = 0,
   PARSER_RESTART_CONNECTION,
 } parser_return_state_t;
+
+// Replaces the input buffer of decoderChunk with one of size bytes (none for
+// 0). Its content is lost; blocks until the memory is available.
+void decoder_chunk_reserve(decoderData_t* decoderChunk, uint32_t size);
 
 parser_return_state_t parse_base_message(snapcast_protocol_parser_t* parser,
                                          base_message_t* base_message_rx);
