@@ -98,8 +98,6 @@ static sMedianNode_t miniMedianBuffer[MINI_BUFFER_LEN];
 
 static int8_t currentDir = 0;  //!< current apll direction, see apll_adjust()
 
-static QueueHandle_t pcmChkQHdl = NULL;
-
 static TaskHandle_t playerTaskHandle = NULL;
 
 static QueueHandle_t snapcastSettingQueueHandle = NULL;
@@ -378,40 +376,6 @@ static esp_err_t player_setup_i2s(playerSetting_t *setting, bool lock) {
 }
 
 /**
- *
- */
-static int destroy_pcm_queue(QueueHandle_t *queueHandle) {
-  int ret = pdPASS;
-  pcm_chunk_message_t *chnk = NULL;
-
-  if (*queueHandle == NULL) {
-    ESP_LOGV(TAG, "no pcm chunk queue created?");
-    ret = pdFAIL;
-  } else {
-    // free all allocated memory
-    while (uxQueueMessagesWaiting(*queueHandle)) {
-      ret = xQueueReceive(*queueHandle, &chnk, pdMS_TO_TICKS(2000));
-      if (ret != pdFAIL) {
-        if (chnk != NULL) {
-          free_pcm_chunk(chnk);
-        }
-      }
-      else {
-        ESP_LOGE(TAG, "%s: can't get pcm chunk", __func__);
-      }
-    }
-
-    // delete the queue
-    vQueueDelete(*queueHandle);
-    *queueHandle = NULL;
-
-    ret = pdPASS;
-  }
-
-  return ret;
-}
-
-/**
  * ensure this is called after http_task was killed!
  */
 int deinit_player(void) {
@@ -457,7 +421,7 @@ int deinit_player(void) {
     vQueueDelete(snapcastSettingQueueHandle);
     snapcastSettingQueueHandle = NULL;
   }
-  ret = destroy_pcm_queue(&pcmChkQHdl);
+  pcm_pool_flush();
 
   if (latencyBufSemaphoreHandle != NULL) {
     vSemaphoreDelete(latencyBufSemaphoreHandle);
@@ -574,7 +538,8 @@ int start_player() {
       xSemaphoreGive(playerStateMux);
       return -1;
   }
-  if (scSet == NULL || !(( scSet->buf_ms > 0) && (scSet->chkInFrames > 0))) {
+  if (scSet == NULL || !(( scSet->buf_ms > 0) && (scSet->chkInFrames > 0)) ||
+      !pcm_pool_ready()) {
       xSemaphoreGive(playerStateMux);
       return -1;
   }
@@ -602,30 +567,6 @@ int start_player() {
   esp_pm_lock_acquire(player_pm_lock_handle);
 #endif
   
-  if (pcmChkQHdl == NULL) 
-  {
-    
-    int entries = ceil(((float)scSet->sr / (float)scSet->chkInFrames) *
-                        ((float)scSet->buf_ms / 1000));
-
-    // some chunks are placed in DMA buffer
-    // so we can save a little RAM here
-    entries -= ((i2sDmaBufMaxLen * i2sDmaBufCnt) / scSet->chkInFrames);
-
-    pcmChkQHdl = xQueueCreate(entries, sizeof(pcm_chunk_message_t *));
-    if (pcmChkQHdl == NULL) {
-      ESP_LOGE(TAG, "Failed to create pcm chunk queue (%d entries)", entries);
-      tg0_timer_deinit();
-#if CONFIG_PM_ENABLE
-      esp_pm_lock_release(player_pm_lock_handle);
-#endif
-      playerStarted = false;
-      return -1;
-    }
-
-    ESP_LOGI(TAG, "created new queue with %d", entries);
-  }
-
   ESP_LOGI(TAG, "Start player_task");
 
   if (xTaskCreatePinnedToCore(player_task, "player", 1024 * 3, (void*) scSet,
@@ -1097,359 +1038,124 @@ void adjust_apll(int8_t direction) {
 #endif
 
 /**
- *
+ * Frames the I2S DMA buffers hold, as player_setup_i2s() sets them up
  */
-int8_t free_pcm_chunk_fragments(pcm_chunk_fragment_t *fragment) {
-  if (fragment == NULL) {
-    ESP_LOGE(TAG, "free_pcm_chunk_fragments() parameter Error");
+static uint32_t player_dma_frames(uint32_t chkInFrames) {
+#if USE_SAMPLE_INSERTION
+  (void)chkInFrames;
 
-    return -1;
-  }
-
-  // free all fragments recursive
-  if (fragment->nextFragment == NULL) {
-    if (fragment->payload != NULL) {
-      free(fragment->payload);
-      fragment->payload = NULL;
-    }
-
-    free(fragment);
-    fragment = NULL;
-  } else {
-    free_pcm_chunk_fragments(fragment->nextFragment);
-  }
-
-  return 0;
-}
-
-/**
- *
- */
-int8_t free_pcm_chunk(pcm_chunk_message_t *pcmChunk) {
-  if (pcmChunk == NULL) {
-    ESP_LOGE(TAG, "free_pcm_chunk() parameter Error");
-
-    return -1;
-  }
-
-  free_pcm_chunk_fragments(pcmChunk->fragment);
-  pcmChunk->fragment = NULL;  // was freed in free_pcm_chunk_fragments()
-
-  free(pcmChunk);
-  pcmChunk = NULL;
-
-  return 0;
-}
-
-/**
- *
- */
-int32_t allocate_pcm_chunk_memory_caps(pcm_chunk_message_t *pcmChunk,
-                                       size_t bytes, uint32_t caps) {
-  size_t largestFreeBlock, freeMem;
-  int ret = -3;
-
-  pcmChunk->caps = caps;
-
-  // we got valid memory for pcm_chunk_message_t
-  // first we try to allocated 32 bit aligned memory for payload
-  // check available memory first so we can decide if we need to fragment the
-  // data
-  if (caps != 0) {
-    freeMem = heap_caps_get_free_size(caps);
-    largestFreeBlock = heap_caps_get_largest_free_block(caps);
-    if ((freeMem >= bytes) && (largestFreeBlock >= bytes)) {
-      // ESP_LOGI(TAG, "32b f %d b %d", freeMem, largestFreeBlock);
-
-      pcmChunk->fragment->payload = (char *)heap_caps_malloc(bytes, caps);
-      if (pcmChunk->fragment->payload == NULL) {
-        ESP_LOGD(TAG, "Failed to allocate %d bytes of %s for pcm chunk payload",
-                 bytes,
-                 (caps == (MALLOC_CAP_32BIT | MALLOC_CAP_EXEC)) ? ("IRAM")
-                                                                : ("DRAM"));
-
-        ret = -2;
-      } else {
-        pcmChunk->totalSize = bytes;
-        pcmChunk->fragment->nextFragment = NULL;
-        pcmChunk->fragment->size = bytes;
-
-        ret = 0;
-      }
-    } else {
-      // ESP_LOGE (TAG, "couldn't get memory to insert chunk of size %d, IRAM
-      // freemem: %d blocksize %d", bytes, freeMem, largestFreeBlock);
-    }
-  } else {
-    pcmChunk->fragment->payload = (char *)malloc(bytes);
-    if (pcmChunk->fragment->payload == NULL) {
-      ESP_LOGE(TAG, "Failed to malloc memory for pcm chunk payload");
-
-      ret = -2;
-    } else {
-      pcmChunk->totalSize = bytes;
-      pcmChunk->fragment->nextFragment = NULL;
-      pcmChunk->fragment->size = bytes;
-
-      ret = 0;
-    }
-  }
-
-  return ret;
-}
-
-/**
- *
- */
-int32_t allocate_pcm_chunk_memory_caps_fragmented(pcm_chunk_message_t *pcmChunk,
-                                                  size_t bytes, uint32_t caps) {
-  size_t largestFreeBlock, freeMem;
-  int ret = -3;
-
-  // we got valid memory for pcm_chunk_message_t
-  // first we try to allocated 32 bit aligned memory for payload
-  // check available memory first so we can decide if we need to fragment the
-  // data
-  freeMem = heap_caps_get_free_size(caps);
-  largestFreeBlock = heap_caps_get_largest_free_block(caps);
-  if (freeMem >= bytes) {
-    // ESP_LOGI(TAG, "32b f %d b %d", freeMem, largestFreeBlock);
-
-    if (largestFreeBlock >= bytes) {
-      pcmChunk->fragment->payload = (char *)heap_caps_malloc(bytes, caps);
-      if (pcmChunk->fragment->payload == NULL) {
-        ESP_LOGE(TAG, "Failed to allocate IRAM memory for pcm chunk payload");
-
-        ret = -2;
-      } else {
-        pcmChunk->totalSize = bytes;
-        pcmChunk->fragment->nextFragment = NULL;
-        pcmChunk->fragment->size = bytes;
-
-        ret = 0;
-      }
-    } else {
-      size_t remainingBytes = bytes + (largestFreeBlock % 4);
-      size_t needBytes = largestFreeBlock - (largestFreeBlock % 4);
-      pcm_chunk_fragment_t *fragment = pcmChunk->fragment;
-
-      pcmChunk->totalSize = 0;
-
-      while (remainingBytes) {
-        fragment->payload = (char *)heap_caps_malloc(needBytes, caps);
-        if (fragment->payload == NULL) {
-          ESP_LOGE(TAG,
-                   "Failed to allocate fragmented IRAM memory for "
-                   "pcm chunk payload %d %d %d %d",
-                   needBytes, remainingBytes, heap_caps_get_free_size(caps),
-                   heap_caps_get_largest_free_block(caps));
-
-          ret = -2;
-
-          break;
-        } else {
-          fragment->size = needBytes;
-          remainingBytes -= needBytes;
-          pcmChunk->totalSize += needBytes;
-
-          if (remainingBytes > 0) {
-            fragment->nextFragment =
-                (pcm_chunk_fragment_t *)calloc(1, sizeof(pcm_chunk_fragment_t));
-            if (fragment->nextFragment == NULL) {
-              ESP_LOGE(TAG,
-                       "Failed to fragmented IRAM memory "
-                       "for pcm chunk fragment");
-
-              ret = -2;
-
-              break;
-            } else {
-              fragment = fragment->nextFragment;
-              largestFreeBlock = heap_caps_get_largest_free_block(caps);
-              if (largestFreeBlock >= remainingBytes) {
-                needBytes = remainingBytes;
-              } else {
-                needBytes = largestFreeBlock - (largestFreeBlock % 4);
-              }
-            }
-          } else {
-            ret = 0;
-          }
-        }
-      }
-    }
-  } else {
-    // ESP_LOGE (TAG, "couldn't get memory to insert chunk of size %d, IRAM
-    // freemem: %d blocksize %d", decodedWireChunk->size, freeMem,
-    // largestFreeBlock);
-  }
-
-  return ret;
-}
-
-/**
- *
- */
-int32_t allocate_pcm_chunk_memory(pcm_chunk_message_t **pcmChunk,
-                                  size_t bytes) {
-  int ret = -3;
-
-  *pcmChunk = (pcm_chunk_message_t *)calloc(1, sizeof(pcm_chunk_message_t));
-  if (*pcmChunk == NULL) {
-    ESP_LOGE(TAG, "Failed to allocate memory for pcm chunk message");
-
-    return -2;
-  }
-
-  (*pcmChunk)->fragment =
-      (pcm_chunk_fragment_t *)calloc(1, sizeof(pcm_chunk_fragment_t));
-  if ((*pcmChunk)->fragment == NULL) {
-    ESP_LOGE(TAG, "Failed to allocate memory for pcm chunk fragment");
-
-    free_pcm_chunk(*pcmChunk);
-
-    return -2;
-  }
-
-#if CONFIG_SPIRAM && CONFIG_SPIRAM_BOOT_INIT
-  ret = allocate_pcm_chunk_memory_caps(*pcmChunk, bytes,
-                                       MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
-#elif CONFIG_SPIRAM
-  ret = allocate_pcm_chunk_memory_caps(*pcmChunk, bytes, 0);
+  return 2 * 1023;
 #else
-  // TODO: x should probably be dynamically calculated as a fraction of buffer
-  // size if allocation fails we try again every 1ms for max. x ms waiting for
-  // chunks to finish playback
-  uint32_t x = 50;
-  for (int i = 0; i < x; i++) {
-    ret = allocate_pcm_chunk_memory_caps(*pcmChunk, bytes,
-                                         MALLOC_CAP_32BIT | MALLOC_CAP_EXEC);
-    if (ret < 0) {
-      ret = allocate_pcm_chunk_memory_caps(*pcmChunk, bytes, MALLOC_CAP_8BIT);
-      //      if (ret < 0) {
-      //        //      ret = allocate_pcm_chunk_memory_caps_fragmented
-      //        //(*pcmChunk, bytes, MALLOC_CAP_32BIT | MALLOC_CAP_EXEC);
-      //        if (ret < 0) {
-      //          // allocate_pcm_chunk_memory_caps_fragmented (*pcmChunk,
-      //          bytes,
-      //          // MALLOC_CAP_8BIT);
-      //        }
-      //      }
-    }
-
-    if (ret < 0) {
-      vTaskDelay(pdMS_TO_TICKS(1));
-    } else {
-      break;
-    }
-  }
+  // split into CHNK_CTRL_CNT * (power of 2) buffers, the same frames in total
+  return chkInFrames * CHNK_CTRL_CNT;
 #endif
-
-  if (ret < 0) {
-    ESP_LOGW(TAG,
-             "couldn't get memory to insert chunk, inserting an chunk "
-             "containing just 0");
-
-    //    xSemaphoreTake(playerPcmQueueMux, portMAX_DELAY);
-    //    ESP_LOGW(
-    //        TAG, "%d, %d, %d, %d, %d",
-    //        heap_caps_get_free_size(MALLOC_CAP_8BIT),
-    //        heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
-    //        uxQueueMessagesWaiting(pcmChkQHdl),
-    //        heap_caps_get_free_size(MALLOC_CAP_32BIT | MALLOC_CAP_EXEC),
-    //        heap_caps_get_largest_free_block(MALLOC_CAP_32BIT |
-    //        MALLOC_CAP_EXEC));
-    //    xSemaphoreGive(playerPcmQueueMux);
-
-    ESP_LOGW(
-        TAG, "%d, %d, %d, %d", heap_caps_get_free_size(MALLOC_CAP_8BIT),
-        heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
-        heap_caps_get_free_size(MALLOC_CAP_32BIT | MALLOC_CAP_EXEC),
-        heap_caps_get_largest_free_block(MALLOC_CAP_32BIT | MALLOC_CAP_EXEC));
-
-    // simulate a chunk of all samples 0,
-    // player_task() will know what to do with this
-    (*pcmChunk)->fragment->payload = NULL;
-    (*pcmChunk)->totalSize = bytes;
-    (*pcmChunk)->fragment->nextFragment = NULL;
-    (*pcmChunk)->fragment->size = bytes;
-
-    ret = 0;
-  } else {
-    // ESP_LOGI (TAG, "got memory for pcm chunk %p %p %d", *pcmChunk,
-    // (*pcmChunk)->fragment->payload, bytes);
-  }
-
-  return ret;
 }
 
 /**
- *
+ * Chunks the pool needs for buf_ms: the play queue holds the buffer minus the
+ * whole chunks in the I2S DMA buffers (as the old pcm queue did), plus one
+ * chunk being decoded and one being played.
  */
-int32_t insert_pcm_chunk(pcm_chunk_message_t *pcmChunk) {
-  if (pcmChunk == NULL) {
-    ESP_LOGE(TAG, "Parameter Error");
-
-    return -1;
-  }
-
-  if (playerPaused) {
-    free_pcm_chunk(pcmChunk);
+uint32_t player_chunk_slots(int32_t sr, uint32_t chkInFrames,
+                            uint32_t buf_ms) {
+  if ((sr <= 0) || (chkInFrames == 0) || (buf_ms == 0)) {
     return 0;
   }
-  if (pcmChkQHdl == NULL) {
-    ESP_LOGW(TAG, "pcm chunk queue not created. Player started: %s", playerStarted ? "True": "False");
-    free_pcm_chunk(pcmChunk);
-    start_player();
 
-    return -2;
+  uint64_t frames = (uint64_t)sr * buf_ms;
+  uint64_t perChunk = (uint64_t)chkInFrames * 1000;
+  int64_t queued = (int64_t)((frames + perChunk - 1) / perChunk) -
+                   player_dma_frames(chkInFrames) / chkInFrames;
+  if (queued < 1) {
+    queued = 1;
+  }
+
+  return (uint32_t)queued + 2;
+}
+
+/**
+ * A free chunk for the decoder, or NULL if the player can't take one now:
+ * paused, no pool, time sync not ready yet, or the buffer is full. The decoder
+ * drops the audio then.
+ */
+pcm_chunk_message_t *player_chunk_get(void) {
+  if (playerPaused || !pcm_pool_ready()) {
+    return NULL;
   }
 
   bool isFull = false;
   latency_buffer_full(&isFull);
   if (isFull == false) {
-    free_pcm_chunk(pcmChunk);
-
-    //    ESP_LOGW(TAG, "%s: wait for initial latency measurement to finish",
-    //    __func__);
-
-    return -3;
+    // wait for initial latency measurement to finish
+    return NULL;
   }
-  //  if (uxQueueSpacesAvailable(pcmChkQHdl) == 0) {
-  //    pcm_chunk_message_t *element;
-  //
-  //    xQueueReceive(pcmChkQHdl, &element, portMAX_DELAY);
-  //
-  //    free_pcm_chunk(element);
-  //  }
 
-  // if (xQueueSend(pcmChkQHdl, &pcmChunk, pdMS_TO_TICKS(10)) != pdTRUE) {
-  if (xQueueSend(pcmChkQHdl, &pcmChunk, pdMS_TO_TICKS(1)) != pdTRUE) {
-    ESP_LOGV(TAG, "send: pcmChunkQueue full, messages waiting %d",
-             uxQueueMessagesWaiting(pcmChkQHdl));
-
-    free_pcm_chunk(pcmChunk);
+  pcm_chunk_message_t *chunk = pcm_pool_get_free();
+  if (chunk == NULL) {
+    ESP_LOGV(TAG, "no free pcm chunk, %lu waiting for playback",
+             pcm_pool_filled_count());
   }
-//free_pcm_chunk(pcmChunk);
 
-  return 0;
+  return chunk;
 }
 
 /**
- * Diagnostics only: PCM chunks waiting for playback, the queue length, and the
+ * Queues a filled chunk for playback and starts the player if needed
+ */
+void player_chunk_submit(pcm_chunk_message_t *chunk) {
+  if (chunk == NULL) {
+    return;
+  }
+
+  if (!playerStarted) {
+    // Drop this chunk and what is left from the last playback. Starting the
+    // player resets the latency buffer, and player_chunk_get() returns no
+    // chunks until it is full again: a chunk queued now would be followed by
+    // a gap.
+    pcm_pool_flush();
+    pcm_pool_put_free(chunk);
+    if (!playerPaused) {
+      start_player();
+    }
+
+    return;
+  }
+
+  pcm_pool_put_filled(chunk);
+}
+
+/**
+ * Returns an unused chunk to the pool
+ */
+void player_chunk_discard(pcm_chunk_message_t *chunk) {
+  pcm_pool_put_free(chunk);
+}
+
+/**
+ * Stops the player task and waits until it is gone, so the pool can be
+ * rebuilt. The task notices a stop request within PLAYER_STOP_POLL_MS.
+ */
+void stop_player_and_wait(void) {
+  stop_player_task();
+
+  // max 5 s; the initial sync waits up to the server buffer
+  for (int i = 0; (i < 500) && playerStarted; i++) {
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+  if (playerStarted) {
+    ESP_LOGE(TAG, "player task didn't stop");
+  }
+}
+
+/**
+ * Diagnostics only: PCM chunks waiting for playback, the pool size, and the
  * duration of one chunk and of the I2S DMA buffers. Not synchronized with the
- * player task, which may replace the queue when the server settings change.
+ * decoder, which may rebuild the pool when the stream changes.
  */
 void player_get_buffer_fill(uint32_t *waiting, uint32_t *length,
                             uint32_t *chunkUs, uint32_t *dmaUs) {
-  QueueHandle_t q = pcmChkQHdl;
-
-  *waiting = 0;
-  *length = 0;
-  if (q) {
-    *waiting = uxQueueMessagesWaiting(q);
-    *length = *waiting + uxQueueSpacesAvailable(q);
-  }
+  *waiting = pcm_pool_filled_count();
+  *length = pcm_pool_slots();
   *chunkUs = (uint32_t)diagChunkUs;
   *dmaUs = (uint32_t)diagDmaUs;
 }
@@ -1458,16 +1164,41 @@ void player_get_buffer_fill(uint32_t *waiting, uint32_t *length,
  *
  */
 int32_t pcm_chunk_queue_msg_waiting(void) {
-  int ret = 0;
-
-  if (pcmChkQHdl) {
-    ret = uxQueueMessagesWaiting(pcmChkQHdl);
-  }
-
-  return ret;
+  return pcm_pool_filled_count();
 }
 
 static bool audioCodecCanSleep = false;
+
+// how often player_task checks for a stop request while it waits for audio,
+// and how long it waits before it stops on its own
+#define PLAYER_STOP_POLL_MS 100
+#define PLAYER_IDLE_TIMEOUT_MS 2000
+
+// true once stop_player_task() asked the task to stop
+static bool player_stop_requested(void) {
+  return ulTaskNotifyTakeIndexed(1, pdTRUE, 0) == pdTRUE;
+}
+
+/**
+ * Next chunk to play. NULL on a stop request (*stop is set) or after
+ * PLAYER_IDLE_TIMEOUT_MS without audio.
+ */
+static pcm_chunk_message_t *player_next_chunk(bool *stop) {
+  for (int waited = 0; waited < PLAYER_IDLE_TIMEOUT_MS;
+       waited += PLAYER_STOP_POLL_MS) {
+    pcm_chunk_message_t *chunk =
+        pcm_pool_get_filled(pdMS_TO_TICKS(PLAYER_STOP_POLL_MS));
+    if (chunk != NULL) {
+      return chunk;
+    }
+    if (player_stop_requested()) {
+      *stop = true;
+      return NULL;
+    }
+  }
+
+  return NULL;
+}
 
 /**
  *
@@ -1488,14 +1219,11 @@ static void player_task(void *pvParameters) {
   int32_t dir_insert_sample = 0;
   int64_t insertedSamplesCounter = 0;
   int64_t buf_us = 0;
-  pcm_chunk_fragment_t *fragment = NULL;
   size_t written;
   int64_t clientDacLatency_us = 0;
   int64_t diff2Server = 0;
   int64_t outputBufferDacTime_us = 0;
   int64_t dmaDescDuration_us = 0;
-  size_t alreadyWritten = 0;
-  static uint32_t queueCreatedWithChkInFrames = UINT32_MAX;
   int64_t playback_start_time_us = 0;
   uint64_t samples_written = 0;  
   UBaseType_t uxHighWaterMark;
@@ -1505,8 +1233,6 @@ static void player_task(void *pvParameters) {
   ESP_LOGI(TAG, "started sync task");
 
   //  stats_init();
-
-  queueCreatedWithChkInFrames = scSet.chkInFrames;
 
   initialSync = 0;
   
@@ -1525,29 +1251,23 @@ static void player_task(void *pvParameters) {
   adjust_apll(0);
 #endif
 
-//  if (pcmChkQHdl == NULL) {
-//    int entries = ceil(((float)scSet.sr / (float)scSet.chkInFrames) *
-//                        ((float)scSet.buf_ms / 1000));
-//
-//    // some chunks are placed in DMA buffer
-//    // so we can save a little RAM here
-//    entries -= (i2sDmaBufMaxLen * i2sDmaBufCnt) / scSet.chkInFrames;
-//
-//    queueCreatedWithChkInFrames = scSet.chkInFrames;
-//
-//    pcmChkQHdl = xQueueCreate(entries, sizeof(pcm_chunk_message_t *));
-//
-//    ESP_LOGI(TAG, "created new queue with %d", entries);
-//  }
   audio_set_mute(false);
 
   // wait for early time syncs to be ready
-  xSemaphoreTake(latencyBufFullSemaphoreHandle, portMAX_DELAY);
+  while (xSemaphoreTake(latencyBufFullSemaphoreHandle,
+                        pdMS_TO_TICKS(PLAYER_STOP_POLL_MS)) != pdTRUE) {
+    if (player_stop_requested()) {
+      goto player_exit;
+    }
+  }
   xSemaphoreGive(latencyBufFullSemaphoreHandle);
   while (1) {
     int64_t tDiff;
     if (get_diff_to_server(&tDiff, esp_timer_get_time())==0) {
       break;
+    }
+    if (player_stop_requested()) {
+      goto player_exit;
     }
     vTaskDelay(pdMS_TO_TICKS(10));
   }
@@ -1600,32 +1320,6 @@ static void player_task(void *pvParameters) {
           initialSync = 0;
         }
 
-        if ((scSet.buf_ms != __scSet.buf_ms) ||
-            (queueCreatedWithChkInFrames > __scSet.chkInFrames)) {
-          destroy_pcm_queue(&pcmChkQHdl);
-        }
-
-        if (pcmChkQHdl == NULL) {
-          int entries = ceil(((float)__scSet.sr / (float)__scSet.chkInFrames) *
-                             ((float)__scSet.buf_ms / 1000));
-
-          // some chunks are placed in DMA buffer
-          // so we can save a little RAM here
-          entries -= (i2sDmaBufMaxLen * i2sDmaBufCnt) / __scSet.chkInFrames;
-
-          QueueHandle_t newQHdl = xQueueCreate(entries, sizeof(pcm_chunk_message_t *));
-          if (newQHdl == NULL) {
-            // Don't overwrite pcmChkQHdl with NULL — surrounding code (and other
-            // tasks) would then dereference a NULL handle. Stop the player
-            // task, same as the player_setup_i2s failure above.
-            ESP_LOGE(TAG, "Failed to create pcm chunk queue (%d entries); stopping player task", entries);
-            goto player_exit;
-          }
-          queueCreatedWithChkInFrames = __scSet.chkInFrames;
-          pcmChkQHdl = newQHdl;
-          ESP_LOGI(TAG, "created new queue with %d", entries);
-        }
-
         if ((scSet.sr != __scSet.sr) || (scSet.bits != __scSet.bits) ||
             (scSet.ch != __scSet.ch) || (scSet.buf_ms != __scSet.buf_ms)) {
           ESP_LOGI(TAG,
@@ -1643,15 +1337,10 @@ static void player_task(void *pvParameters) {
     }
 
     if (chnk == NULL) {
-      if (pcmChkQHdl != NULL) {
-        ret = xQueueReceive(pcmChkQHdl, &chnk, pdMS_TO_TICKS(2000));
-      } else {
-         //ESP_LOGE (TAG, "Couldn't get PCM chunk, pcm queue not created");
+      bool stop = false;
 
-        vTaskDelay(pdMS_TO_TICKS(100));
-
-        continue;
-      }
+      chnk = player_next_chunk(&stop);
+      ret = (chnk != NULL) ? pdPASS : pdFAIL;
 
       if (ret != pdFAIL) {
         chunkDuration_us =
@@ -1660,7 +1349,6 @@ static void player_task(void *pvParameters) {
             (int64_t)scSet.sr;
         diagChunkUs = chunkDuration_us;
 
-        // ESP_LOGI(TAG, "got pcm chunk with size %d", chnk->fragment->size);
       }
     } else {
       // ESP_LOGW(TAG, "already retrieved chunk needs service");
@@ -1678,7 +1366,7 @@ static void player_task(void *pvParameters) {
           // ESP_LOGW(TAG, "couldn't get server now");
 
           if (chnk != NULL) {
-            free_pcm_chunk(chnk);
+            pcm_pool_put_free(chnk);
             chnk = NULL;
           }
 
@@ -1702,26 +1390,16 @@ static void player_task(void *pvParameters) {
 #endif
           while (1) {
             if (chnk == NULL) {
-              if (pcmChkQHdl != NULL) {
-                ret = xQueueReceive(pcmChkQHdl, &chnk, pdMS_TO_TICKS(2000));
-                // if (ret != pdFAIL) {
-                //   ESP_LOGI(TAG, "got pcm chunk with size %d",
-                //            chnk->fragment->size);
-                // }
+              bool stop = false;
+              chnk = player_next_chunk(&stop);
+              if (chnk == NULL) {
+                // stop request, or the stream ended before DMA was full
+                goto player_exit;
               }
-            } else {
-              // ESP_LOGI(TAG, "got pcm chunk with size %d",
-              // chnk->fragment->size);
             }
 
-            // If we still don't have a chunk, wait and retry
-            if (chnk == NULL) {
-              continue;
-            }
-
-            fragment = chnk->fragment;
-            p_payload = fragment->payload;
-            size = fragment->size;
+            p_payload = chnk->payload;
+            size = chnk->totalSize;
 
             ESP_ERROR_CHECK(
                 i2s_channel_preload_data(tx_chan, p_payload, size, &written));
@@ -1735,20 +1413,13 @@ static void player_task(void *pvParameters) {
             p_payload += written;
 
             if (size == 0) {
-              if (fragment->nextFragment != NULL) {
-                fragment = fragment->nextFragment;
-                p_payload = fragment->payload;
-                size = fragment->size;
-              } else {
-                free_pcm_chunk(chnk);
-                chnk = NULL;
-              }
+              pcm_pool_put_free(chnk);
+              chnk = NULL;
             }
 
             if (dmaFull == true) {
               ESP_LOGI(TAG, "DMA completely loaded");
 
-              alreadyWritten = 0;
               chunkStart -=
                   (1000000LL * (int64_t)(i2sDmaBufCnt * i2sDmaBufMaxLen) /
                    (int64_t)scSet.sr);
@@ -1792,7 +1463,7 @@ static void player_task(void *pvParameters) {
           }
         } else if (age >= 0) {
           if (chnk != NULL) {
-            free_pcm_chunk(chnk);
+            pcm_pool_put_free(chnk);
             chnk = NULL;
           }
 
@@ -1801,7 +1472,7 @@ static void player_task(void *pvParameters) {
 
           my_gptimer_stop(gptimer);
           
-          int msgWaiting = uxQueueMessagesWaiting(pcmChkQHdl);
+          int msgWaiting = pcm_pool_filled_count();
 
           ESP_LOGW(TAG,
                    "RESYNCING HARD 1: age %lldus, latency %lldus, free %d, "
@@ -1814,9 +1485,9 @@ static void player_task(void *pvParameters) {
 
           // now clear all those chunks which are probably late too
           while (c--) {
-            ret = xQueueReceive(pcmChkQHdl, &chnk, pdMS_TO_TICKS(1));
-            if (ret == pdPASS) {
-              free_pcm_chunk(chnk);
+            chnk = pcm_pool_get_filled(pdMS_TO_TICKS(1));
+            if (chnk != NULL) {
+              pcm_pool_put_free(chnk);
               chnk = NULL;
             } else {
               break;
@@ -1843,185 +1514,50 @@ static void player_task(void *pvParameters) {
 
       if (initialSync == 1) {
         if (size == 0) {
-          fragment = chnk->fragment;
-          p_payload = fragment->payload;
-          size = fragment->size;
+          p_payload = chnk->payload;
+          size = chnk->totalSize;
         }
 
-        if (p_payload != NULL) {
-          #if 1
-          do {
-              size_t framesToBytes = (scSet.ch + (scSet.bits >> 3));
-#if USE_SAMPLE_INSERTION
-              uint32_t sampleSizeInBytes =
-                  framesToBytes * INSERT_SAMPLES;
-  
-              if ((dir_insert_sample > 0) && (size >= sampleSizeInBytes)) {
-                size -= sampleSizeInBytes;
-                dir_insert_sample = 0;
-              }
-#endif             
-              i2s_channel_write(tx_chan, p_payload, size, &written, portMAX_DELAY);
-              
-              samples_written += (written / framesToBytes);
-              size -= written;
-              p_payload += written;
-              chunkStart += (1000000ll * (written / framesToBytes) / scSet.sr); 
-
-#if USE_SAMPLE_INSERTION
-              if (dir_insert_sample < 0) {
-                if (i2s_channel_write(tx_chan, p_payload - sampleSizeInBytes, sampleSizeInBytes, &written, portMAX_DELAY) != ESP_OK) {
-                  ESP_LOGE(TAG, "i2s_playback_task:  I2S write error %d", 1);
-                }
-                else {
-                  samples_written += (written / framesToBytes);
-                  dir_insert_sample = 0;
-                  chunkStart += (1000000ll * (written / framesToBytes) / scSet.sr);
-                } 
-              }
-#endif
-              if (size == 0) {
-                if (fragment->nextFragment != NULL) {
-                  fragment = fragment->nextFragment;
-                  p_payload = fragment->payload;
-                  size = fragment->size;
-  
-                  // ESP_LOGI (TAG, "%s: fragmented", __func__);
-                } else {
-                  free_pcm_chunk(chnk);
-                  chnk = NULL;
-                  dir = 0;
-  
-                  break;
-                }
-              }
-            } while (1);
-            
-            outputBufferDacTime_us = 1000000ULL * i2sDmaBufMaxLen * i2sDmaBufCnt / scSet.sr; 
-          #else
-          do {
-            written = 0;
-
+        do {
+            size_t framesToBytes = (scSet.ch + (scSet.bits >> 3));
 #if USE_SAMPLE_INSERTION
             uint32_t sampleSizeInBytes =
-                (scSet.bits >> 3) * scSet.ch * INSERT_SAMPLES;
+                framesToBytes * INSERT_SAMPLES;
 
             if ((dir_insert_sample > 0) && (size >= sampleSizeInBytes)) {
               size -= sampleSizeInBytes;
+              dir_insert_sample = 0;
             }
 #endif
-            int64_t alreadyWrittenTime_us = 0;
-            size_t framesToBytes = (scSet.ch + (scSet.bits >> 3));
-            while (size) {
-              size_t i2sWriteLen;
-              size_t tmpSize = i2sDmaBufMaxLen * framesToBytes;
+            i2s_channel_write(tx_chan, p_payload, size, &written, portMAX_DELAY);
 
-              // #if USE_SAMPLE_INSERTION
-              //               if (dir_insert_sample < 0) {
-              //            tmpSize -= sampleSizeInBytes;
-              //               }
-              // #endif
-
-              if (size >= tmpSize) {
-                i2sWriteLen = i2sDmaBufMaxLen * framesToBytes - alreadyWritten;
-
-                i2s_channel_write(tx_chan, p_payload, i2sWriteLen, &written,
-                                  portMAX_DELAY);
-
-                alreadyWrittenTime_us =
-                    1000000LL * (int64_t)(alreadyWritten / framesToBytes) /
-                    (int64_t)scSet.sr;
-                chunkStart += (dmaDescDuration_us - alreadyWrittenTime_us);
-
-                alreadyWritten = 0;
-
-                outputBufferDacTime_us =
-                    1000000ULL * i2sDmaBufMaxLen * i2sDmaBufCnt / scSet.sr;
-              } else {  // here we are at the end of a chunk
-                i2sWriteLen = size;
+            samples_written += (written / framesToBytes);
+            size -= written;
+            p_payload += written;
+            chunkStart += (1000000ll * (written / framesToBytes) / scSet.sr);
 
 #if USE_SAMPLE_INSERTION
-                size_t insertedSamplesWritten = 0;
-
-                if (i2sWriteLen + sampleSizeInBytes <= i2sDmaBufMaxLen) {
-                  if (dir_insert_sample < 0) {
-                    if (i2s_channel_write(tx_chan, p_payload, sampleSizeInBytes,
-                                          &insertedSamplesWritten,
-                                          portMAX_DELAY) != ESP_OK) {
-                      ESP_LOGE(TAG, "i2s_playback_task:  I2S write error %d",
-                               1);
-                    }
-                  }
-
-                  dir_insert_sample = 0;
-                }
-#endif
-
-                i2s_channel_write(tx_chan, p_payload, i2sWriteLen, &written,
-                                  portMAX_DELAY);
-
-#if USE_SAMPLE_INSERTION
-                alreadyWritten = written + insertedSamplesWritten;
-#else
-                alreadyWritten = written;
-#endif
-                alreadyWrittenTime_us =
-                    1000000LL * (int64_t)(alreadyWritten / framesToBytes) /
-                    (int64_t)scSet.sr;
-                chunkStart += alreadyWrittenTime_us;
-
-                outputBufferDacTime_us = (1000000ULL * i2sDmaBufMaxLen *
-                                          (i2sDmaBufCnt - 1) / scSet.sr) +
-                                         alreadyWrittenTime_us;
+            if (dir_insert_sample < 0) {
+              if (i2s_channel_write(tx_chan, p_payload - sampleSizeInBytes, sampleSizeInBytes, &written, portMAX_DELAY) != ESP_OK) {
+                ESP_LOGE(TAG, "i2s_playback_task:  I2S write error %d", 1);
               }
-
-              samples_written += (written / (scSet.ch * (scSet.bits / 8)));
-              size -= written;
-              p_payload += written;
+              else {
+                samples_written += (written / framesToBytes);
+                dir_insert_sample = 0;
+                chunkStart += (1000000ll * (written / framesToBytes) / scSet.sr);
+              }
             }
-
-            dir = 0;
-
+#endif
             if (size == 0) {
-              if (fragment->nextFragment != NULL) {
-                fragment = fragment->nextFragment;
-                p_payload = fragment->payload;
-                size = fragment->size;
+              pcm_pool_put_free(chnk);
+              chnk = NULL;
+              dir = 0;
 
-                // ESP_LOGI (TAG, "%s: fragmented", __func__);
-              } else {
-                free_pcm_chunk(chnk);
-                chnk = NULL;
-                dir = 0;
-
-                break;
-              }
+              break;
             }
           } while (1);
-          #endif
-        } else {
-          // here we have an empty fragment because of memory allocation error.
-          // fill DMA with zeros so we don't get out of sync
-          written = 0;
-          const size_t write_size = 4;
-          uint8_t tmpBuf[write_size];
 
-          memset(tmpBuf, 0, sizeof(tmpBuf));
-
-          do {
-            if (i2s_channel_write(tx_chan, tmpBuf, write_size, &written,
-                                  portMAX_DELAY) != ESP_OK) {
-              ESP_LOGE(TAG, "i2s_playback_task: I2S write error %d/%d", written,
-                       size);
-            }
-
-            samples_written += (written / (scSet.ch * (scSet.bits / 8)));
-            size -= written;
-          } while (size);
-
-          free_pcm_chunk(chnk);
-          chnk = NULL;
-        }
+          outputBufferDacTime_us = 1000000ULL * i2sDmaBufMaxLen * i2sDmaBufCnt / scSet.sr;
 
         if (server_now(&serverNow, &diff2Server) >= 0) {
           {
@@ -2056,7 +1592,7 @@ static void player_task(void *pvParameters) {
           shortMedian = MEDIANFILTER_Insert(&shortMedianFilter, age);
           miniMedian = MEDIANFILTER_Insert(&miniMedianFilter, age);
 
-          int msgWaiting = uxQueueMessagesWaiting(pcmChkQHdl);
+          int msgWaiting = pcm_pool_filled_count();
 
           // resync hard if we are getting very late / early.
           // rest gets tuned in through apll speed control or sample insertion
@@ -2066,7 +1602,7 @@ static void player_task(void *pvParameters) {
                 (shortMedian < -hardResyncThreshold)))) 
           {
             if (chnk != NULL) {
-              free_pcm_chunk(chnk);
+              pcm_pool_put_free(chnk);
               chnk = NULL;
             }
 
@@ -2127,11 +1663,11 @@ static void player_task(void *pvParameters) {
 #endif
            ESP_LOGD(TAG, "%d, %lldus, %lldus, %lldus, q:%d, %lld, %lld", dir,
                    age, shortMedian, miniMedian,
-                   uxQueueMessagesWaiting(pcmChkQHdl), insertedSamplesCounter,
+                   pcm_pool_filled_count(), insertedSamplesCounter,
                    chunkDuration_us);
           // ESP_LOGI(TAG, "%d, %lldus, %lldus, %lldus, q:%d", dir,
           //         age, shortMedian, miniMedian,
-          //         uxQueueMessagesWaiting(pcmChkQHdl));
+          //         pcm_pool_filled_count());
           // ESP_LOGI( TAG, "8b f %d b %d",
           //       heap_caps_get_free_size(MALLOC_CAP_8BIT |
           //                         MALLOC_CAP_INTERNAL),
@@ -2146,7 +1682,7 @@ static void player_task(void *pvParameters) {
           // ESP_LOGW(TAG, "couldn't get server now");
 
           if (chnk != NULL) {
-            free_pcm_chunk(chnk);
+            pcm_pool_put_free(chnk);
             chnk = NULL;
           }
 
@@ -2163,12 +1699,10 @@ static void player_task(void *pvParameters) {
       msec = usec / 1000;
       usec = usec % 1000;
 
-      if (pcmChkQHdl != NULL) {
-        ESP_LOGV(TAG,
-                 "Couldn't get PCM chunk, recv: messages waiting %d, "
-                 "diff2Server: %llds, %lld.%lldms",
-                 uxQueueMessagesWaiting(pcmChkQHdl), sec, msec, usec);
-      }
+      ESP_LOGV(TAG,
+               "Couldn't get PCM chunk, recv: messages waiting %lu, "
+               "diff2Server: %llds, %lld.%lldms",
+               pcm_pool_filled_count(), sec, msec, usec);
       break;
     }
     if (ulTaskNotifyTakeIndexed(1, pdTRUE, 0) == pdTRUE) {
@@ -2192,7 +1726,13 @@ player_exit:
   esp_pm_lock_release(player_pm_lock_handle);
 #endif
 
-  destroy_pcm_queue(&pcmChkQHdl);
+  // chunks queued while the task was ending are flushed by the next
+  // player_chunk_submit()
+  if (chnk != NULL) {
+    pcm_pool_put_free(chnk);
+    chnk = NULL;
+  }
+  pcm_pool_flush();
 
   tg0_timer_deinit();
   playerStarted = false;
