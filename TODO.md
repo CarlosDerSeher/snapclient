@@ -72,9 +72,6 @@ robustness change: no fragmentation, no "malloc failed, retry" loops.
 - **Decoders write directly into slots**: FLAC `write_callback` writes packed 32-bit frames;
   Opus decodes into one static scratch buffer, then a 32-bit copy; PCM as today.
 - Remove `pcm_chunk_fragment_t` and all fragment handling.
-- Fold in #234 (closed, credit W-Floyd): rate-limit the "RESYNCING HARD" warnings in `player_task`
-  to one per second, query Wi-Fi/heap info only when a line is printed, and report how many were
-  suppressed. Related: #117, #191, #226.
 
 Acceptance: no `malloc/realloc/free` from decode to playback after the pool is built; minimum free
 heap and largest free block flat over 10 min of playback; sync unchanged across codec switches,
@@ -114,7 +111,18 @@ settings and schemas. Needs a TAS5805M board to test.
   is plugged in (auto-negotiation timeout). Lower `autonego_timeout_ms` in
   `components/network_interface/eth_interface.c`, then check boot timing and that a plugged-in cable
   still gets link and IP.
-- Hard resyncs: #117, #191, #226 (see 1.3).
+- Hard resyncs: #117, #191, #226.
+- Rate-limit the "RESYNCING HARD 1/2" warnings in `player_task` (#234, closed, credit W-Floyd): at
+  most one line per second with one shared timestamp at file scope, query Wi-Fi/heap info only when
+  a line is printed, and report how many were suppressed ("(+12 suppressed)"). Today every hard
+  resync calls `esp_wifi_sta_get_ap_info()` and `heap_caps_*` in the high-priority player task, and
+  a ~130-char line blocks ~11 ms at 115200 baud once the UART buffer is full. Separate PR from 1.3.
+- Channel order differs between codecs: FLAC packs a stereo frame as `L | R << 16`, Opus and PCM
+  as `L << 16 | R`. One of them plays left and right swapped. Check with an L/R test signal per
+  codec, then use one layout everywhere.
+- `player_task` computes the frame size in its I2S write loop as `ch + (bits >> 3)` instead of
+  `ch * (bits >> 3)` (also in the disabled `#else` variant). Correct by chance only for 16-bit
+  stereo; wrong sample counts and chunk timing for mono, 24 or 32 bit.
 - Update libFLAC: the submodule is at 1.3.3+85 (July 2021, already has the 1.3.4 CVE fix), upstream
   is at 1.5.0. Upstream has oss-fuzz fixes for malformed frames. The most important one is a heap
   overflow when a frame's predictor order is larger than its blocksize (`2f209573`); others are
