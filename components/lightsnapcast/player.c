@@ -628,9 +628,27 @@ int start_player() {
 
   ESP_LOGI(TAG, "Start player_task");
 
-  xTaskCreatePinnedToCore(player_task, "player", 1024 * 3, (void*) scSet,
-                          SYNC_TASK_PRIORITY, &playerTaskHandle,
-                          SYNC_TASK_CORE_ID);
+  if (xTaskCreatePinnedToCore(player_task, "player", 1024 * 3, (void*) scSet,
+                              SYNC_TASK_PRIORITY, &playerTaskHandle,
+                              SYNC_TASK_CORE_ID) != pdPASS) {
+    // undo the above, or playerStarted stays set and nothing restarts it
+    ESP_LOGE(TAG, "Failed to create player task, %u B free",
+             heap_caps_get_free_size(MALLOC_CAP_8BIT));
+    playerTaskHandle = NULL;
+    my_i2s_channel_disable(tx_chan);
+    i2s_del_channel(tx_chan);
+    tx_chan = NULL;
+    if (lock_i2s != NULL) {
+      lock_i2s(false, 0);
+    }
+    tg0_timer_deinit();
+#if CONFIG_PM_ENABLE
+    esp_pm_lock_release(player_pm_lock_handle);
+#endif
+    playerStarted = false;
+
+    return -1;
+  }
 
   call_state_cb();
   ESP_LOGI(TAG, "start player done");
