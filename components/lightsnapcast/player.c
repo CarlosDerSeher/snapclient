@@ -1051,10 +1051,17 @@ static uint32_t player_dma_frames(uint32_t chkInFrames) {
 #endif
 }
 
+// Chunks on top of the play queue. None: the decoder waits for a free chunk
+// (PLAYER_FREE_CHUNK_WAIT_MS), so the chunk being decoded and the one being
+// played come out of the queue's share and the rest waits in the TCP window,
+// as compressed audio. Measured under bad Wi-Fi: as robust as 2 spare chunks
+// at the same buffer, with ~9 KB more heap free.
+#define PLAYER_POOL_SPARE_CHUNKS 0
+
 /**
  * Chunks the pool needs for buf_ms: the play queue holds the buffer minus the
- * whole chunks in the I2S DMA buffers (as the old pcm queue did), plus one
- * chunk being decoded and one being played.
+ * whole chunks in the I2S DMA buffers (as the old pcm queue did), plus
+ * PLAYER_POOL_SPARE_CHUNKS.
  */
 uint32_t player_chunk_slots(int32_t sr, uint32_t chkInFrames,
                             uint32_t buf_ms) {
@@ -1070,7 +1077,7 @@ uint32_t player_chunk_slots(int32_t sr, uint32_t chkInFrames,
     queued = 1;
   }
 
-  return (uint32_t)queued + 2;
+  return (uint32_t)queued + PLAYER_POOL_SPARE_CHUNKS;
 }
 
 // How long the decoder waits for a free chunk while the player runs. The
