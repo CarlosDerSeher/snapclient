@@ -56,7 +56,11 @@ def cmd_point(a):
 
 def cmd_restore(a):
     for param in ("snapserver_host", "snapserver_port", "snapserver_use_mdns"):
-        board_request(a.board, "DELETE", f"/delete?param={param}")
+        try:
+            board_request(a.board, "DELETE", f"/delete?param={param}")
+        except SystemExit as e:
+            # the board answers 500 when the setting isn't stored at all
+            print(f"{param}: {e} (not set?), continuing")
         time.sleep(0.5)
     print(f"{a.board}: server settings back to defaults")
     board_restart(a.board)
