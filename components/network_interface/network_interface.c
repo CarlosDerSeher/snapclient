@@ -104,6 +104,10 @@ esp_err_t network_playback_stopped(void) {
     return ESP_OK;
 }
 
+void network_server_discovery_active(bool active) {
+    wifi_set_discovery_active(active);
+}
+
 bool network_is_playback_active(void) {
     if (!network_event_group) {
         return false;

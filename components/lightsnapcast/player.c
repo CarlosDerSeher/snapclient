@@ -175,6 +175,9 @@ esp_err_t my_i2s_channel_enable(i2s_chan_handle_t handle) {
  * works, but it does.
  */
 static void ensure_noiseless(i2s_chan_handle_t tx) {
+  // zero buffer is const, so it lives in flash and costs no RAM
+  static const uint8_t silence_buf[512] __attribute__((aligned(4))) = {0};
+
   // We only need to prime I2S once
   static bool i2s_primed = false;
   if (i2s_primed) {
@@ -188,22 +191,29 @@ static void ensure_noiseless(i2s_chan_handle_t tx) {
 
   // This could be adjusted size according to sample rate, bits, channels
   size_t silence_size = 44100 * 2 * 2 / 10;
-  char *silence_buf = calloc(1, silence_size);
+  size_t total_written = 0;
 
-  if (silence_buf) {
-    size_t bytes_written;
+  // Write silence
+  // While this is not required to stop noise, it somehow prevents pops later.
+  while (total_written < silence_size) {
+    size_t bytes_written = 0;
+    size_t len = silence_size - total_written;
+    if (len > sizeof(silence_buf)) {
+      len = sizeof(silence_buf);
+    }
 
-    // Write silence
-    // While this is not required to stop noise, it somehow prevents pops later.
-    i2s_channel_write(tx, silence_buf, silence_size, &bytes_written,
-                      pdMS_TO_TICKS(200));
-
-    // Wait for DMA to flush
-    vTaskDelay(pdMS_TO_TICKS(150));
-
-    free(silence_buf);
-    ESP_LOGI(TAG, "Audio path primed with %d bytes of silence", bytes_written);
+    if (i2s_channel_write(tx, silence_buf, len, &bytes_written,
+                          pdMS_TO_TICKS(200)) != ESP_OK ||
+        bytes_written == 0) {
+      break;
+    }
+    total_written += bytes_written;
   }
+
+  // Wait for DMA to flush
+  vTaskDelay(pdMS_TO_TICKS(150));
+
+  ESP_LOGI(TAG, "Audio path primed with %d bytes of silence", total_written);
 
   // Disable I2S channel again. Leaving it enabled may cause pops later.
   my_i2s_channel_disable(tx);

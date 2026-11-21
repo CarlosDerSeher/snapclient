@@ -314,7 +314,8 @@ void improv_init(void) {
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "Failed to install UART driver: %s", esp_err_to_name(ret));
   } else {
-    BaseType_t task_ret = xTaskCreatePinnedToCore(&improv_uart_task, "improv_uart", 8 * 1024, NULL, 4,
+    // worst case (static analysis) is the Wi-Fi scan path at ~4.5 KB
+    BaseType_t task_ret = xTaskCreatePinnedToCore(&improv_uart_task, "improv_uart", 6 * 1024, NULL, 4,
                           &t_improv_uart_task, tskNO_AFFINITY);
     ESP_LOGD(TAG, "UART Improv task created: %d (handle: %p)", task_ret, t_improv_uart_task);
   }
@@ -355,6 +356,8 @@ void improv_deinit(void) {
 
 #ifdef CONFIG_ESP_CONSOLE_UART_DEFAULT
   if (t_improv_uart_task) {
+    ESP_LOGI(TAG, "improv_uart stack high-water mark: %u bytes",
+             (unsigned)uxTaskGetStackHighWaterMark(t_improv_uart_task));
     vTaskDelete(t_improv_uart_task);
     uart_driver_delete(uart_num);
     t_improv_uart_task = NULL;

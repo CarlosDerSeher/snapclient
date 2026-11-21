@@ -51,8 +51,9 @@ static double dynamic_vol = 1.0;
 
 static bool init = false;
 
-static float *sbuffer0 = NULL;
-static float *sbufout0 = NULL;
+// static work buffers, so the audio path does not allocate per call
+static float sbuffer0[DSP_PROCESSOR_LEN];
+static float sbufout0[DSP_PROCESSOR_LEN];
 
 #if CONFIG_USE_DSP_PROCESSOR
 #define SNAPCAST_USE_SOFT_VOL CONFIG_SNAPCLIENT_USE_SOFT_VOL
@@ -120,16 +121,6 @@ void dsp_processor_init(void) {
  */
 void dsp_processor_uninit(void) {
   ESP_LOGD(TAG, "%s: uninitializing", __func__);
-  if (sbuffer0) {
-    free(sbuffer0);
-    sbuffer0 = NULL;
-  }
-
-  if (sbufout0) {
-    free(sbufout0);
-    sbufout0 = NULL;
-  }
-
   if (filter) {
     free(filter);
     filter = NULL;
@@ -446,24 +437,6 @@ int dsp_processor_worker(char *pcmChnk, uint16_t len, uint32_t samplerate, int c
 
   // only process data if it is valid
   if (audio_tmp) {
-    sbuffer0 = (float *)heap_caps_malloc(sizeof(float) * DSP_PROCESSOR_LEN,
-                                         MALLOC_CAP_8BIT);
-    if (sbuffer0 == NULL) {
-      ESP_LOGE(TAG, "No Memory allocated for dsp_processor sbuffer0");
-
-      return -1;
-    }
-
-    sbufout0 = (float *)heap_caps_malloc(sizeof(float) * DSP_PROCESSOR_LEN,
-                                         MALLOC_CAP_8BIT);
-    if (sbufout0 == NULL) {
-      ESP_LOGE(TAG, "No Memory allocated for dsp_processor sbufout0");
-
-      free(sbuffer0);
-
-      return -1;
-    }
-
 #if CONFIG_SNAPCLIENT_MIX_LR_TO_MONO
     if (ch == 2) {
       for (int k = 0; k < len; k += DSP_PROCESSOR_LEN) {
@@ -734,12 +707,6 @@ int dsp_processor_worker(char *pcmChnk, uint16_t len, uint32_t samplerate, int c
       default: {
       } break;
     }
-
-    free(sbuffer0);
-    sbuffer0 = NULL;
-
-    free(sbufout0);
-    sbufout0 = NULL;
   }
 
   return 0;

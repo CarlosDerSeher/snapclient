@@ -107,6 +107,63 @@ static void wifi_apply_ps_mode(wifi_ps_type_t mode) {
                                          : "MIN_MODEM");
 }
 
+/* Inputs for the power save decision, see wifi_update_ps_mode().
+ * Guarded by ps_mutex: updated from the main task (playback state) and
+ * the http task (server discovery). */
+static bool ps_playback_active = false;
+static bool ps_discovery_active = false;
+static StaticSemaphore_t ps_mutex_buffer;
+static SemaphoreHandle_t ps_mutex = NULL;
+
+/* Power save mode while looking for the server. mDNS answers may be
+ * multicast, which the AP only delivers after DTIM beacons. MAX_MODEM wakes
+ * per listen interval and can sleep through them for a whole association,
+ * so cap it at MIN_MODEM (wakes for every DTIM, the ESP-IDF default). */
+static wifi_ps_type_t wifi_discovery_ps_mode(void) {
+  wifi_ps_type_t mode = wifi_idle_ps_mode();
+
+  return (mode == WIFI_PS_MAX_MODEM) ? WIFI_PS_MIN_MODEM : mode;
+}
+
+/* Returns false (and logs) if the lock is missing or could not be taken;
+ * callers must then skip the update instead of running unprotected. */
+static bool wifi_ps_lock(void) {
+  if (ps_mutex == NULL) {
+    ESP_LOGE(TAG, "power save lock used before wifi_start()");
+    return false;
+  }
+
+  if (xSemaphoreTake(ps_mutex, portMAX_DELAY) != pdTRUE) {
+    ESP_LOGE(TAG, "failed to take power save lock");
+    return false;
+  }
+
+  return true;
+}
+
+static void wifi_ps_unlock(void) {
+  if (xSemaphoreGive(ps_mutex) != pdTRUE) {
+    ESP_LOGE(TAG, "failed to give power save lock");
+  }
+}
+
+/* Recompute and apply the power save mode from playback and discovery
+ * state. Call with ps_mutex held. */
+static void wifi_update_ps_mode(void) {
+  wifi_ps_type_t mode = wifi_idle_ps_mode();
+  if (ps_discovery_active) {
+    mode = wifi_discovery_ps_mode();
+  }
+#if defined(CONFIG_WIFI_DYNAMIC_POWER_SAVE)
+  // While Ethernet has taken over, WiFi carries no audio - stay in the idle
+  // mode rather than holding the radio awake for an unused link.
+  if (ps_playback_active && !wifi_is_suppressed()) {
+    mode = WIFI_PS_NONE;
+  }
+#endif
+  wifi_apply_ps_mode(mode);
+}
+
 static esp_netif_t *esp_wifi_netif = NULL;
 
 static esp_netif_ip_info_t ip_info = {{0}, {0}, {0}};
@@ -143,16 +200,14 @@ static void event_handler(void *arg, esp_event_base_t event_base, int event_id,
 
 #if ENABLE_WIFI_PROVISIONING
 /*
- * Short-lived task to deinitialize Improv provisioning after a delay.
- * Defined at file scope because C does not support nested functions.
+ * One-shot esp_timer callback to deinitialize Improv provisioning after a
+ * delay. Runs in the esp_timer task, so no extra task stack is needed.
  */
-static void improv_deinit_task(void *pv) {
-  (void)pv;
-  vTaskDelay(pdMS_TO_TICKS(IMPROV_DEINIT_DELAY_MS));
+static void improv_deinit_timer_cb(void *arg) {
+  (void)arg;
   ESP_LOGI(TAG, "Deinitiating improv provisioning (after %u ms)",
            (unsigned)IMPROV_DEINIT_DELAY_MS);
   improv_deinit();
-  vTaskDelete(NULL);
 }
 #endif
 
@@ -249,6 +304,9 @@ void wifi_start(void) {
   if (!connIpSemaphoreHandle) {
     connIpSemaphoreHandle = xSemaphoreCreateMutex();
   }
+  if (!ps_mutex) {
+    ps_mutex = xSemaphoreCreateMutexStatic(&ps_mutex_buffer);
+  }
 
   wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
   ESP_ERROR_CHECK(esp_wifi_init(&cfg));
@@ -284,7 +342,10 @@ void wifi_start(void) {
                                              &lost_ip_event_handler, NULL));
 
   ESP_ERROR_CHECK(esp_wifi_start());
-  wifi_apply_ps_mode(wifi_idle_ps_mode());
+  if (wifi_ps_lock()) {
+    wifi_update_ps_mode();
+    wifi_ps_unlock();
+  }
 
 #ifdef CONFIG_SNAPCLIENT_WIFI_TX_POWER_CONTROL
   {
@@ -299,16 +360,19 @@ void wifi_start(void) {
 
   improv_init();
 #if ENABLE_WIFI_PROVISIONING
-  /* Start a short-lived task that will deinit improv after a configurable
+  /* Start a one-shot timer that will deinit improv after a configurable
      delay from startup. This ensures we deinit even if we never connect. */
-  static bool improv_deinit_task_created = false;
-  if (!improv_deinit_task_created) {
-    BaseType_t r = xTaskCreate(improv_deinit_task, "improv_deinit", 4096,
-                               NULL, tskIDLE_PRIORITY + 1, NULL);
-    if (r != pdPASS) {
-      ESP_LOGW(TAG, "failed to create improv_deinit task");
-    } else {
-      improv_deinit_task_created = true;
+  static esp_timer_handle_t improv_deinit_timer = NULL;
+  if (improv_deinit_timer == NULL) {
+    const esp_timer_create_args_t timer_args = {
+        .callback = &improv_deinit_timer_cb,
+        .name = "improv_deinit",
+    };
+    if (esp_timer_create(&timer_args, &improv_deinit_timer) != ESP_OK ||
+        esp_timer_start_once(improv_deinit_timer,
+                             (uint64_t)IMPROV_DEINIT_DELAY_MS * 1000) !=
+            ESP_OK) {
+      ESP_LOGW(TAG, "failed to start improv_deinit timer");
     }
   }
 #endif
@@ -336,7 +400,10 @@ void wifi_start(void) {
                                              &lost_ip_event_handler, NULL));
 
   ESP_ERROR_CHECK(esp_wifi_start());
-  wifi_apply_ps_mode(wifi_idle_ps_mode());
+  if (wifi_ps_lock()) {
+    wifi_update_ps_mode();
+    wifi_ps_unlock();
+  }
 
 #ifdef CONFIG_SNAPCLIENT_WIFI_TX_POWER_CONTROL
   {
@@ -358,15 +425,23 @@ void wifi_start(void) {
  * enable=true returns it to the configured idle mode.
  */
 void wifi_set_power_save(bool enable) {
-#if defined(CONFIG_WIFI_DYNAMIC_POWER_SAVE)
-  // While Ethernet has taken over, WiFi carries no audio - stay in the idle
-  // mode rather than holding the radio awake for an unused link.
-  if (enable || wifi_is_suppressed()) {
-    wifi_apply_ps_mode(wifi_idle_ps_mode());
-  } else {
-    wifi_apply_ps_mode(WIFI_PS_NONE);
+  if (!wifi_ps_lock()) {
+    return;
   }
-#else
-  (void)enable;  // power save mode is static
-#endif
+  ps_playback_active = !enable;
+  wifi_update_ps_mode();
+  wifi_ps_unlock();
+}
+
+/**
+ * Limit WiFi power save while looking for the snapserver via mDNS.
+ * active=true caps the mode at MIN_MODEM, active=false restores it.
+ */
+void wifi_set_discovery_active(bool active) {
+  if (!wifi_ps_lock()) {
+    return;
+  }
+  ps_discovery_active = active;
+  wifi_update_ps_mode();
+  wifi_ps_unlock();
 }
