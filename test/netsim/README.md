@@ -48,14 +48,28 @@ The jitter sequence depends only on the seed, so two firmware builds see exactly
 
 ## Packet loss (netem)
 
-`netem.sh` drops and delays packets that this host sends to the board, using the kernel's netem
+`netem.sh` drops and delays packets between this host and the board, using the kernel's netem
 qdisc. It needs root. Other traffic on the interface is not touched.
 
 ```sh
-sudo test/netsim/netem.sh on BOARD loss 2% delay 30ms 10ms   # start, or change settings
-sudo test/netsim/netem.sh show BOARD                         # counters: sent, dropped
-sudo test/netsim/netem.sh off BOARD                          # restore
+sudo test/netsim/netem.sh on BOARD loss 2% delay 30ms 10ms            # to the board only
+sudo test/netsim/netem.sh on BOARD both loss 2% delay 10ms           # both directions
+sudo test/netsim/netem.sh show BOARD                                  # counters: sent, dropped
+sudo test/netsim/netem.sh off BOARD                                   # remove everything
 ```
+
+The optional word after `BOARD` selects the direction:
+- `out` (default): packets to the board. That is the audio stream: lost segments are retransmitted
+  by this host, and the board holds the segments after a gap in its pbufs.
+- `in`: packets from the board (ACKs, Hello, time messages). netem only works on outgoing traffic,
+  so these are redirected to an `ifb` device (`netsim-ifb`) and dropped there. Lost ACKs mostly
+  make the server's window open later and in bigger steps. Lost time messages and other data
+  make the board's lwIP retransmit, which holds pbufs and Wi-Fi TX buffers. Lost or delayed time
+  messages also skew the latency measurement.
+- `both`: the same netem settings on both sides, which is closest to bad Wi-Fi. Delay is then
+  added twice to the round trip (`delay 10ms` gives +20 ms RTT).
+
+`on` again replaces all previous settings (both sides).
 
 Here the TCP connection to the board starts on this host: at the proxy, or at the snapserver
 when the board connects to it directly. So a dropped segment is really lost. This host's TCP
@@ -63,9 +77,6 @@ retransmits it, backs off and restarts slow start. Meanwhile the board holds the
 the gap in its pbufs. The proxy's stalls and netem can run at the same time.
 
 Notes:
-- Only the direction host → board is affected. That is the audio stream, and it is what matters
-  for a client that mostly receives. Loss towards the host (the board's ACKs and time messages)
-  would need an `ifb` device.
 - Use the real interface the board is reached through (the script asks `ip route get`; set `DEV`
   to override). Loopback won't do.
 - Delay with jitter (`delay 30ms 10ms`) also reorders packets. Add `rate` or leave out the jitter
