@@ -103,6 +103,15 @@ settings and schemas. Needs a TAS5805M board to test.
 - POST: one parameter per request, or a small parser instead of `cJSON_Parse()` on the whole body.
 - Fault task (3 KB, polling) → periodic job without its own stack.
 
+### 1.7 Minimum-RAM sdkconfig
+A defaults file for a plain ESP32 without PSRAM that collects everything that saves RAM, instead of
+relying on `sdkconfig.defaults`, which today still builds the UDP logger (its Kconfig defaults to
+`y`, and `sdkconfig.defaults` doesn't turn it off).
+
+- UDP logger off, DSP off, Opus optional (`CONFIG_SNAPCLIENT_DISABLE_OPUS`, #255).
+- The Wi-Fi / lwIP settings from 1.4 once they are tested.
+- A PlatformIO env for it, and the README "Boards without PSRAM" table measured with it.
+
 ## 2. Robustness and bugs
 
 - *In progress (#253):* `player_task` returns on errors; a FreeRTOS task must never `return`
