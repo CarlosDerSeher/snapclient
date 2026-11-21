@@ -4,6 +4,7 @@
 #include "board.h"
 #include "driver/timer_types_legacy.h"
 #include "esp_event.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_netif.h"
@@ -214,6 +215,9 @@ typedef struct {
 
 static pcm_pool_key_t poolKey;        // pool in use
 static pcm_pool_key_t poolFailedKey;  // last pool that didn't fit
+// internal RAM free after that failure: pcm_pool_retry() tries again once at
+// least one more slot is free, e.g. after Improv provisioning ends
+static size_t poolFailedFree = 0;
 static codec_type_t poolCodec = NONE;  // codec the pool is for
 
 // FLAC: the pool is built after the first frame, once libFLAC has allocated
@@ -736,6 +740,7 @@ static bool pcm_pool_ensure(playerSetting_t *setting) {
 
   if (pcm_pool_build(key.slotBytes, key.slots) != ESP_OK) {
     poolFailedKey = key;
+    poolFailedFree = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
     ESP_LOGE(TAG,
              "server buffer of %u ms doesn't fit into RAM, playback stays "
              "stopped. Lower the buffer on the server (see README).",
@@ -748,6 +753,26 @@ static bool pcm_pool_ensure(playerSetting_t *setting) {
   poolKey = key;
 
   return true;
+}
+
+/**
+ * After a pool didn't fit: tries again once more RAM is free than at the
+ * failure, so playback starts without a stream change when memory gets
+ * released (Improv provisioning ends 3 min after boot, a web or OTA session
+ * closes).
+ */
+static void pcm_pool_retry(playerSetting_t *setting) {
+  if (pcm_pool_ready() || (poolFailedKey.slots == 0)) {
+    return;
+  }
+  if (heap_caps_get_free_size(MALLOC_CAP_INTERNAL) <
+      poolFailedFree + poolFailedKey.slotBytes) {
+    return;
+  }
+
+  ESP_LOGI(TAG, "more RAM free now, trying the pcm pool again");
+  memset(&poolFailedKey, 0, sizeof(poolFailedKey));
+  pcm_pool_ensure(setting);
 }
 
 #if !CONFIG_SNAPCLIENT_DISABLE_OPUS
@@ -977,6 +1002,8 @@ void codec_header_received(char *codecPayload, uint32_t codecPayloadLen,
 void handle_chunk_message(codec_type_t codec, playerSetting_t *scSet,
                           pcm_chunk_message_t **pcmData,
                           wire_chunk_message_t *wire_chnk) {
+  pcm_pool_retry(scSet);
+
   switch (codec) {
 #if !CONFIG_SNAPCLIENT_DISABLE_OPUS
     case OPUS: {
