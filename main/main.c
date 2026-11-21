@@ -1560,7 +1560,9 @@ int init_snapclient(void (*set_volume)(int), void (*set_mute)(bool, bool), i2s_s
   }
   init_player(i2s_pin_config0, I2S_NUM_0, player_set_mute, on_player_state_paused, lock);
 
-  xTaskCreatePinnedToCore(&http_get_task, "http", 15 * 1024, NULL,
+  // Measured peak ~11.7 KB with Opus (its decoder keeps large arrays on the
+  // stack); FLAC and PCM need far less
+  xTaskCreatePinnedToCore(&http_get_task, "http", 13 * 1024, NULL,
                         HTTP_TASK_PRIORITY, &t_http_get_task,
                         HTTP_TASK_CORE_ID);
 

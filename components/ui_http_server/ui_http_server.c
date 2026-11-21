@@ -1677,11 +1677,20 @@ _Static_assert(HTTPD_SOCKETS_AVAILABLE >= 2,
 #define UI_URI_HANDLERS \
 	(UI_URI_HANDLERS_BASE + UI_URI_HANDLERS_TAS5805M + UI_URI_HANDLERS_OTA)
 
+/* Measured peak use of the httpd task is ~3.3 KB (all UI pages, DSP JSON,
+   parameter POSTs, OTA upload). The TAS5805M handlers build cJSON trees and
+   have not been measured, so they keep the old 8 KB. */
+#if CONFIG_DAC_TAS5805M
+#define HTTPD_STACK_SIZE 8192
+#else
+#define HTTPD_STACK_SIZE 6144
+#endif
+
 esp_err_t start_server(const char *base_path, int port) {
 	ESP_LOGD(TAG, "%s: base_path=%s port=%d", __func__, base_path, port);
 	httpd_config_t config = HTTPD_DEFAULT_CONFIG();
 	config.server_port = port;
-	config.stack_size = 8192;
+	config.stack_size = HTTPD_STACK_SIZE;
 	config.max_open_sockets = HTTPD_MAX_OPEN_SOCKETS;
 	config.max_req_hdr_len = 2048;
 	config.max_uri_len = 1024;
