@@ -12,8 +12,8 @@ What it does **not** simulate: the proxy ends TCP on both sides, so nothing is e
 PC's TCP stack ACKs every segment, and there are no retransmissions, retransmission-timeout
 backoff, slow start after a timeout, or out-of-order segments held by the client. After real loss
 the backlog arrives later and slower than after a proxy stall, so recovery times measured here are
-optimistic, and the client's pbufs and Wi-Fi RX buffers are stressed less. For loss and extra RTT
-use `tc netem` (or an `iptables -m statistic` drop rule) on a Linux host or router in the path.
+optimistic, and the client's pbufs and Wi-Fi RX buffers are stressed less. For loss and extra
+delay, add netem on the same host (see [Packet loss](#packet-loss-netem)).
 
 ## Setup
 
@@ -45,6 +45,37 @@ board  --Wi-Fi-->  this PC :1706 (netsim_proxy.py)  -->  snapserver :1704
    Or run unattended with `--schedule "60 jitter 0.1 0.7 3 1" "300 jitter off" "330 quit"`.
 
 The jitter sequence depends only on the seed, so two firmware builds see exactly the same stalls.
+
+## Packet loss (netem)
+
+`netem.sh` drops and delays packets that this host sends to the board, using the kernel's netem
+qdisc. It needs root. Other traffic on the interface is not touched.
+
+```sh
+sudo test/netsim/netem.sh on BOARD loss 2% delay 30ms 10ms   # start, or change settings
+sudo test/netsim/netem.sh show BOARD                         # counters: sent, dropped
+sudo test/netsim/netem.sh off BOARD                          # restore
+```
+
+Here the TCP connection to the board starts on this host: at the proxy, or at the snapserver
+when the board connects to it directly. So a dropped segment is really lost. This host's TCP
+retransmits it, backs off and restarts slow start. Meanwhile the board holds the segments after
+the gap in its pbufs. The proxy's stalls and netem can run at the same time.
+
+Notes:
+- Only the direction host → board is affected. That is the audio stream, and it is what matters
+  for a client that mostly receives. Loss towards the host (the board's ACKs and time messages)
+  would need an `ifb` device.
+- Use the real interface the board is reached through (the script asks `ip route get`; set `DEV`
+  to override). Loopback won't do.
+- Delay with jitter (`delay 30ms 10ms`) also reorders packets. Add `rate` or leave out the jitter
+  if you don't want that.
+- netem's random drops are not seeded with iproute2 < 6.7, so runs differ. Compare builds over
+  several runs, or use a `loss gemodel` burst pattern.
+- Always run `off` afterwards. The settings stay until then, or until a reboot.
+
+Typical settings: `loss 1%`, `loss 3%`, burst loss `loss gemodel 1% 30% 70% 0.1%`, delay
+`delay 30ms 10ms`.
 
 ## Reading the result
 
