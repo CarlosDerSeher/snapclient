@@ -992,6 +992,13 @@ esp_err_t settings_get_json(char *json_out, size_t max_len) {
     cJSON_AddBoolToObject(root, "dsp_available", false);
 #endif
 
+    // Add runtime status availability flag
+#if CONFIG_SNAPCLIENT_WEB_UI_STATUS
+    cJSON_AddBoolToObject(root, "status_available", true);
+#else
+    cJSON_AddBoolToObject(root, "status_available", false);
+#endif
+
     // Add DAC availability flag
 #if CONFIG_DAC_TAS5805M
     cJSON_AddBoolToObject(root, "dac_available", true);
@@ -1038,6 +1045,13 @@ esp_err_t settings_get_json(char *json_out, size_t max_len) {
     cJSON_AddBoolToObject(root, "eth_available", true);
 #else
     cJSON_AddBoolToObject(root, "eth_available", false);
+#endif
+
+    // Add web OTA availability flag
+#if CONFIG_SNAPCLIENT_WEB_OTA
+    cJSON_AddBoolToObject(root, "web_ota_enabled", true);
+#else
+    cJSON_AddBoolToObject(root, "web_ota_enabled", false);
 #endif
 
     // Render to string

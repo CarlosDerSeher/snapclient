@@ -1,7 +1,8 @@
 idf_component_register(SRCS "ui_http_server.c"
+                             "ota_handlers.c"
                        INCLUDE_DIRS "include"
-                       REQUIRES esp_http_server settings_manager dsp_processor_settings tas5805m_settings
-                       PRIV_REQUIRES custom_board esp_wifi
+                       REQUIRES esp_http_server settings_manager dsp_processor_settings tas5805m_settings mbedtls network_interface esp_wifi esp_timer esp_hw_support heap json app_update
+                       PRIV_REQUIRES custom_board
                        EMBED_TXTFILES html/index.html
                                       html/index.js
                                       html/settings-ui.js
@@ -10,4 +11,5 @@ idf_component_register(SRCS "ui_http_server.c"
                                       html/dsp-settings.html
                                       html/dac-settings.html
                                       html/eq-settings.html
+                                      html/ota-update.html
                        EMBED_FILES html/favicon.svg)

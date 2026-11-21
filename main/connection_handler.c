@@ -1,5 +1,6 @@
 #include "connection_handler.h"
 
+#include "esp_timer.h"
 #include "esp_log.h"
 #if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
 #include "eth_interface.h"
@@ -15,6 +16,24 @@
 extern struct netconn* lwipNetconn;
 
 static const char* TAG = "CONNECTION_HANDLER";
+
+#if CONFIG_SNAPCLIENT_WEB_UI_STATUS
+static uint32_t s_last_snapserver_connect_uptime_sec = 0;
+static char s_last_snapserver_host[64] = {0};
+static uint16_t s_last_snapserver_port = 0;
+
+uint32_t connection_get_last_snapserver_connect_uptime_sec(void) {
+  return s_last_snapserver_connect_uptime_sec;
+}
+
+const char* connection_get_last_snapserver_host(void) {
+  return s_last_snapserver_host;
+}
+
+uint16_t connection_get_last_snapserver_port(void) {
+  return s_last_snapserver_port;
+}
+#endif
 
 void setup_network(esp_netif_t** netif) {
   int rc1, rc2 = ERR_OK;
@@ -146,9 +165,14 @@ void setup_network(esp_netif_t** netif) {
       // Find snapcast server via mDNS
       mdns_result_t* r = NULL;
       esp_err_t err = 0;
+      network_server_discovery_active(true);
       while (!r || err) {
         ESP_LOGI(TAG, "Lookup snapcast service on network");
-        err = mdns_query_ptr("_snapcast", "_tcp", 3000, 20, &r);
+        // Ask for unicast answers (QU bit): the AP buffers unicast frames
+        // for a sleeping station, while multicast answers can be missed in
+        // WiFi power save.
+        err = mdns_query_generic(NULL, "_snapcast", "_tcp", MDNS_TYPE_PTR,
+                                 MDNS_QUERY_UNICAST, 3000, 20, &r);
         if (err) {
           ESP_LOGE(TAG, "Query Failed");
           vTaskDelay(pdMS_TO_TICKS(1000));
@@ -159,6 +183,8 @@ void setup_network(esp_netif_t** netif) {
           vTaskDelay(pdMS_TO_TICKS(1000));
         }
       }
+
+      network_server_discovery_active(false);
 
       ESP_LOGI(TAG, "\n~~~~~~~~~~ MDNS Query success ~~~~~~~~~~");
       mdns_print_results(r);
@@ -307,6 +333,13 @@ void setup_network(esp_netif_t** netif) {
     }
 
     ESP_LOGI(TAG, "netconn connected using %s", network_get_ifkey(*netif));
+#if CONFIG_SNAPCLIENT_WEB_UI_STATUS
+    s_last_snapserver_connect_uptime_sec =
+        (uint32_t)(esp_timer_get_time() / 1000000ULL);
+    ipaddr_ntoa_r(&remote_ip, s_last_snapserver_host,
+                  sizeof(s_last_snapserver_host));
+    s_last_snapserver_port = remotePort;
+#endif
     break;  // SUCCESS
   }
 }

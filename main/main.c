@@ -55,7 +55,8 @@
 // flac decoder is implemented as a subcomponet from master git repo
 #include "FLAC/stream_decoder.h"
 #include "connection_handler.h"
-#include "ota_server.h"
+#include "heap_diag.h"
+#include "esp_ota_ops.h"
 #include "player.h"
 #include "settings_manager.h"
 #include "snapcast.h"
@@ -88,12 +89,7 @@ const char *VERSION_STRING = "0.0.4";
 #define HTTP_TASK_PRIORITY 17
 #define HTTP_TASK_CORE_ID 1
 
-#define OTA_TASK_PRIORITY 6
-#define OTA_TASK_CORE_ID tskNO_AFFINITY
-// 1  // tskNO_AFFINITY
-
 TaskHandle_t t_main_task = NULL;
-TaskHandle_t t_ota_task = NULL;
 TaskHandle_t t_http_get_task = NULL;
 
 #define FAST_SYNC_LATENCY_BUF 10000      // in µs
@@ -1715,6 +1711,7 @@ void app_main(void) {
   settings_manager_init();
   network_events_init();
   network_if_init();
+  heap_diag_init();
 
 #if CONFIG_AUDIO_BOARD_CUSTOM && CONFIG_DAC_ADAU1961
   // some codecs need i2s mclk for initialization
@@ -1826,7 +1823,6 @@ void app_main(void) {
   init_snapclient(audio_set_volume, audio_set_mute, i2s_pin_config0, I2S_NUM_0, i2s_lock);
   //init_player(i2s_pin_config0, I2S_NUM_0, player_set_mute);
   sc_add_state_cb(on_sc_state_changed);
-  sc_add_state_cb(ota_on_sc_state_changed);
   sc_add_state_cb(network_state_cb);
 
   // Create binary semaphore for player state change notification
@@ -1855,7 +1851,14 @@ void app_main(void) {
   esp32_udp_logger_autostart();
   #endif
 
+  #if CONFIG_USE_DSP_PROCESSOR
+  dsp_processor_init();  // Must init processor first (creates mutexes/semaphores)
+  dsp_settings_init();   // Then settings can restore params into the processor
+  #endif
+
+  #if CONFIG_SNAPCLIENT_ENABLE_WEB_UI
   init_http_server_task();
+  #endif
 
   // Enable websocket server
   //  ESP_LOGI(TAG, "Setup ws server");
@@ -1866,13 +1869,13 @@ void app_main(void) {
   set_time_from_sntp();
 #endif
 
-#if CONFIG_USE_DSP_PROCESSOR
-  dsp_processor_init();  // Must init processor first (creates mutexes/semaphores)
-  dsp_settings_init();   // Then settings can restore params into the processor
+#if !CONFIG_SNAPCLIENT_WEB_OTA
+  // Booting this far counts as a working image: keep it instead of rolling
+  // back to the previous OTA partition on the next reset. With web OTA this
+  // is done once the web server runs.
+  esp_ota_mark_app_valid_cancel_rollback();
 #endif
 
-  xTaskCreatePinnedToCore(&ota_server_task, "ota", 15 * 256, NULL,
-                          OTA_TASK_PRIORITY, &t_ota_task, OTA_TASK_CORE_ID);
   sc_start_snapclient();
 
   //  while (1) {
@@ -1900,6 +1903,8 @@ void app_main(void) {
   };
   esp_pm_configure(&pmConfig);
 #endif
+  heap_diag_mark("app_main init done");
+
   audioDACdata_t dac_data;
   snapclient_state_t state = IDLE;
   while (1) {
@@ -1919,6 +1924,9 @@ void app_main(void) {
           audio_hal_ctrl_codec(board_handle->audio_hal,
                                 AUDIO_HAL_CODEC_MODE_DECODE,
                                 AUDIO_HAL_CTRL_STOP);
+        }
+        if ((state_new == PLAYING) != (state == PLAYING)) {
+          heap_diag_set_playing(state_new == PLAYING);
         }
         state = state_new;
       }
