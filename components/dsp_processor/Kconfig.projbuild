@@ -29,4 +29,40 @@ menu "ESP32 DSP processor config"
             Apply cubic soft clipping to prevent hard clipping distortion when signal exceeds the ±1.0 range.
             This provides a smoother transition when the signal approaches clipping, reducing harsh distortion.
 
+    menu "Bass Treble EQ defaults"
+        depends on USE_DSP_PROCESSOR
+
+        config SNAPCLIENT_DSP_EQ_BASS_FREQ_HZ
+            int "Bass frequency (Hz)"
+            range 30 500
+            default 150
+            help
+                Default frequency of the low shelf filter in the bass/treble EQ
+                flow. Used until a value is stored through the web UI.
+
+        config SNAPCLIENT_DSP_EQ_BASS_GAIN_DB
+            int "Bass gain (dB)"
+            range -15 15
+            default 0
+            help
+                Default gain of the low shelf filter in the bass/treble EQ flow.
+                Used until a value is stored through the web UI.
+
+        config SNAPCLIENT_DSP_EQ_TREBLE_FREQ_HZ
+            int "Treble frequency (Hz)"
+            range 2000 16000
+            default 8000
+            help
+                Default frequency of the high shelf filter in the bass/treble EQ
+                flow. Used until a value is stored through the web UI.
+
+        config SNAPCLIENT_DSP_EQ_TREBLE_GAIN_DB
+            int "Treble gain (dB)"
+            range -15 15
+            default 0
+            help
+                Default gain of the high shelf filter in the bass/treble EQ flow.
+                Used until a value is stored through the web UI.
+    endmenu
+
 endmenu

@@ -1584,8 +1584,8 @@ static void player_task(void *pvParameters) {
         if ((scSet.sr != __scSet.sr) || (scSet.bits != __scSet.bits) ||
             (scSet.ch != __scSet.ch) || (scSet.buf_ms != __scSet.buf_ms)) {
           ESP_LOGI(TAG,
-                   "snapserver config changed, buffer %ldms, chunk %ld frames, "
-                   "sample rate %ld, ch %d, bits %d latency %ld",
+                   "snapserver config changed, buffer %dms, chunk %d frames, "
+                   "sample rate %ld, ch %d, bits %d latency %d",
                    __scSet.buf_ms, __scSet.chkInFrames, __scSet.sr, __scSet.ch,
                    __scSet.bits, __scSet.cDacLat_ms);
         }

@@ -166,6 +166,11 @@ static decoderData_t pcmChunk = {
     .bytes = 0,
 };
 
+// chunk size in frames last sent to the player, 0 forces a resend with the
+// first chunk (the codec header sends its settings with chkInFrames 0 after a
+// reconnect and the player ignores those)
+static uint32_t chkInFramesSent = 0;
+
 /**
  *
  */
@@ -693,6 +698,9 @@ void codec_header_received(char *codecPayload, uint32_t codecPayloadLen,
     opusDecoder = NULL;
   }
 
+  // sample rate, channels or bits may change with the same chunk size
+  chkInFramesSent = 0;
+
   if (codec == OPUS) {
     uint16_t channels;
     uint32_t rate;
@@ -800,7 +808,6 @@ void codec_header_received(char *codecPayload, uint32_t codecPayloadLen,
 void handle_chunk_message(codec_type_t codec, playerSetting_t *scSet,
                           pcm_chunk_message_t **pcmData,
                           wire_chunk_message_t *wire_chnk) {
-  static uint32_t chkInFrames = 0;
   switch (codec) {
     case OPUS: {
       int frame_size = -1;
@@ -856,7 +863,7 @@ void handle_chunk_message(codec_type_t codec, playerSetting_t *scSet,
 
       // ESP_LOGW(TAG, "OPUS decode: %d", frame_size);
 
-      if (chkInFrames != scSet->chkInFrames) {
+      if (chkInFramesSent != scSet->chkInFrames) {
         if (player_send_snapcast_setting(scSet) != pdPASS) {
           ESP_LOGE(TAG,
                    "Failed to notify "
@@ -867,7 +874,7 @@ void handle_chunk_message(codec_type_t codec, playerSetting_t *scSet,
           // critical error
           esp_restart();
         }
-        chkInFrames = scSet->chkInFrames;
+        chkInFramesSent = scSet->chkInFrames;
       }
 
       if (allocate_pcm_chunk_memory(&new_pcmChunk, bytes) < 0) {
@@ -949,7 +956,7 @@ void handle_chunk_message(codec_type_t codec, playerSetting_t *scSet,
       // new_pcmChunk->totalSize);
 
 
-      if (chkInFrames != scSet->chkInFrames) {
+      if (chkInFramesSent != scSet->chkInFrames) {
         if (player_send_snapcast_setting(scSet) != pdPASS) {
           ESP_LOGE(TAG,
                    "Failed to notify "
@@ -960,7 +967,7 @@ void handle_chunk_message(codec_type_t codec, playerSetting_t *scSet,
           // critical error
           esp_restart();
         }
-        chkInFrames = scSet->chkInFrames;
+        chkInFramesSent = scSet->chkInFrames;
       }
 
       if (ret == 0) {
@@ -1038,7 +1045,7 @@ void handle_chunk_message(codec_type_t codec, playerSetting_t *scSet,
       //          frames", scSet->chkInFrames);
 
 
-      if (chkInFrames != scSet->chkInFrames) {
+      if (chkInFramesSent != scSet->chkInFrames) {
         if (player_send_snapcast_setting(scSet) != pdPASS) {
           ESP_LOGE(TAG,
                    "Failed to notify "
@@ -1049,7 +1056,7 @@ void handle_chunk_message(codec_type_t codec, playerSetting_t *scSet,
           // critical error
           esp_restart();
         }
-        chkInFrames = scSet->chkInFrames;
+        chkInFramesSent = scSet->chkInFrames;
       }
 
 #if CONFIG_USE_DSP_PROCESSOR
@@ -1850,7 +1857,14 @@ void app_main(void) {
   esp32_udp_logger_autostart();
   #endif
 
+  #if CONFIG_USE_DSP_PROCESSOR
+  dsp_processor_init();  // Must init processor first (creates mutexes/semaphores)
+  dsp_settings_init();   // Then settings can restore params into the processor
+  #endif
+
+  #if CONFIG_SNAPCLIENT_ENABLE_WEB_UI
   init_http_server_task();
+  #endif
 
   // Enable websocket server
   //  ESP_LOGI(TAG, "Setup ws server");
@@ -1859,11 +1873,6 @@ void app_main(void) {
   net_mdns_register(mdns_hostname);
 #ifdef CONFIG_SNAPCLIENT_SNTP_ENABLE
   set_time_from_sntp();
-#endif
-
-#if CONFIG_USE_DSP_PROCESSOR
-  dsp_processor_init();  // Must init processor first (creates mutexes/semaphores)
-  dsp_settings_init();   // Then settings can restore params into the processor
 #endif
 
   xTaskCreatePinnedToCore(&ota_server_task, "ota", 15 * 256, NULL,
