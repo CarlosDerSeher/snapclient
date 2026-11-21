@@ -1,0 +1,18 @@
+name: netsim
+
+on:
+  push:
+    paths: ['test/netsim/**', '.github/workflows/netsim.yml']
+  pull_request:
+    paths: ['test/netsim/**', '.github/workflows/netsim.yml']
+
+jobs:
+  proxy-selftest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test the bad Wi-Fi proxy
+        run: python3 test/netsim/test_netsim_proxy.py -v

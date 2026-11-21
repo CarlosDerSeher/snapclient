@@ -1,0 +1,65 @@
+# netsim: bad Wi-Fi between snapclient and snapserver
+
+`netsim_proxy.py` is a TCP proxy you put between a board and a snapserver to test how the client
+copes with Wi-Fi outages, reproducibly. Only Python 3 is needed; no root, no `tc`.
+
+While a stall is active, the proxy keeps reading from both sides but holds the data. When the stall
+ends, the backlog goes out in one burst. To the client this looks like a Wi-Fi outage: no audio
+chunks and no time-sync replies, then everything at once at the speed of the real link. That burst
+is what stresses the client's TCP window, Wi-Fi RX buffers and PCM queue.
+
+What it does **not** simulate: packet loss and retransmissions on the radio link, or a longer RTT
+between proxy and board (the proxy's own TCP stack talks to the board at the real link speed).
+For those use `tc netem` on a Linux router or host in the path.
+
+## Setup
+
+```
+board  --Wi-Fi-->  this PC :1706 (netsim_proxy.py)  -->  snapserver :1704
+```
+
+1. Run a snapserver (the proxy defaults to `127.0.0.1:1704`). Use one that isn't published via
+   mDNS, or turn mDNS off on the board, so the board doesn't connect around the proxy.
+2. Start the proxy:
+   ```sh
+   python3 test/netsim/netsim_proxy.py --listen 1706 --target 127.0.0.1:1704 --control /tmp/netsim.ctl
+   ```
+3. Point the board at it (web UI, or the same via HTTP), then restart it:
+   ```sh
+   curl -X POST "http://BOARD/post?param=snapserver_host&value=PC_IP"
+   curl -X POST "http://BOARD/post?param=snapserver_port&value=1706"
+   curl -X POST "http://BOARD/post?param=snapserver_use_mdns&value=0"
+   curl -X POST "http://BOARD/restart"
+   ```
+   `curl -X DELETE "http://BOARD/delete?param=snapserver_host"` (and `_port`, `_use_mdns`)
+   restores the defaults afterwards.
+4. Send commands:
+   ```sh
+   echo "stall 2.5" > /tmp/netsim.ctl               # one 2.5 s outage
+   echo "jitter 0.1 0.7 3 1" > /tmp/netsim.ctl      # random 0.1-0.7 s stalls, every ~3 s
+   echo "jitter off" > /tmp/netsim.ctl
+   ```
+   Or run unattended with `--schedule "60 jitter 0.1 0.7 3 1" "300 jitter off" "330 quit"`.
+
+The jitter sequence depends only on the seed, so two firmware builds see exactly the same stalls.
+
+## Reading the result
+
+Log the board's serial output during the run, then:
+
+```sh
+python3 test/netsim/resync_summary.py board.log            # timeline
+python3 test/netsim/resync_summary.py board.log --counts   # totals
+```
+
+With `CONFIG_SNAPCLIENT_HEAP_DIAG` on, the log also has the minimum free heap and the PCM pool's
+drop counter. The proxy logs every stall and the size of each burst with a wall-clock timestamp.
+
+Reference scenario used for the RAM work: FLAC 44.1 kHz, server buffer 750 ms, 60 s settle, then
+240 s of `jitter 0.1 0.7 3 1` (73 stalls), then 20 s calm.
+
+## CI
+
+`test_netsim_proxy.py` tests the proxy itself on the host (pass-through, stall and burst, rate
+limit) and runs in the `netsim` workflow. A hardware-in-the-loop job would run the scenario above
+against a board on the runner's network and fail on hard resyncs or errors from `--counts`.
