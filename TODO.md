@@ -134,6 +134,10 @@ relying on `sdkconfig.defaults`, which today still builds the UDP logger (its Kc
   `components/network_interface/eth_interface.c`, then check boot timing and that a plugged-in cable
   still gets link and IP.
 - Hard resyncs: #117, #191, #226.
+- `DELETE /delete?param=snapserver_host` answers 500 when no host is stored:
+  `settings_set_server_host(NULL)` (`components/settings_manager/settings_manager.c`) returns
+  `ESP_ERR_NVS_NOT_FOUND` from `nvs_erase_key()`. All other clear functions treat a missing key as
+  cleared; do the same here.
 - Hard resyncs at startup under packet loss: playback starts with a server time offset that is off
   by up to ~150 ms, then hard-resyncs every 2.6 s (up to 4 times) while the estimate converges.
   Seen in every run with 2 % loss (`test/netsim/netem.sh`), never without loss. Likely cause: time
