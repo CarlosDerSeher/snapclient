@@ -8,9 +8,12 @@ ends, the backlog goes out in one burst. To the client this looks like a Wi-Fi o
 chunks and no time-sync replies, then everything at once at the speed of the real link. That burst
 is what stresses the client's TCP window, Wi-Fi RX buffers and PCM queue.
 
-What it does **not** simulate: packet loss and retransmissions on the radio link, or a longer RTT
-between proxy and board (the proxy's own TCP stack talks to the board at the real link speed).
-For those use `tc netem` on a Linux router or host in the path.
+What it does **not** simulate: the proxy ends TCP on both sides, so nothing is ever lost. The
+PC's TCP stack ACKs every segment, and there are no retransmissions, retransmission-timeout
+backoff, slow start after a timeout, or out-of-order segments held by the client. After real loss
+the backlog arrives later and slower than after a proxy stall, so recovery times measured here are
+optimistic, and the client's pbufs and Wi-Fi RX buffers are stressed less. For loss and extra RTT
+use `tc netem` (or an `iptables -m statistic` drop rule) on a Linux host or router in the path.
 
 ## Setup
 
