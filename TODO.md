@@ -50,8 +50,14 @@ freed.
 - Opus: one static buffer sized to the maximum packet instead of a `malloc` per chunk.
 
 ### 1.3 Fixed PCM chunk pool
-Replace the per-chunk `malloc` and the unused fragmented-chunk code with a fixed pool. Mainly a
-robustness change: no fragmentation, no "malloc failed, retry" loops.
+*Draft PR #258 (stacked on #256).* Replace the per-chunk `malloc` and the unused fragmented-chunk
+code with a fixed pool. Mainly a robustness change: no fragmentation, no "malloc failed, retry"
+loops.
+
+Changed from the design below after measuring: no spare chunks (N = queue formula), the decoder
+waits up to 100 ms for a free chunk instead of dropping audio, DRAM reserve 32 KB, the pool is
+built again once more RAM is free. Largest buffer FLAC 44.1 kHz: 850 ms (old code ~950 ms with
+4–7 KB left).
 
 <details>
 <summary>Design</summary>
