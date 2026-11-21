@@ -18,31 +18,47 @@ delay, add netem on the same host (see [Packet loss](#packet-loss-netem)).
 ## Setup
 
 ```
-board  --Wi-Fi-->  this PC :1706 (netsim_proxy.py)  -->  snapserver :1704
+board  --Wi-Fi-->  this PC :1706 (netsim_proxy.py)  -->  snapserver :1704 (testserver.sh)
 ```
 
-1. Run a snapserver (the proxy defaults to `127.0.0.1:1704`). Use one that isn't published via
-   mDNS, or turn mDNS off on the board, so the board doesn't connect around the proxy.
+Needs Python 3, `snapserver` and `ffmpeg` on this PC. The test server uses the default snapserver
+ports (1704, 1705, 1780): stop a system snapserver first, or move the test server with
+`STREAM_PORT`, `TCP_PORT` and `HTTP_PORT` (then pass `--target` to the proxy and `--server` to
+`client.py`). All commands from the repository root.
+
+1. Start the test server with the server buffer you want (here 750 ms):
+   ```sh
+   test/netsim/testserver.sh 750 &
+   ```
+   It plays test tones on four streams: `flac44`, `flac48`, `opus`, `pcm`. It is not announced via
+   mDNS, so the board only reaches it through the proxy. To change the buffer, stop it and start
+   it again.
 2. Start the proxy:
    ```sh
-   python3 test/netsim/netsim_proxy.py --listen 1706 --target 127.0.0.1:1704 --control /tmp/netsim.ctl
+   python3 test/netsim/netsim_proxy.py --listen 1706 --control /tmp/netsim.ctl
    ```
-3. Point the board at it (web UI, or the same via HTTP), then restart it:
+3. Point the board at the proxy (once; the setting survives flashing). This turns mDNS off on the
+   board and restarts it:
    ```sh
-   curl -X POST "http://BOARD/post?param=snapserver_host&value=PC_IP"
-   curl -X POST "http://BOARD/post?param=snapserver_port&value=1706"
-   curl -X POST "http://BOARD/post?param=snapserver_use_mdns&value=0"
-   curl -X POST "http://BOARD/restart"
+   test/netsim/client.py point BOARD PC_IP
    ```
-   `curl -X DELETE "http://BOARD/delete?param=snapserver_host"` (and `_port`, `_use_mdns`)
-   restores the defaults afterwards.
-4. Send commands:
+4. Start logging the board's serial output, then pick the stream. This also sets the volume to
+   1 %, because a muted client doesn't start its player:
+   ```sh
+   test/netsim/client.py stream flac44
+   ```
+   Check the stream in the log: the PCM pool line shows the chunk size (FLAC 44.1 kHz: 4608 B).
+   `client.py status` lists the server's clients.
+5. Send commands to the proxy:
    ```sh
    echo "stall 2.5" > /tmp/netsim.ctl               # one 2.5 s outage
    echo "jitter 0.1 0.7 3 1" > /tmp/netsim.ctl      # random 0.1-0.7 s stalls, every ~3 s
    echo "jitter off" > /tmp/netsim.ctl
    ```
    Or run unattended with `--schedule "60 jitter 0.1 0.7 3 1" "300 jitter off" "330 quit"`.
+   Packet loss can be added at the same time (see below).
+6. Afterwards: stop the proxy and the test server, `netem.sh off` if used, and
+   `test/netsim/client.py restore BOARD` to give the board its default server settings back.
 
 The jitter sequence depends only on the seed, so two firmware builds see exactly the same stalls.
 
