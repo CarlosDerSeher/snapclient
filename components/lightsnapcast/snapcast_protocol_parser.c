@@ -114,15 +114,18 @@ parser_return_state_t parse_wire_chunk_message(snapcast_protocol_parser_t* parse
     case PCM: {
       size_t _tmp = tmp_size;
 
+      // without a free chunk that fits, the audio is read and dropped
       if (*pcmData == NULL) {
-        if (allocate_pcm_chunk_memory(pcmData, wire_chnk->size) < 0) {
-          *pcmData = NULL;
-        }
-
-        tmpData = 0;
-        payloadDataShift = 3;
-        payloadOffset = 0;
+        *pcmData = player_chunk_get();
       }
+      if ((*pcmData != NULL) && (tmp_size > pcm_pool_slot_bytes())) {
+        player_chunk_discard(*pcmData);
+        *pcmData = NULL;
+      }
+
+      tmpData = 0;
+      payloadDataShift = 3;
+      payloadOffset = 0;
 
       while (_tmp--) {
         char tmp_val;
@@ -134,7 +137,7 @@ parser_return_state_t parse_wire_chunk_message(snapcast_protocol_parser_t* parse
         if (payloadDataShift < 0) {
           payloadDataShift = 3;
 
-          if ((*pcmData) && ((*pcmData)->fragment->payload)) {
+          if (*pcmData) {
             volatile uint32_t* sample;
             uint8_t dummy1;
             uint32_t dummy2 = 0;
@@ -155,7 +158,7 @@ parser_return_state_t parse_wire_chunk_message(snapcast_protocol_parser_t* parse
             dummy2 |= (uint32_t)dummy1 << 8;
             tmpData = dummy2;
 
-            sample = (volatile uint32_t *)(&((*pcmData)->fragment->payload[payloadOffset]));
+            sample = (volatile uint32_t *)(&((*pcmData)->payload[payloadOffset]));
             *sample = (volatile uint32_t)tmpData;
 
             payloadOffset += 4;

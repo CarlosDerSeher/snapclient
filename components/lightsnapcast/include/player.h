@@ -5,6 +5,7 @@
 #include "esp_types.h"
 #include "freertos/FreeRTOS.h"
 #include "sdkconfig.h"
+#include "pcm_pool.h"
 #include "snapcast.h"
 
 #ifdef __cplusplus
@@ -35,20 +36,6 @@ extern "C" {
 #define SHORT_BUFFER_LEN 99
 #define MINI_BUFFER_LEN 19
 
-typedef struct pcm_chunk_fragment pcm_chunk_fragment_t;
-struct pcm_chunk_fragment {
-  size_t size;
-  char *payload;
-  pcm_chunk_fragment_t *nextFragment;
-};
-
-typedef struct pcmData {
-  tv_t timestamp;
-  size_t totalSize;
-  pcm_chunk_fragment_t *fragment;
-  uint32_t caps;
-} pcm_chunk_message_t;
-
 typedef enum codec_type_e { NONE = 0, PCM, FLAC, OGG, OPUS } codec_type_t;
 
 typedef struct playerSetting_s {
@@ -66,11 +53,17 @@ int start_player(void);
 void pause_player(bool pause);
 void stop_player_task(void);
 
-int32_t allocate_pcm_chunk_memory(pcm_chunk_message_t **pcmChunk, size_t bytes);
-int32_t insert_pcm_chunk(pcm_chunk_message_t *pcmChunk);
+void stop_player_and_wait(void);
 
-// int8_t insert_pcm_chunk (wire_chunk_message_t *decodedWireChunk);
-int8_t free_pcm_chunk(pcm_chunk_message_t *pcmChunk);
+// PCM chunks for buf_ms of audio in chunks of chkInFrames frames, including
+// the chunk being decoded and the one being played (see pcm_pool.h)
+uint32_t player_chunk_slots(int32_t sr, uint32_t chkInFrames, uint32_t buf_ms);
+
+// decoder side of the pcm pool: get a free chunk (NULL: drop the audio), then
+// submit it for playback or discard it
+pcm_chunk_message_t *player_chunk_get(void);
+void player_chunk_submit(pcm_chunk_message_t *chunk);
+void player_chunk_discard(pcm_chunk_message_t *chunk);
 
 #if USE_TIMEFILTER
 int32_t player_latency_insert(int64_t newValue, int64_t max_error, int64_t time_added);
