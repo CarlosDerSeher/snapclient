@@ -153,3 +153,6 @@ local.properties
 .vscode-ctags
 .vscode/c_cpp_properties.json
 .vscode/launch.json
+# Python
+__pycache__/
+*.pyc
