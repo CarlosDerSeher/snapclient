@@ -49,8 +49,9 @@ bool pcm_pool_ready(void);
 uint32_t pcm_pool_slot_bytes(void);
 uint32_t pcm_pool_slots(void);
 
-// a free chunk, or NULL if there is none (buffer full) or no pool
-pcm_chunk_message_t *pcm_pool_get_free(void);
+// a free chunk, or NULL if none got free within wait (buffer full) or there
+// is no pool
+pcm_chunk_message_t *pcm_pool_get_free(TickType_t wait);
 void pcm_pool_put_free(pcm_chunk_message_t *chunk);
 
 // queue a filled chunk for playback
@@ -63,11 +64,16 @@ void pcm_pool_flush(void);
 
 uint32_t pcm_pool_filled_count(void);
 
-// diagnostics: slots in IRAM only and in DRAM (incl. D/IRAM, SPIRAM), and
-// the fewest free slots seen since the pool was built
+// how often no chunk was free since the pool was built; only the decoder task
+// counts, so read it as a running total and compare
+uint32_t pcm_pool_dropped(void);
+
+// diagnostics: slots in IRAM only and in DRAM (incl. D/IRAM, SPIRAM), the
+// fewest free slots seen and how often no chunk was free, since the pool was
+// built
 void pcm_pool_get_info(uint32_t *slots, uint32_t *slotBytes,
                        uint32_t *iramSlots, uint32_t *dramSlots,
-                       uint32_t *minFreeSlots);
+                       uint32_t *minFreeSlots, uint32_t *droppedChunks);
 
 #ifdef __cplusplus
 }
