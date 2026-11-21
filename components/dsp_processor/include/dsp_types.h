@@ -9,6 +9,8 @@
 #ifndef __DSP_TYPES_H__
 #define __DSP_TYPES_H__
 
+#include "sdkconfig.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -38,6 +40,20 @@ extern "C" {
 #define DSP_GAIN_MAX             15.0f
 #define DSP_GAIN_DEFAULT          0.0f
 #define DSP_GAIN_STEP             1.0f
+
+/* Bass/treble EQ flow defaults; configurable through Kconfig when the DSP
+ * processor is enabled. Kconfig ranges match the limits above. */
+#if CONFIG_USE_DSP_PROCESSOR
+#define DSP_EQ_BASS_FREQ_DEFAULT   ((float)CONFIG_SNAPCLIENT_DSP_EQ_BASS_FREQ_HZ)
+#define DSP_EQ_BASS_GAIN_DEFAULT   ((float)CONFIG_SNAPCLIENT_DSP_EQ_BASS_GAIN_DB)
+#define DSP_EQ_TREBLE_FREQ_DEFAULT ((float)CONFIG_SNAPCLIENT_DSP_EQ_TREBLE_FREQ_HZ)
+#define DSP_EQ_TREBLE_GAIN_DEFAULT ((float)CONFIG_SNAPCLIENT_DSP_EQ_TREBLE_GAIN_DB)
+#else
+#define DSP_EQ_BASS_FREQ_DEFAULT   DSP_BASS_FREQ_DEFAULT
+#define DSP_EQ_BASS_GAIN_DEFAULT   DSP_GAIN_DEFAULT
+#define DSP_EQ_TREBLE_FREQ_DEFAULT DSP_TREBLE_FREQ_DEFAULT
+#define DSP_EQ_TREBLE_GAIN_DEFAULT DSP_GAIN_DEFAULT
+#endif
 
 #define DSP_BASSBOOST_GAIN_MIN     -18.0f
 #define DSP_BASSBOOST_GAIN_MAX      18.0f
