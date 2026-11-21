@@ -569,6 +569,11 @@ int start_player() {
   
   ESP_LOGI(TAG, "Start player_task");
 
+  // The new task starts from the current settings in scSet. A setting still
+  // queued was sent to the previous task while it was stopping (e.g. 44.1 kHz
+  // before a switch to 48 kHz); applied now it would set I2S to the old rate.
+  xQueueReset(snapcastSettingQueueHandle);
+
   if (xTaskCreatePinnedToCore(player_task, "player", 1024 * 3, (void*) scSet,
                               SYNC_TASK_PRIORITY, &playerTaskHandle,
                               SYNC_TASK_CORE_ID) != pdPASS) {
