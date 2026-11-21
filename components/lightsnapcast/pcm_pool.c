@@ -27,6 +27,7 @@ static uint32_t slotSize = 0;
 static uint32_t iramCnt = 0;
 static uint32_t dramCnt = 0;
 static uint32_t minFree = 0;  // fewest free chunks seen, for diagnostics
+static uint32_t dropped = 0;  // pcm_pool_get_free() calls that got no chunk
 static QueueHandle_t freeQHdl = NULL;
 static QueueHandle_t filledQHdl = NULL;
 
@@ -88,6 +89,7 @@ static void pool_free_all(void) {
   iramCnt = 0;
   dramCnt = 0;
   minFree = 0;
+  dropped = 0;
 }
 
 esp_err_t pcm_pool_build(uint32_t slotBytes, uint32_t slots) {
@@ -176,7 +178,7 @@ uint32_t pcm_pool_slot_bytes(void) { return slotSize; }
 
 uint32_t pcm_pool_slots(void) { return chunkCnt; }
 
-pcm_chunk_message_t *pcm_pool_get_free(void) {
+pcm_chunk_message_t *pcm_pool_get_free(TickType_t wait) {
   pcm_chunk_message_t *c = NULL;
 
   if (freeQHdl == NULL) {
@@ -184,7 +186,10 @@ pcm_chunk_message_t *pcm_pool_get_free(void) {
   }
   if (xQueueReceive(freeQHdl, &c, 0) != pdTRUE) {
     minFree = 0;
-    return NULL;
+    if ((wait == 0) || (xQueueReceive(freeQHdl, &c, wait) != pdTRUE)) {
+      dropped++;
+      return NULL;
+    }
   }
   c->totalSize = 0;
 
@@ -242,10 +247,13 @@ uint32_t pcm_pool_filled_count(void) {
   return (q != NULL) ? uxQueueMessagesWaiting(q) : 0;
 }
 
+uint32_t pcm_pool_dropped(void) { return dropped; }
+
 void pcm_pool_get_info(uint32_t *slots, uint32_t *slotBytes,
                        uint32_t *iramSlots, uint32_t *dramSlots,
-                       uint32_t *minFreeSlots) {
+                       uint32_t *minFreeSlots, uint32_t *droppedChunks) {
   *minFreeSlots = minFree;
+  *droppedChunks = dropped;
   *slots = chunkCnt;
   *slotBytes = slotSize;
   *iramSlots = iramCnt;

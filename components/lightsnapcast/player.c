@@ -1073,10 +1073,17 @@ uint32_t player_chunk_slots(int32_t sr, uint32_t chkInFrames,
   return (uint32_t)queued + 2;
 }
 
+// How long the decoder waits for a free chunk while the player runs. The
+// server sends audio up to its buffer ahead, which can be a bit more than the
+// pool holds (time sync offset, network jitter). Waiting leaves the rest in
+// the TCP window; dropping would leave a gap and force a hard resync, and a
+// full pool would do that again and again.
+#define PLAYER_FREE_CHUNK_WAIT_MS 100
+
 /**
  * A free chunk for the decoder, or NULL if the player can't take one now:
- * paused, no pool, time sync not ready yet, or the buffer is full. The decoder
- * drops the audio then.
+ * paused, no pool, time sync not ready yet, or the buffer stays full. The
+ * decoder drops the audio then.
  */
 pcm_chunk_message_t *player_chunk_get(void) {
   if (playerPaused || !pcm_pool_ready()) {
@@ -1090,7 +1097,8 @@ pcm_chunk_message_t *player_chunk_get(void) {
     return NULL;
   }
 
-  pcm_chunk_message_t *chunk = pcm_pool_get_free();
+  pcm_chunk_message_t *chunk = pcm_pool_get_free(
+      playerStarted ? pdMS_TO_TICKS(PLAYER_FREE_CHUNK_WAIT_MS) : 0);
   if (chunk == NULL) {
     ESP_LOGV(TAG, "no free pcm chunk, %lu waiting for playback",
              pcm_pool_filled_count());
@@ -1226,6 +1234,8 @@ static void player_task(void *pvParameters) {
   int64_t dmaDescDuration_us = 0;
   int64_t playback_start_time_us = 0;
   uint64_t samples_written = 0;  
+  // pcm_pool_dropped() at the last initial sync: drops since then are gaps
+  uint32_t droppedAtSync = pcm_pool_dropped();
   UBaseType_t uxHighWaterMark;
 
   memcpy(&scSet, (playerSetting_t*)pvParameters, sizeof(playerSetting_t));
@@ -1450,6 +1460,7 @@ static void player_task(void *pvParameters) {
           age = (int64_t)timer_val - (-age);
 
           initialSync = 1;
+          droppedAtSync = pcm_pool_dropped();
 
           // TODO: use a timer to un-mute non blocking
           vTaskDelay(pdMS_TO_TICKS(2));
@@ -1476,9 +1487,10 @@ static void player_task(void *pvParameters) {
 
           ESP_LOGW(TAG,
                    "RESYNCING HARD 1: age %lldus, latency %lldus, free %d, "
-                   "largest block %d, rssi: %d, left in queue %d",
+                   "largest block %d, rssi: %d, left in queue %d, dropped %lu",
                    age, diff2Server, heap_caps_get_free_size(MALLOC_CAP_32BIT),
-                   heap_caps_get_largest_free_block(MALLOC_CAP_32BIT), ap.rssi, msgWaiting);
+                   heap_caps_get_largest_free_block(MALLOC_CAP_32BIT), ap.rssi,
+                   msgWaiting, pcm_pool_dropped() - droppedAtSync);
                    
           // get count of chunks we are late for
           uint32_t c = ceil((float)age / (float)chunkDuration_us);  // round up
@@ -1611,11 +1623,11 @@ static void player_task(void *pvParameters) {
 
             ESP_LOGW(TAG,
                      "RESYNCING HARD 2: age %lldus, latency %lldus, free "
-                     "%d, largest block %d, %d, rssi: %d",
+                     "%d, largest block %d, %d, rssi: %d, dropped %lu",
                      age, diff2Server,
                      heap_caps_get_free_size(MALLOC_CAP_32BIT),
                      heap_caps_get_largest_free_block(MALLOC_CAP_32BIT),
-                     msgWaiting, ap.rssi);
+                     msgWaiting, ap.rssi, pcm_pool_dropped() - droppedAtSync);
 
             my_gptimer_stop(gptimer);
 
