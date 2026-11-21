@@ -86,12 +86,19 @@ buffer changes on the server and reconnects.
 </details>
 
 ### 1.4 Wi-Fi / lwIP tuning
-Test under bad Wi-Fi before committing.
+*Done, PR to come (stacked on 1.3).* Tested with simulated outages and real packet loss
+(`test/netsim/`: TCP proxy for outages, `netem.sh` for loss in either direction, test server and
+board control scripts; `test/maxbuf/` for the largest server buffer).
 
-- Dynamic instead of static Wi-Fi TX buffers (−12.8 KB fixed).
-- `ESP_WIFI_RX_BA_WIN` 16 → 6, static RX buffers 8 → 6, TCP window and send buffer 11680 → 5840.
-- STA only: no SoftAP, no Enterprise; no IPv6 if not needed.
-- Check `LWIP_MAX_UDP_PCBS`: DHCP, DNS and mDNS each need one.
+- Dynamic Wi-Fi TX buffers, `ESP_WIFI_RX_BA_WIN` 16 → 6, static RX buffers 8 → 6, TCP send buffer
+  11680 → 5840, no SoftAP, no Enterprise: +17 KB free heap after Wi-Fi start, −50 KB flash,
+  resyncs unchanged under outages and loss.
+- The TCP receive window stays at 11680. With 5840 (or 8760) the server is held back by the window
+  after packet loss and the queue takes seconds to refill; the smaller window would have allowed
+  925 instead of 850 ms server buffer.
+- IPv6 off doesn't compile (IPv6 code without guards in the Ethernet and connection code).
+- `LWIP_MAX_UDP_PCBS` has no effect: IDF's lwIP allocates control blocks from the heap and only
+  counts TCP ones. Dropped from the defaults.
 
 ### 1.5 Optional: buffer compressed FLAC
 Only if the above is not enough. Saves ~40–60 KB at 750 ms, but only with a fixed ring buffer and a
@@ -127,6 +134,18 @@ relying on `sdkconfig.defaults`, which today still builds the UDP logger (its Kc
   `components/network_interface/eth_interface.c`, then check boot timing and that a plugged-in cable
   still gets link and IP.
 - Hard resyncs: #117, #191, #226.
+- Hard resyncs at startup under packet loss: playback starts with a server time offset that is off
+  by up to ~150 ms, then hard-resyncs every 2.6 s (up to 4 times) while the estimate converges.
+  Seen in every run with 2 % loss (`test/netsim/netem.sh`), never without loss. Likely cause: time
+  replies share the TCP connection with the audio, so a retransmission delays them by 200 ms or more
+  (offset error ≈ delay / 2). The time filter counts as full after 29 samples taken 10 ms apart
+  during the startup burst, takes the first sample as the offset and the first two as the drift,
+  and then samples only once per second. Confirm by logging each sample (round trip, offset, filter
+  estimate) for the first seconds. Possible fixes:
+  - count the filter as full only after a minimum time span (e.g. 2–3 s of fast sync), not after
+    29 samples;
+  - ignore samples whose round trip is far above the lowest seen so far (as NTP does);
+  - start from the sample with the shortest round trip instead of the first one.
 - Rate-limit the "RESYNCING HARD 1/2" warnings in `player_task` (#234, closed, credit W-Floyd): at
   most one line per second with one shared timestamp at file scope, query Wi-Fi/heap info only when
   a line is printed, and report how many were suppressed ("(+12 suppressed)"). Today every hard
