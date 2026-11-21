@@ -30,8 +30,8 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=3072
 CONFIG_ESP_TIMER_TASK_STACK_SIZE=2048
 # Wi-Fi buffers sized for a client that mostly receives one TCP stream: TX
 # buffers allocated on demand (static ones held ~13 KB permanently), and a
-# smaller RX block-ack window and static RX pool. Measured under simulated
-# Wi-Fi outages (test/netsim): same resyncs, +17 KB free heap after Wi-Fi start.
+# smaller RX block-ack window and static RX pool. Measured with outages and
+# packet loss (test/netsim): same resyncs, +17 KB free heap after Wi-Fi start.
 CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=6
 CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=64
 CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER=y
@@ -60,10 +60,11 @@ CONFIG_LWIP_SO_REUSE_RXTOALL=n
 CONFIG_LWIP_MAX_ACTIVE_TCP=6
 CONFIG_LWIP_MAX_LISTENING_TCP=6
 CONFIG_LWIP_TCP_MSS=1460
-# 4 x MSS. The receive window bounds the pbufs lwIP holds for the audio
-# stream; the client sends only small messages.
+# The client sends only small messages: 4 x MSS send buffer. The receive
+# window stays at 8 x MSS: with 4 x MSS the server can't catch up fast enough
+# after packet loss, and the queue empties for seconds (test/netsim, netem).
 CONFIG_LWIP_TCP_SND_BUF_DEFAULT=5840
-CONFIG_LWIP_TCP_WND_DEFAULT=5840
+CONFIG_LWIP_TCP_WND_DEFAULT=11680
 CONFIG_LWIP_TCP_RECVMBOX_SIZE=10
 CONFIG_LWIP_TCP_SACK_OUT=y
 CONFIG_LWIP_MAX_UDP_PCBS=1
