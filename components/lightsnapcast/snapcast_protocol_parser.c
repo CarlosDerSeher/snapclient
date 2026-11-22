@@ -79,17 +79,10 @@ parser_return_state_t parse_wire_chunk_message(snapcast_protocol_parser_t* parse
   if (!read_timestamp(parser, &wire_chnk->timestamp)) return PARSER_RESTART_CONNECTION;
   if (!read_uint32_le(parser, (uint32_t *)&wire_chnk->size)) return PARSER_RESTART_CONNECTION;
 
-  // TODO: we could use wire chunk directly maybe?
-  decoderChunk->bytes = wire_chnk->size;
-  while (!decoderChunk->inData) {
-    decoderChunk->inData = (uint8_t*)malloc(decoderChunk->bytes);
-    if (!decoderChunk->inData) {
-      ESP_LOGW(TAG,
-               "malloc decoderChunk->inData failed, wait "
-               "1ms and try again");
-
-      vTaskDelay(pdMS_TO_TICKS(1));
-    }
+  if (wire_chnk->size != base_message_rx->size - 12) {
+    ESP_LOGE(TAG, "wire chunk size %u doesn't match message size %lu",
+             wire_chnk->size, base_message_rx->size);
+    return PARSER_RESTART_CONNECTION;
   }
 
   uint32_t payloadOffset = 0;
@@ -101,7 +94,16 @@ parser_return_state_t parse_wire_chunk_message(snapcast_protocol_parser_t* parse
   switch (codec) {
     case OPUS:
     case FLAC: {
+      // The buffer is allocated for the largest chunk of the codec when the
+      // codec header arrives; only a larger chunk than expected allocates here
+      if (tmp_size > decoderChunk->capacity) {
+        ESP_LOGW(TAG, "wire chunk of %u bytes, buffer has %lu", tmp_size,
+                 decoderChunk->capacity);
+        decoder_chunk_reserve(decoderChunk, tmp_size);
+      }
+
       if (!read_data(parser, decoderChunk->inData, tmp_size)) return PARSER_RESTART_CONNECTION;
+      decoderChunk->bytes = tmp_size;
       payloadOffset += tmp_size;
       decoderChunk->outData = NULL;
       decoderChunk->type = SNAPCAST_MESSAGE_WIRE_CHUNK;
@@ -176,6 +178,26 @@ parser_return_state_t parse_wire_chunk_message(snapcast_protocol_parser_t* parse
   }
 
   return PARSER_OK;
+}
+
+void decoder_chunk_reserve(decoderData_t* decoderChunk, uint32_t size) {
+  free(decoderChunk->inData);
+  decoderChunk->inData = NULL;
+  decoderChunk->capacity = 0;
+  decoderChunk->bytes = 0;
+  if (size == 0) {
+    return;
+  }
+
+  while ((decoderChunk->inData = (uint8_t*)malloc(size)) == NULL) {
+    ESP_LOGW(TAG,
+             "malloc decoderChunk->inData failed, wait "
+             "1ms and try again");
+
+    vTaskDelay(pdMS_TO_TICKS(1));
+  }
+  decoderChunk->capacity = size;
+  ESP_LOGI(TAG, "wire chunk buffer: %lu bytes", size);
 }
 
 parser_return_state_t parse_codec_header_message(
