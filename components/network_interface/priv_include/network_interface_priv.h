@@ -45,4 +45,8 @@ bool wifi_is_suppressed(void);
  *  enable=true when idle. No-op unless CONFIG_WIFI_DYNAMIC_POWER_SAVE is set. */
 void wifi_set_power_save(bool enable);
 
+/** Cap WiFi power save at MIN_MODEM while active=true (server discovery),
+ *  so multicast mDNS answers are not missed. */
+void wifi_set_discovery_active(bool active);
+
 #endif /* COMPONENTS_NETWORK_INTERFACE_PRIV_INCLUDE_NETWORK_INTERFACE_PRIV_H_ */

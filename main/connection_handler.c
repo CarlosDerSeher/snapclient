@@ -150,9 +150,14 @@ void setup_network(esp_netif_t** netif) {
       // Find snapcast server via mDNS
       mdns_result_t* r = NULL;
       esp_err_t err = 0;
+      network_server_discovery_active(true);
       while (!r || err) {
         ESP_LOGI(TAG, "Lookup snapcast service on network");
-        err = mdns_query_ptr("_snapcast", "_tcp", 3000, 20, &r);
+        // Ask for unicast answers (QU bit): the AP buffers unicast frames
+        // for a sleeping station, while multicast answers can be missed in
+        // WiFi power save.
+        err = mdns_query_generic(NULL, "_snapcast", "_tcp", MDNS_TYPE_PTR,
+                                 MDNS_QUERY_UNICAST, 3000, 20, &r);
         if (err) {
           ESP_LOGE(TAG, "Query Failed");
           vTaskDelay(pdMS_TO_TICKS(1000));
@@ -163,6 +168,8 @@ void setup_network(esp_netif_t** netif) {
           vTaskDelay(pdMS_TO_TICKS(1000));
         }
       }
+
+      network_server_discovery_active(false);
 
       ESP_LOGI(TAG, "\n~~~~~~~~~~ MDNS Query success ~~~~~~~~~~");
       mdns_print_results(r);

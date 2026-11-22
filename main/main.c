@@ -55,6 +55,7 @@
 // flac decoder is implemented as a subcomponet from master git repo
 #include "FLAC/stream_decoder.h"
 #include "connection_handler.h"
+#include "heap_diag.h"
 #include "ota_server.h"
 #include "player.h"
 #include "settings_manager.h"
@@ -1725,6 +1726,7 @@ void app_main(void) {
   settings_manager_init();
   network_events_init();
   network_if_init();
+  heap_diag_init();
 
 #if CONFIG_AUDIO_BOARD_CUSTOM && CONFIG_DAC_ADAU1961
   // some codecs need i2s mclk for initialization
@@ -1910,6 +1912,8 @@ void app_main(void) {
   };
   esp_pm_configure(&pmConfig);
 #endif
+  heap_diag_mark("app_main init done");
+
   audioDACdata_t dac_data;
   snapclient_state_t state = IDLE;
   while (1) {
@@ -1929,6 +1933,9 @@ void app_main(void) {
           audio_hal_ctrl_codec(board_handle->audio_hal,
                                 AUDIO_HAL_CODEC_MODE_DECODE,
                                 AUDIO_HAL_CTRL_STOP);
+        }
+        if ((state_new == PLAYING) != (state == PLAYING)) {
+          heap_diag_set_playing(state_new == PLAYING);
         }
         state = state_new;
       }
