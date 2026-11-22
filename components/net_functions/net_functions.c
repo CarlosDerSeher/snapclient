@@ -17,6 +17,7 @@
 #include "freertos/task.h"
 #include "mdns.h"
 #include "netdb.h"
+#include "sdkconfig.h"
 
 static const char *TAG = "NETF";
 
@@ -28,8 +29,10 @@ void net_mdns_register(const char *clientname) {
   ESP_LOGI(TAG, "Setup mdns");
   ESP_ERROR_CHECK(mdns_init());
   ESP_ERROR_CHECK(mdns_hostname_set(clientname));
-  ESP_ERROR_CHECK(mdns_instance_name_set("ESP32 SNAPcast client OTA"));
-  ESP_ERROR_CHECK(mdns_service_add(NULL, "_http", "_tcp", 8032, NULL, 0));
+  ESP_ERROR_CHECK(mdns_instance_name_set("ESP32 Snapcast client"));
+  // the web UI (settings, OTA upload)
+  ESP_ERROR_CHECK(
+      mdns_service_add(NULL, "_http", "_tcp", CONFIG_WEB_PORT, NULL, 0));
 }
 
 void mdns_print_results(const mdns_result_t *results) {
