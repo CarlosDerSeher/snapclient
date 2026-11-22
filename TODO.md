@@ -114,12 +114,24 @@ settings and schemas. Needs a TAS5805M board to test.
 
 ### 1.7 Minimum-RAM sdkconfig
 A defaults file for a plain ESP32 without PSRAM that collects everything that saves RAM, instead of
-relying on `sdkconfig.defaults`, which today still builds the UDP logger (its Kconfig defaults to
-`y`, and `sdkconfig.defaults` doesn't turn it off).
+relying on `sdkconfig.defaults`.
 
-- UDP logger off, DSP off, Opus optional (`CONFIG_SNAPCLIENT_DISABLE_OPUS`, #255).
+- DSP off, Opus optional (`CONFIG_SNAPCLIENT_DISABLE_OPUS`, #255). The UDP logger is already off
+  in `sdkconfig.defaults` (see 1.8).
 - The Wi-Fi / lwIP settings from 1.4 once they are tested.
 - A PlatformIO env for it, and the README "Boards without PSRAM" table measured with it.
+
+### 1.8 Lighter UDP logger
+Off by default in `sdkconfig.defaults` for now (its Kconfig defaults to `y`). It costs a 32-line
+queue (32 × 258 B ≈ 8 KB), two tasks, and ~0.5 KB of stack in every task that logs: `udp_vprintf()`
+formats into a 256 B stack buffer and `queue_line()` copies it into a second 256 B `log_item_t` on
+the stack. With it on, #261 saw stack overflows in `esp_timer` (Improv shutdown) and `mdns` (the
+W5500 IPv6 multicast warning), and the S3 player task had 160 B left.
+
+- Format straight into the queue item, or into one static buffer under a mutex: ~0 B extra stack
+  per logging task.
+- Smaller queue / line length as Kconfig options with lower defaults; drop lines when full.
+- Then consider turning it back on by default, build-checked against all envs.
 
 ## 2. Robustness and bugs
 
