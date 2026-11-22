@@ -27,33 +27,28 @@ Goal: run a plain ESP32 without PSRAM, built with `sdkconfig.defaults`, with a s
 
 </details>
 
-Done: boot transients and IRAM → flash (#247). *In progress:* standalone OTA server replaced by web
-OTA (#249), UI task removed and DSP JSON streamed (#252).
+Done and merged into `experimental`: boot transients and IRAM → flash (#247), web OTA instead of
+the standalone OTA server (#249), UI task removed and DSP JSON streamed (#252), task stacks trimmed
+(#254), Opus optional (#255), one wire-chunk buffer per codec (#256), fixed PCM chunk pool (#258),
+Wi-Fi / lwIP tuning (#259), 1 KB libFLAC input buffer (#257).
 
 ### 1.1 Task stacks
-- Measure all stacks, then trim. The `http` task (15 KB) had 12.8 KB unused with FLAC; Opus
-  (`VAR_ARRAYS`) must be measured before trimming.
+Done for `http` (15 → 13 KB, 4 KB without Opus) and `httpd` (8 → 6 KB) in #254/#255. Left:
+
 - With Ethernet: `playback_monitor_task` (4 KB, permanent) and `static_ip_task` (4 KB, created at
   runtime) → event handler or `esp_timer`. `eth_on_playback_stopped()` can block for up to 2.6 s, so
   it cannot simply run as an `esp_timer` callback.
 
 ### 1.2 FLAC input without the wire-chunk buffer
-Today every wire chunk is `malloc`ed (variable size, ~1.5–4 KB), copied into libFLAC's bitreader and
-freed.
-
-- `read_callback` reads straight from the connection (`read_data()`), bounded by a remaining-bytes
-  counter for the current wire chunk. libFLAC's bitreader becomes the only input buffer.
-- Network errors inside `read_callback` abort decoding and restart the connection; the decode loop
-  in `handle_chunk_message()` must be bounded.
-- Keep the `cachedBlocks` timestamp correction.
-- Quick win: in `parse_wire_chunk_message()`, only allocate `inData` for Opus/FLAC; the PCM codec
-  never uses it (~4.6 KB per chunk).
-- Opus: one static buffer sized to the maximum packet instead of a `malloc` per chunk.
+Done differently in #256: the parser stays the only reader and reads each wire chunk into one
+buffer allocated per codec header for the worst case (FLAC 4672 B, Opus 1276 B, PCM none), instead
+of a `malloc` per chunk. Reading straight from the connection in `read_callback` was tried and
+dropped.
 
 ### 1.3 Fixed PCM chunk pool
-*Draft PR #258 (stacked on #256).* Replace the per-chunk `malloc` and the unused fragmented-chunk
-code with a fixed pool. Mainly a robustness change: no fragmentation, no "malloc failed, retry"
-loops.
+Done in #258 (includes the `player_task` exit fix from the closed #253). Replaced the per-chunk
+`malloc` and the unused fragmented-chunk code with a fixed pool. Mainly a robustness change: no
+fragmentation, no "malloc failed, retry" loops.
 
 Changed from the design below after measuring: no spare chunks (N = queue formula), the decoder
 waits up to 100 ms for a free chunk instead of dropping audio, DRAM reserve 32 KB, the pool is
@@ -87,7 +82,7 @@ buffer changes on the server and reconnects.
 </details>
 
 ### 1.4 Wi-Fi / lwIP tuning
-*Draft PR #259 (stacked on #258).* Tested with simulated outages and real packet loss
+Done in #259. Tested with simulated outages and real packet loss
 (`test/netsim/`: TCP proxy for outages, `netem.sh` for loss in either direction, test server and
 board control scripts; `test/maxbuf/` for the largest server buffer).
 
@@ -128,8 +123,6 @@ relying on `sdkconfig.defaults`, which today still builds the UDP logger (its Kc
 
 ## 2. Robustness and bugs
 
-- *In progress (#253):* `player_task` returns on errors; a FreeRTOS task must never `return`
-  (log, clean up, `vTaskDelete(NULL)`).
 - Ethernet boot delay: `esp_eth_start()` blocks `app_main` for 4 s in ~1 of 3 resets when no cable
   is plugged in (auto-negotiation timeout). Lower `autonego_timeout_ms` in
   `components/network_interface/eth_interface.c`, then check boot timing and that a plugged-in cable
@@ -139,7 +132,8 @@ relying on `sdkconfig.defaults`, which today still builds the UDP logger (its Kc
   by up to ~150 ms, then hard-resyncs every 2.6 s (up to 4 times) while the estimate converges.
   Seen in every run with 2 % loss (`test/netsim/netem.sh`), never without loss. Likely cause: time
   replies share the TCP connection with the audio, so a retransmission delays them by 200 ms or more
-  (offset error ≈ delay / 2). The time filter counts as full after 29 samples taken 10 ms apart
+  (offset error ≈ delay / 2). Time replies are now stamped when they arrive instead of when they
+  are parsed (see Sync between boards), which removes the decode delay but not a retransmission. The time filter counts as full after 29 samples taken 10 ms apart
   during the startup burst, takes the first sample as the offset and the first two as the drift,
   and then samples only once per second. Confirm by logging each sample (round trip, offset, filter
   estimate) for the first seconds. Possible fixes:
@@ -147,6 +141,27 @@ relying on `sdkconfig.defaults`, which today still builds the UDP logger (its Kc
     29 samples;
   - ignore samples whose round trip is far above the lowest seen so far (as NTP does);
   - start from the sample with the shortest round trip instead of the first one.
+- Sync between boards. Measured with `test/sync/` (branch `sync-measure`, not merged yet): two
+  boards' analog outputs into the PC's Line In, offset per 0.5 s window from cross-correlating a
+  pink-noise stream. LyraT 4.3 vs ADAU1961 board, 200 s each:
+  - Fixed: time replies were stamped when parsed, behind up to ~10 ms of audio decoding; half of
+    that went into the server time offset. Now stamped when the TCP segment arrives. Offset between
+    the boards std 179 → 68 µs, jumps > 200 µs 15 → 5, no early hard resyncs.
+  - Fixed: after a reconnect the state stayed IDLE, so the codec stayed stopped (ADAU1961 silent)
+    and Wi-Fi power save stayed on during playback.
+  - Left: a constant ~400 µs offset (ADAU1961 later), probably the codecs' different output
+    latency. The client latency setting only takes whole milliseconds.
+  - Left: the control loop corrects only when the median error passes ±128 µs (`SHORT_OFFSET`),
+    then inserts or drops one sample per chunk, which shows up as ~230 µs steps between boards.
+    Smaller now that the time base is clean.
+  - Left: the time filter's drift estimate stays 0, while the board crystals drift 3.7–5.8 ppm
+    against the server; the offset is only followed, never predicted.
+  - Left: the LyraT's time round trip is ~5 ms (minimum 1.7 ms) even with arrival stamps, so its
+    delay is before the board (Wi-Fi, TCP or server). Needs a packet capture.
+- LyraT 4.3 with ESP32 rev v1.0 crashes at boot in ~1 of 5 boots: heap corruption shortly after
+  got-IP, seen in `udp_sendto()` from the UDP logger and, with the logger off, in `heap_caps_free()`
+  inside the mDNS server lookup. A LyraT with rev v3.0 and the ADAU1961 board (no PSRAM) don't show
+  it. Check the PSRAM cache workaround for rev v1 and what touches the heap around got-IP.
 - Rate-limit the "RESYNCING HARD 1/2" warnings in `player_task` (#234, closed, credit W-Floyd): at
   most one line per second with one shared timestamp at file scope, query Wi-Fi/heap info only when
   a line is printed, and report how many were suppressed ("(+12 suppressed)"). Today every hard
