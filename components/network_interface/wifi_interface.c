@@ -199,15 +199,28 @@ static void event_handler(void *arg, esp_event_base_t event_base, int event_id,
 }
 
 #if ENABLE_WIFI_PROVISIONING
-/*
- * One-shot esp_timer callback to deinitialize Improv provisioning after a
- * delay. Runs in the esp_timer task, so no extra task stack is needed.
- */
-static void improv_deinit_timer_cb(void *arg) {
+static void improv_deinit_task(void *arg) {
   (void)arg;
   ESP_LOGI(TAG, "Deinitiating improv provisioning (after %u ms)",
            (unsigned)IMPROV_DEINIT_DELAY_MS);
   improv_deinit();
+  ESP_LOGI(TAG, "improv_deinit stack high-water mark: %u bytes",
+           (unsigned)uxTaskGetStackHighWaterMark(NULL));
+  vTaskDelete(NULL);
+}
+
+/*
+ * One-shot esp_timer callback that deinitializes Improv provisioning after a
+ * delay. improv_deinit() needs more stack than the esp_timer task has left
+ * (48 bytes measured, an overflow with the UDP logger on), so it runs in a
+ * task of its own that exists only for this.
+ */
+static void improv_deinit_timer_cb(void *arg) {
+  (void)arg;
+  if (xTaskCreate(improv_deinit_task, "improv_deinit", 3 * 1024, NULL, 1,
+                  NULL) != pdPASS) {
+    ESP_LOGE(TAG, "no memory for the improv deinit task, improv stays on");
+  }
 }
 #endif
 
