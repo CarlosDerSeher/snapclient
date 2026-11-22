@@ -62,22 +62,51 @@ esp_err_t dsp_settings_load_flow_param(dspFlows_t flow, const char *param_name,
 									   int32_t *value);
 
 /**
- * Get all DSP settings as a JSON string
- * Includes active flow and all flow-specific parameters
- *
- * @param json_out Buffer to store JSON string (caller must allocate)
- * @param max_len Maximum size of output buffer
- * @return ESP_OK on success
- *
- * Example output:
- * {
- *   "active_flow": 5,
- *   "flows": {
- *     "5": {"fc_1": 150, "gain_1": 0, "fc_3": 8000, "gain_3": 0}
- *   }
- * }
+ * Sink for dsp_settings_write_json(): called with consecutive pieces of the
+ * JSON text (not NUL-terminated). Return anything but ESP_OK to stop.
  */
-esp_err_t dsp_settings_get_json(char *json_out, size_t max_len);
+typedef esp_err_t (*dsp_json_write_fn)(void *ctx, const char *data,
+									   size_t len);
+
+/**
+ * Write the DSP flows shown in the web UI with their parameter schema and
+ * current values as JSON, in small pieces, without heap allocation.
+ *
+ * Output (unformatted, as one line; shown here with one flow and one
+ * parameter):
+ *
+ * {
+ * 	"active_flow": 5,
+ * 	"flows": [
+ * 		{
+ * 			"id": "dspfEQBassTreble",
+ * 			"name": "Bass & Treble EQ",
+ * 			"description": "Simple 2-band equalizer with bass and treble controls",
+ * 			"enum_value": 5,
+ * 			"parameters": [
+ * 				{
+ * 					"key": "fc_1",
+ * 					"name": "Bass Frequency",
+ * 					"unit": "Hz",
+ * 					"min": 30,
+ * 					"max": 500,
+ * 					"default": 150,
+ * 					"step": 5,
+ * 					"current": 150
+ * 				},
+ * 				...
+ * 			]
+ * 		},
+ * 		...
+ * 	]
+ * }
+ *
+ * "active_flow" and "enum_value" are dspFlows_t values. A flow without
+ * adjustable parameters (Stereo) has an empty "parameters" array.
+ *
+ * @return ESP_OK, or the first error returned by @p write
+ */
+esp_err_t dsp_settings_write_json(dsp_json_write_fn write, void *ctx);
 
 /**
  * Update DSP settings from a JSON string

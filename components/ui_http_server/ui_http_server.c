@@ -45,8 +45,6 @@
 
 static const char *TAG = "UI_HTTP";
 
-static QueueHandle_t xQueueHttp = NULL;
-static TaskHandle_t taskHandle = NULL;
 static httpd_handle_t server = NULL;
 
 #if CONFIG_SNAPCLIENT_WEB_UI_STATUS
@@ -442,6 +440,67 @@ static esp_err_t root_get_handler(httpd_req_t *req) {
 }
 
 /*
+ * Apply and persist one DSP parameter from the web UI. Runs in the httpd
+ * task, which handles one request at a time, so updates stay serialized.
+ */
+static void apply_dsp_param(const char *key, int32_t value) {
+	ESP_LOGI(TAG, "%s: %s = %ld", __func__, key, (long)value);
+
+	if (strcmp(key, "dspFlow") == 0) {
+#if CONFIG_USE_DSP_PROCESSOR
+		// Loads the stored parameters of the new flow and notifies subscribers
+		dsp_settings_switch_active_flow((dspFlows_t)value);
+#endif
+		return;
+	}
+
+	// Global DSP setting (not flow-specific)
+	if (strcmp(key, "volume_curve_db_range") == 0) {
+#if CONFIG_USE_DSP_PROCESSOR
+		char json[64];
+		snprintf(json, sizeof(json), "{\"volume_curve_db_range\":%ld}",
+				 (long)value);
+		esp_err_t e = dsp_settings_set_from_json(json);
+		if (e != ESP_OK) {
+			ESP_LOGW(TAG, "%s: volume_curve_db_range set failed: %s", __func__,
+					 esp_err_to_name(e));
+		}
+#endif
+		return;
+	}
+
+	if (strcmp(key, "fc_1") != 0 && strcmp(key, "gain_1") != 0 &&
+		strcmp(key, "fc_3") != 0 && strcmp(key, "gain_3") != 0) {
+		ESP_LOGW(TAG, "%s: Unknown param '%s', ignoring", __func__, key);
+		return;
+	}
+
+	// Read the active flow and its params fresh from the settings, so other
+	// params of this flow are not overwritten with stale values
+	dspFlows_t flow = dsp_settings_get_active_flow();
+#if CONFIG_USE_DSP_PROCESSOR
+	filterParams_t params;
+	dsp_settings_get_flow_params(flow, &params);
+	if (strcmp(key, "fc_1") == 0) {
+		params.fc_1 = (float)value;
+	} else if (strcmp(key, "gain_1") == 0) {
+		params.gain_1 = (float)value;
+	} else if (strcmp(key, "fc_3") == 0) {
+		params.fc_3 = (float)value;
+	} else {
+		params.gain_3 = (float)value;
+	}
+	dsp_settings_set_flow_params(flow, &params);
+	ESP_LOGI(TAG, "%s: Saved %s = %ld to flow %d", __func__, key, (long)value,
+			 flow);
+#else
+	if (dsp_settings_save_flow_param(flow, key, value) != ESP_OK) {
+		ESP_LOGW(TAG, "%s: Failed to persist param '%s' to NVS", __func__, key);
+	}
+#endif
+}
+
+/*
  * HTTP post handler
  * Expects a single parameter change in the query string:
  * /post?param=NAME&value=INT
@@ -514,6 +573,22 @@ static esp_err_t root_post_handler(httpd_req_t *req) {
 			}
 			return ESP_OK;
 		}
+
+#ifdef CONFIG_SNAPCLIENT_WIFI_TX_POWER_CONTROL
+		// WiFi TX power in 0.25 dBm steps, applied right away
+		if (strcmp(param, "wifi_tx_power") == 0) {
+			long raw = strtol(valstr, NULL, 10);
+			if (raw < 34) raw = 34; // floor: 8.5 dBm
+			if (raw > 80) raw = 80; // ceiling: 20 dBm
+			settings_set_wifi_tx_power(raw);
+			esp_wifi_set_max_tx_power((int8_t)raw);
+			ESP_LOGI(TAG, "%s: wifi_tx_power set to %.2f dBm (raw %ld)",
+					 __func__, (float)raw / 4.0f, raw);
+			httpd_resp_set_status(req, "200 OK");
+			httpd_resp_sendstr(req, "ok");
+			return ESP_OK;
+		}
+#endif
 
 		// Special handling for snapserver_port (integer)
 		if (strcmp(param, "snapserver_port") == 0) {
@@ -636,15 +711,7 @@ static esp_err_t root_post_handler(httpd_req_t *req) {
 	}
 
 	if (ret >= 0) {
-		// Send to http_server_task with timeout to prevent handler from
-		// blocking indefinitely
-		if (xQueueSend(xQueueHttp, &urlBuf, pdMS_TO_TICKS(1000)) != pdPASS) {
-			ESP_LOGE(TAG, "%s: xQueueSend Fail (queue full or timeout)",
-					 __func__);
-			httpd_resp_set_status(req, "503 Service Unavailable");
-			httpd_resp_sendstr(req, "Queue full, try again");
-			return ESP_OK;
-		}
+		apply_dsp_param(urlBuf.key, urlBuf.int_value);
 	}
 
 	httpd_resp_set_status(req, "200 OK");
@@ -1004,6 +1071,41 @@ static esp_err_t get_param_handler(httpd_req_t *req) {
 	return ESP_OK;
 }
 
+#if CONFIG_USE_DSP_PROCESSOR
+/* Collects JSON pieces on the stack and sends them as HTTP chunks */
+typedef struct {
+	httpd_req_t *req;
+	size_t len;
+	char buf[512];
+} json_chunk_writer_t;
+
+static esp_err_t json_chunk_flush(json_chunk_writer_t *w) {
+	esp_err_t err = ESP_OK;
+	if (w->len) {
+		err = httpd_resp_send_chunk(w->req, w->buf, w->len);
+		w->len = 0;
+	}
+	return err;
+}
+
+/* dsp_json_write_fn */
+static esp_err_t json_chunk_write(void *ctx, const char *data, size_t len) {
+	json_chunk_writer_t *w = ctx;
+	if (w->len + len > sizeof(w->buf)) {
+		esp_err_t err = json_chunk_flush(w);
+		if (err != ESP_OK) {
+			return err;
+		}
+		if (len > sizeof(w->buf)) {
+			return httpd_resp_send_chunk(w->req, data, len);
+		}
+	}
+	memcpy(w->buf + w->len, data, len);
+	w->len += len;
+	return ESP_OK;
+}
+#endif
+
 /*
  * GET capabilities handler
  * Returns settings based on the 'tab' parameter: /capabilities?tab=general,
@@ -1087,33 +1189,21 @@ static esp_err_t get_capabilities_handler(httpd_req_t *req) {
 
 	} else if (strcmp(tab, "dsp") == 0) {
 #if CONFIG_USE_DSP_PROCESSOR
-		// Return DSP settings - allocate larger buffer for schema + values
-		char *dsp_json = (char *)malloc(4096);
-		if (!dsp_json) {
-			ESP_LOGE(TAG, "%s: Failed to allocate memory for DSP JSON",
-					 __func__);
-			httpd_resp_set_status(req, "500 Internal Server Error");
-			httpd_resp_sendstr(req,
-							   "{\"error\": \"Memory allocation failed\"}");
-			return ESP_OK;
-		}
-
-		esp_err_t ret = dsp_settings_get_json(dsp_json, 4096);
-
-		if (ret != ESP_OK) {
-			ESP_LOGE(TAG, "%s: Failed to get DSP settings JSON: %s", __func__,
-					 esp_err_to_name(ret));
-			free(dsp_json);
-			httpd_resp_set_status(req, "500 Internal Server Error");
-			httpd_resp_sendstr(
-				req, "{\"error\": \"Failed to retrieve DSP settings\"}");
-			return ESP_OK;
-		}
-
+		// Stream the JSON in small chunks instead of building it in a buffer
 		httpd_resp_set_status(req, "200 OK");
 		httpd_resp_set_type(req, "application/json");
-		httpd_resp_sendstr(req, dsp_json);
-		free(dsp_json);
+		json_chunk_writer_t w = {.req = req, .len = 0};
+		esp_err_t ret = dsp_settings_write_json(json_chunk_write, &w);
+		if (ret == ESP_OK) {
+			ret = json_chunk_flush(&w);
+		}
+		if (ret != ESP_OK) {
+			// Headers are already sent: end the chunked response, the client
+			// sees truncated JSON
+			ESP_LOGE(TAG, "%s: Failed to send DSP settings JSON: %s", __func__,
+					 esp_err_to_name(ret));
+		}
+		httpd_resp_send_chunk(req, NULL, 0);
 #else
 		// DSP not enabled
 		httpd_resp_set_status(req, "200 OK");
@@ -1572,22 +1662,45 @@ esp_err_t stop_server(void) {
 #define UDP_LOGGER_SOCKETS 0
 #endif
 
-_Static_assert(CONFIG_LWIP_MAX_SOCKETS - 3 - 1 - UDP_LOGGER_SOCKETS >= 2,
+/* esp_http_server reserves 3 sockets for its own use (listener + two UDP
+   control sockets). Keep one more free for the snapcast connection and two
+   for the UDP logger; LWIP_MAX_SOCKETS also limits netconns, so a browser
+   opening several connections must not starve them. Each open connection
+   costs a PCB, a netconn and buffered pbufs, so use at most 4: with LRU
+   purging, a browser loading the page still gets all files. */
+#define HTTPD_SOCKETS_AVAILABLE \
+	(CONFIG_LWIP_MAX_SOCKETS - 3 - 1 - UDP_LOGGER_SOCKETS)
+#define HTTPD_MAX_OPEN_SOCKETS \
+	(HTTPD_SOCKETS_AVAILABLE < 4 ? HTTPD_SOCKETS_AVAILABLE : 4)
+
+_Static_assert(HTTPD_SOCKETS_AVAILABLE >= 2,
 			   "CONFIG_LWIP_MAX_SOCKETS too low for the web UI");
+
+/* Number of httpd_register_uri_handler() calls below (and in
+   ota_register_handlers()); httpd allocates a slot for each up front */
+#define UI_URI_HANDLERS_BASE 13 /* 12 + static file catch-all */
+#if CONFIG_DAC_TAS5805M
+#define UI_URI_HANDLERS_TAS5805M 10
+#else
+#define UI_URI_HANDLERS_TAS5805M 0
+#endif
+#if CONFIG_SNAPCLIENT_WEB_OTA
+#define UI_URI_HANDLERS_OTA 3
+#else
+#define UI_URI_HANDLERS_OTA 0
+#endif
+#define UI_URI_HANDLERS \
+	(UI_URI_HANDLERS_BASE + UI_URI_HANDLERS_TAS5805M + UI_URI_HANDLERS_OTA)
 
 esp_err_t start_server(const char *base_path, int port) {
 	ESP_LOGD(TAG, "%s: base_path=%s port=%d", __func__, base_path, port);
 	httpd_config_t config = HTTPD_DEFAULT_CONFIG();
 	config.server_port = port;
 	config.stack_size = 8192;
-	/* esp_http_server reserves 3 sockets for its own use (listener + two UDP
-	   control sockets). Keep one more free for the snapcast connection and
-	   two for the UDP logger; LWIP_MAX_SOCKETS also limits netconns, so a
-	   browser opening several connections must not starve them. */
-	config.max_open_sockets = CONFIG_LWIP_MAX_SOCKETS - 3 - 1 - UDP_LOGGER_SOCKETS;
+	config.max_open_sockets = HTTPD_MAX_OPEN_SOCKETS;
 	config.max_req_hdr_len = 2048;
 	config.max_uri_len = 1024;
-	config.max_uri_handlers = 64;
+	config.max_uri_handlers = UI_URI_HANDLERS;
 	config.lru_purge_enable = true; // Enable LRU socket purging
 
 	/* Enable wildcard URI matching for static file handler */
@@ -1793,188 +1906,24 @@ esp_err_t start_server(const char *base_path, int port) {
 }
 
 /**
- * HTTP Server task - manages DSP parameters with flow-specific storage
+ * Start the web UI server. Handlers run in the httpd task; there is no
+ * separate UI task.
  */
-static void http_server_task(void *pvParameters) {
-	ESP_LOGD(TAG, "%s: started", __func__);
-	// Start Server
-	ESP_ERROR_CHECK(start_server("/html", CONFIG_WEB_PORT));
+void init_http_server(void) {
+	ESP_LOGD(TAG, "%s: initializing", __func__);
+
+	if (server) {
+		stop_server();
+	}
+
+	if (start_server("/html", CONFIG_WEB_PORT) != ESP_OK) {
+		ESP_LOGE(TAG, "%s: web UI not available", __func__);
+		return;
+	}
 
 #if CONFIG_SNAPCLIENT_WEB_OTA
 	// The next update needs this server: only keep an image that got this
 	// far instead of rolling back to the previous OTA partition on reset
 	esp_ota_mark_app_valid_cancel_rollback();
 #endif
-
-	// Ensure mdns setting has a default (true) on first boot - handled by
-	// settings_manager
-	bool tmp_mdns = true;
-	if (settings_get_mdns_enabled(&tmp_mdns) == ESP_OK) {
-		ESP_LOGD(TAG, "%s: mdns setting loaded: %d", __func__,
-				 tmp_mdns ? 1 : 0);
-	}
-
-	// DSP processor already loads parameters from NVS in dsp_processor_init()
-	// Just get the current active flow and parameters from DSP processor
-	dspFlows_t active_flow = dspfStereo; // default
-	filterParams_t current_params;
-	memset(&current_params, 0, sizeof(filterParams_t));
-
-#if CONFIG_USE_DSP_PROCESSOR
-	active_flow = dsp_settings_get_active_flow();
-	dsp_settings_get_flow_params(active_flow, &current_params);
-	ESP_LOGI(TAG, "%s: Current flow %d with fc_1=%.1f gain_1=%.1f", __func__,
-		 active_flow, current_params.fc_1, current_params.gain_1);
-#else
-	current_params.dspFlow = active_flow;
-#endif
-
-	URL_t urlBuf;
-	while (1) {
-		// Waiting for post
-		if (xQueueReceive(xQueueHttp, &urlBuf, portMAX_DELAY) == pdTRUE) {
-			ESP_LOGI(TAG, "%s: received update: %s = %ld", __func__, urlBuf.key,
-					 (long)urlBuf.int_value);
-
-		// Handle flow change specially
-		if (strcmp(urlBuf.key, "dspFlow") == 0) {
-			dspFlows_t new_flow = (dspFlows_t)urlBuf.int_value;
-
-#if CONFIG_USE_DSP_PROCESSOR
-			// Switch to new flow (loads its stored parameters and notifies subscribers)
-			dsp_settings_switch_active_flow(new_flow);
-			// Update our tracked active flow
-			active_flow = new_flow;
-			// Get the parameters for the new flow
-			dsp_settings_get_flow_params(new_flow, &current_params);
-			ESP_LOGI(TAG, "%s: Switched to flow %d", __func__, new_flow);
-#else
-			active_flow = new_flow;
-			current_params.dspFlow = new_flow;
-#endif
-			continue;
-		}
-
-#ifdef CONFIG_SNAPCLIENT_WIFI_TX_POWER_CONTROL
-		if (strcmp(urlBuf.key, "wifi_tx_power") == 0) {
-			int32_t raw = urlBuf.int_value;
-			if (raw < 34) raw = 34; // floor: 8.5 dBm
-			if (raw > 80) raw = 80; // ceiling: 20 dBm
-			settings_set_wifi_tx_power(raw);
-			esp_wifi_set_max_tx_power((int8_t)raw);
-			ESP_LOGI(TAG, "%s: wifi_tx_power set to %.2f dBm (raw %ld)",
-					 __func__, (float)raw / 4.0f, (long)raw);
-			continue;
-		}
-#endif
-
-		// Handle global DSP settings (not flow-specific)
-		if (strcmp(urlBuf.key, "volume_curve_db_range") == 0) {
-#if CONFIG_USE_DSP_PROCESSOR
-			char json[64];
-			snprintf(json, sizeof(json), "{\"volume_curve_db_range\":%ld}",
-					 (long)urlBuf.int_value);
-			esp_err_t e = dsp_settings_set_from_json(json);
-			if (e != ESP_OK) {
-				ESP_LOGW(TAG, "%s: volume_curve_db_range set failed: %s",
-						 __func__, esp_err_to_name(e));
-			}
-#endif
-			continue;
-		}
-
-		// Handle parameter updates for current flow
-		bool param_recognized = false;
-
-		if (strcmp(urlBuf.key, "fc_1") == 0) {
-			current_params.fc_1 = (float)urlBuf.int_value;
-			param_recognized = true;
-		} else if (strcmp(urlBuf.key, "gain_1") == 0) {
-			current_params.gain_1 = (float)urlBuf.int_value;
-			param_recognized = true;
-		} else if (strcmp(urlBuf.key, "fc_3") == 0) {
-			current_params.fc_3 = (float)urlBuf.int_value;
-			param_recognized = true;
-		} else if (strcmp(urlBuf.key, "gain_3") == 0) {
-			current_params.gain_3 = (float)urlBuf.int_value;
-			param_recognized = true;
-		}
-
-		if (!param_recognized) {
-			ESP_LOGW(TAG, "%s: Unknown param '%s' received, ignoring",
-					 __func__, urlBuf.key);
-			continue;
-		}
-
-#if CONFIG_USE_DSP_PROCESSOR
-		// Always read active flow fresh from NVS to ensure we save to the correct flow
-		// (the UI may have changed the flow before this task's cached value was updated)
-		dspFlows_t save_flow = dsp_settings_get_active_flow();
-		
-		// Fetch the current params for THIS flow fresh from NVS
-		// This prevents overwriting other params with stale cached values
-		filterParams_t save_params;
-		dsp_settings_get_flow_params(save_flow, &save_params);
-		
-		// Update only the changed parameter
-		if (strcmp(urlBuf.key, "fc_1") == 0) {
-			save_params.fc_1 = (float)urlBuf.int_value;
-		} else if (strcmp(urlBuf.key, "gain_1") == 0) {
-			save_params.gain_1 = (float)urlBuf.int_value;
-		} else if (strcmp(urlBuf.key, "fc_3") == 0) {
-			save_params.fc_3 = (float)urlBuf.int_value;
-		} else if (strcmp(urlBuf.key, "gain_3") == 0) {
-			save_params.gain_3 = (float)urlBuf.int_value;
-		}
-		
-		// Update our cached params if this is the current flow
-		if (save_flow == active_flow) {
-			current_params = save_params;
-		}
-		
-		dsp_settings_set_flow_params(save_flow, &save_params);
-		ESP_LOGI(TAG, "%s: Saved %s = %ld to flow %d", __func__, urlBuf.key,
-				 (long)urlBuf.int_value, save_flow);
-#else
-		// Persist parameter using dsp_settings (values are stored as int32_t)
-		dspFlows_t save_flow = dsp_settings_get_active_flow();
-		if (dsp_settings_save_flow_param(save_flow, urlBuf.key,
-										 urlBuf.int_value) != ESP_OK) {
-			ESP_LOGW(TAG, "%s: Failed to persist param '%s' to NVS",
-					 __func__, urlBuf.key);
-		} else {
-			ESP_LOGD(TAG, "%s: Saved %s = %ld to NVS", __func__, urlBuf.key,
-					 (long)urlBuf.int_value);
-		}
-#endif
-		}
-	}
-	// Never reach here
-	ESP_LOGI(TAG, "%s: finish", __func__);
-	vTaskDelete(NULL);
-}
-
-/**
- *
- */
-void init_http_server_task(void) {
-	ESP_LOGD(TAG, "%s: initializing", __func__);
-
-	// No SPIFFS mounting needed - files are embedded in flash
-
-	// Create Queue
-	if (!xQueueHttp) {
-		xQueueHttp = xQueueCreate(10, sizeof(URL_t));
-		configASSERT(xQueueHttp);
-	}
-
-	if (taskHandle) {
-		stop_server();
-		vTaskDelete(taskHandle);
-		taskHandle = NULL;
-	}
-
-	// Stack size can be reduced from 512*8 since we're not using file I/O
-	xTaskCreatePinnedToCore(http_server_task, "HTTP", 512 * 6, NULL, 2,
-							&taskHandle, tskNO_AFFINITY);
 }
