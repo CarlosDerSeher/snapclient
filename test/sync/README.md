@@ -15,13 +15,17 @@ sound card (48 kHz) don't need to match.
 
 ## Wiring
 
-- A cable with two mono plugs into one stereo plug (or a stereo-to-2-mono cable used backwards):
-  board A's left channel to the tip, board B's left channel to the ring, grounds together.
+- A cable with two plugs into one stereo plug (or a stereo-to-2-mono cable used backwards): one
+  output channel of board A to the tip (left), one of board B to the ring (right), grounds
+  together. Which channel of each board doesn't matter: `noise44`'s right channel is its left
+  delayed by exactly 1 s, and `sync.py` finds the pairing by itself (the summary prints it).
 - Use the **Line In** jack (blue, rear). The Mic jacks are mono and put a bias voltage on the plug.
-- Only line or headphone outputs (PCM5102A and similar). **Never** a speaker amplifier output
-  (TAS5805M, MAX98357A, ...): their outputs are bridged and can damage the sound card input.
-- Both boards powered from the same PC by USB is fine. Hum from a ground loop doesn't matter: the
-  analysis ignores everything below 200 Hz.
+- Only line or headphone outputs (PCM5102A, ES8388 headphone jack, ...). **Never** a speaker
+  amplifier output (TAS5805M, MAX98357A, LyraT speaker terminals, ...): their outputs are bridged
+  and can damage the sound card input.
+- Both boards powered from the same PC by USB is fine. Some hum doesn't matter: the analysis
+  ignores everything below 200 Hz. But a plug that isn't fully in or a missing ground connection
+  gives hum far above the signal (check with the tone test below).
 
 ## Sound card setup
 
@@ -32,6 +36,7 @@ card 1; `arecord -l` lists the cards):
 amixer -c 1 sset 'Input Source' Line
 amixer -c 1 sset Capture 23          # 0 dB; 63 is +30 dB and clips
 amixer -c 1 sset Capture cap
+amixer -c 1 sset 'Line Boost' 0      # 3 is +30 dB on top
 ```
 
 `alsamixer -c 1` (F4 for capture) does the same. With a Mic input selected, both channels record
@@ -40,10 +45,15 @@ identical or clip.
 
 ## Test signal
 
-`test/netsim/testserver.sh` has a stream `noise44`: FLAC 44.1 kHz, pink noise, different noise on
-left and right. There is no silence, so FLAC compresses it like music (~70 % of PCM; silence or the
-same signal on both channels would shrink to almost nothing and spare the client's Wi-Fi and
-decoder). The noise never repeats, so the offset is unambiguous up to `--max-ms` (20 ms).
+`test/netsim/testserver.sh` has a stream `noise44`: FLAC 44.1 kHz pink noise, the right channel
+being the left one delayed by exactly 1 s. There is no silence and FLAC can't use the similarity
+of a delayed copy, so it compresses like music (~70 % of PCM; silence or the same signal on both
+channels would shrink to almost nothing and spare the client's Wi-Fi and decoder). The noise
+never repeats, so the offset is unambiguous up to `--max-ms` (20 ms).
+
+To check the wiring and levels, play the tone stream `flac44` (440 Hz left, 660 Hz right) and look
+at the spectrum of a short recording: each board's tone should stand well above the 50 Hz hum and
+disappear when that board is muted.
 
 ## Measuring
 
