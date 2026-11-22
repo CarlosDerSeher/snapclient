@@ -68,7 +68,16 @@ python3 -m venv ~/.venv-sync && ~/.venv-sync/bin/pip install numpy
    ```
 3. Calibrate once: one board into both inputs (Y cable). The offset should be ~0 µs; pass
    anything else as `--cal-us` to later runs.
-4. Record and analyze, e.g. 5 minutes:
+4. Measure live: one line per window while recording, the summary at Ctrl-C:
+   ```sh
+   ~/.venv-sync/bin/python test/sync/sync.py live --wav sync.wav
+   ```
+   ```
+       12.50 s      38.1 us  corr  0.98  A  -18.2 dB  B  -18.6 dB
+       13.00 s    -474.9 us  corr  0.97  A  -18.3 dB  B  -18.5 dB    JUMP -513.0 us
+   ```
+   `--quiet` prints only jumps and windows without a match, `--seconds` stops by itself. Or
+   record first and analyze afterwards (e.g. 5 minutes):
    ```sh
    ~/.venv-sync/bin/python test/sync/sync.py --csv sync.csv run 300 --wav sync.wav
    ~/.venv-sync/bin/python test/sync/sync.py analyze sync.wav     # again, other options
@@ -101,4 +110,7 @@ without match:
 
 Both boards need the same audio path: DSP settings (EQ filters delay the signal) and DAC type
 (different DAC filters have different group delay) should match, or the offset includes that.
-Each window is 0.5 s (`--window`); `--csv` writes every window for plotting.
+Windows are 0.5 s (`--window`) and follow each other without a gap, so every sample is compared;
+0.5 s is only how often a value comes out. `--step 0.1` starts a window every 0.1 s (overlapping)
+for 10 values per second; shorter windows (`--window 0.1`) react faster but scatter more.
+`--csv` writes every window for plotting.
