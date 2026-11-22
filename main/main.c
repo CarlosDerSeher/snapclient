@@ -224,6 +224,10 @@ static codec_type_t poolCodec = NONE;  // codec the pool is for
 // its output buffers
 static bool flacPoolPending = false;
 
+// FLAC stream that write_callback() can't pack into 16-bit stereo chunks:
+// its frames are dropped and playback stays stopped
+static bool flacUnsupported = false;
+
 static bool pcm_pool_ensure(playerSetting_t *setting);
 
 /**
@@ -440,6 +444,12 @@ static FLAC__StreamDecoderWriteStatus write_callback(
 
   flacChunkFrames = frame->header.blocksize;
   flacChunkCached = isCachedChunk;
+
+  if (flacUnsupported) {
+    flacChunk = NULL;
+
+    return FLAC__STREAM_DECODER_WRITE_STATUS_CONTINUE;
+  }
 
   // handle_chunk_message() sets the timestamp and submits it. Each frame
   // takes 4 bytes (16-bit stereo), see codec_header_received().
@@ -856,6 +866,7 @@ void codec_header_received(char *codecPayload, uint32_t codecPayloadLen,
   scSet->chkInFrames = 0;
   flacAnchorValid = false;
   flacPoolPending = false;
+  flacUnsupported = false;
 
   // The old decoder is gone; the new one allocates below. Free the pool of
   // another codec first, its memory is needed now. With the same codec (e.g.
@@ -942,8 +953,14 @@ void codec_header_received(char *codecPayload, uint32_t codecPayloadLen,
 
     // write_callback() writes 16-bit stereo only
     if ((scSet->bits != 16) || (scSet->ch != 2)) {
-      ESP_LOGE(TAG, "FLAC with %d bit, %d channels is not supported",
+      ESP_LOGE(TAG,
+               "FLAC with %d bit, %d channels is not supported, playback "
+               "stays stopped",
                scSet->bits, scSet->ch);
+      // the pool of the previous FLAC stream would get frames packed
+      // wrongly: drop them, and free the pool
+      flacUnsupported = true;
+      pcm_pool_release();
     } else {
       // pcm chunks hold one FLAC frame; the pool is built after the first
       // frame (see handle_chunk_message())
