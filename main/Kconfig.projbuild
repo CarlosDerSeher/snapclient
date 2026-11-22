@@ -38,11 +38,51 @@ menu "Snapclient Configuration"
             Name of the client to register the snapserver.
 
 	menu "HTTP Server Setting"
+		config SNAPCLIENT_ENABLE_WEB_UI
+			bool "Enable local web UI"
+			default y
+			help
+				Start the local HTTP interface for device settings. When DSP is
+				enabled, the UI also exposes DSP flow and filter configuration.
+
+		config SNAPCLIENT_WEB_UI_STATUS
+			bool "Show runtime status in the web UI"
+			depends on SNAPCLIENT_ENABLE_WEB_UI
+			default y if SPIRAM
+			default n
+			help
+				Add a live status section (network, snapserver connection, heap)
+				to the General Settings page. Each status request builds a JSON
+				response on the heap, and the page polls it every 5 s, so this
+				is enabled by default only on boards with PSRAM.
+
 		config WEB_PORT
 			int "User interface HTTP Server Port"
 			default 80
 			help
 				HTTP server port to use.
+
+		config HTTP_AUTH_ENABLE
+			bool "Require HTTP Basic Auth for OTA and web UI"
+			default n
+			help
+				Require a valid HTTP Basic Authorization header before accepting
+				a firmware upload on the OTA port or serving the web UI.
+
+		config HTTP_AUTH_USERNAME
+			string "HTTP auth username"
+			default "ota"
+			depends on HTTP_AUTH_ENABLE
+			help
+				Username for the OTA and web UI HTTP Basic Auth check.
+
+		config HTTP_AUTH_PASSWORD
+			string "HTTP auth password"
+			default "change-me"
+			depends on HTTP_AUTH_ENABLE
+			help
+				Password for the OTA and web UI HTTP Basic Auth check.
+				This value is stored in plain text inside sdkconfig.
 	endmenu
 
 	config USE_SAMPLE_INSERTION

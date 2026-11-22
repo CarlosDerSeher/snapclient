@@ -1867,7 +1867,14 @@ void app_main(void) {
   esp32_udp_logger_autostart();
   #endif
 
+  #if CONFIG_USE_DSP_PROCESSOR
+  dsp_processor_init();  // Must init processor first (creates mutexes/semaphores)
+  dsp_settings_init();   // Then settings can restore params into the processor
+  #endif
+
+  #if CONFIG_SNAPCLIENT_ENABLE_WEB_UI
   init_http_server_task();
+  #endif
 
   // Enable websocket server
   //  ESP_LOGI(TAG, "Setup ws server");
@@ -1876,11 +1883,6 @@ void app_main(void) {
   net_mdns_register(mdns_hostname);
 #ifdef CONFIG_SNAPCLIENT_SNTP_ENABLE
   set_time_from_sntp();
-#endif
-
-#if CONFIG_USE_DSP_PROCESSOR
-  dsp_processor_init();  // Must init processor first (creates mutexes/semaphores)
-  dsp_settings_init();   // Then settings can restore params into the processor
 #endif
 
   xTaskCreatePinnedToCore(&ota_server_task, "ota", 15 * 256, NULL,
