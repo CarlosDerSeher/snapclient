@@ -1,7 +1,8 @@
 # TODO
 
 Open work on this project, roughly in priority order within each section. Pick something, open an
-issue or a draft PR to say you are on it, and target `develop`.
+issue or a draft PR to say you are on it, and target `experimental`, which collects the recent
+changes until they are merged into `develop` together.
 
 Items marked *in progress* have an open PR; check it before starting.
 
@@ -86,7 +87,7 @@ buffer changes on the server and reconnects.
 </details>
 
 ### 1.4 Wi-Fi / lwIP tuning
-*Done, PR to come (stacked on 1.3).* Tested with simulated outages and real packet loss
+*Draft PR #259 (stacked on #258).* Tested with simulated outages and real packet loss
 (`test/netsim/`: TCP proxy for outages, `netem.sh` for loss in either direction, test server and
 board control scripts; `test/maxbuf/` for the largest server buffer).
 
