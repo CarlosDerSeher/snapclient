@@ -1,0 +1,235 @@
+#!/usr/bin/env python3
+"""Measure how well two snapclient boards play in sync.
+
+Board A's left output goes to the left Line In of this PC's sound card, board B's left output to
+the right Line In. Both channels are sampled by the same ADC, so the time offset between the two
+recorded channels is the offset between the two boards. The boards play the noise44 stream of
+test/netsim/testserver.sh (pink noise, no silence, so FLAC compresses it like music).
+
+  sync.py run SECONDS [--wav FILE]   record from Line In, then analyze
+  sync.py analyze FILE               analyze a stereo WAV recorded earlier
+  sync.py selftest                   analyze a synthetic recording with known offsets
+
+The recording is cut into windows (default 0.5 s). For each window the two channels are
+cross-correlated (band-passed, so hum and DC don't pull the peak to 0) and the peak is located
+to a fraction of a sample. Positive offset = board B plays later than board A.
+
+Output: per-window lines with --csv, and a summary: median, spread, drift, jumps (offset changed
+by more than --jump-us between two windows, e.g. a hard resync), and windows without a match
+(one board silent or playing something else: dropout, stopped player, wrong stream).
+
+Calibrate once with one board into both inputs (Y cable): the offset should be ~0. Pass a
+non-zero result as --cal-us to later runs.
+
+Needs numpy (python3 -m venv ~/.venv-sync && ~/.venv-sync/bin/pip install numpy).
+"""
+
+import argparse
+import subprocess
+import sys
+import wave
+
+import numpy as np
+
+
+def read_wav(path):
+    with wave.open(path, "rb") as w:
+        ch, width, rate = w.getnchannels(), w.getsampwidth(), w.getframerate()
+        raw = w.readframes(w.getnframes())
+    if ch != 2 or width not in (2, 4):
+        sys.exit(f"{path}: need 2 channels with 16 or 32 bit, got {ch} channels, {8 * width} bit")
+    x = np.frombuffer(raw, dtype="<i2" if width == 2 else "<i4").reshape(-1, 2)
+    x = x.astype(np.float64) / 2 ** (8 * width - 1)
+    return rate, x[:, 0], x[:, 1]
+
+
+def record(a):
+    wav = a.wav or "sync.wav"
+    cmd = ["arecord", "-D", a.device, "-f", "S16_LE", "-r", str(a.rate), "-c", "2",
+           "-d", str(a.seconds), wav]
+    print(" ".join(cmd), file=sys.stderr)
+    subprocess.run(cmd, check=True)
+    return wav
+
+
+def level_db(x):
+    return 20 * np.log10(max(np.sqrt(np.mean(x * x)), 1e-9))
+
+
+def measure(rate, a, b, args):
+    """One row per window: (time_s, offset_us or None, coefficient, level A, level B, reason)."""
+    n = int(args.window * rate)
+    maxlag = int(args.max_ms * rate / 1000)
+    nfft = 1 << int(np.ceil(np.log2(n + maxlag)))
+    up = args.upsample
+    f = np.fft.rfftfreq(nfft, 1 / rate)
+    band = (f >= args.lo) & (f <= min(args.hi, rate / 2 * 0.95))
+    lim = maxlag * up
+    rows = []
+    for start in range(0, len(a) - n + 1, n):
+        sa, sb = a[start:start + n], b[start:start + n]
+        la, lb = level_db(sa), level_db(sb)
+        t = start / rate
+        if la < args.silence_db or lb < args.silence_db:
+            rows.append((t, None, 0.0, la, lb, "silent " + ("A" if la < args.silence_db else "B")))
+            continue
+        A = np.fft.rfft(sa, nfft) * band
+        B = np.fft.rfft(sb, nfft) * band
+        # c[k] = sum b[i + k] a[i]: peaks at k = d if B is A delayed by d samples
+        c = np.fft.irfft(B * np.conj(A), nfft * up) * up
+        c = np.concatenate((c[-lim:], c[:lim + 1]))
+        i = int(np.argmax(np.abs(c)))
+        energy = np.sqrt((2 * np.sum(np.abs(A) ** 2) / nfft) * (2 * np.sum(np.abs(B) ** 2) / nfft))
+        coef = c[i] / energy
+        frac = 0.0
+        if 0 < i < len(c) - 1:
+            y0, y1, y2 = np.abs(c[i - 1:i + 2])
+            den = y0 - 2 * y1 + y2
+            if den:
+                frac = 0.5 * (y0 - y2) / den
+        if abs(coef) < args.min_coef:
+            rows.append((t, None, coef, la, lb, "no match"))
+            continue
+        lag = (i - lim + frac) / up
+        rows.append((t, lag / rate * 1e6 - args.cal_us, coef, la, lb, ""))
+    return rows
+
+
+def report(rows, args):
+    if args.csv:
+        with open(args.csv, "w") as out:
+            out.write("time_s,offset_us,coef,level_a_db,level_b_db,note\n")
+            for t, off, coef, la, lb, why in rows:
+                out.write(f"{t:.3f},{'' if off is None else f'{off:.2f}'},{coef:.3f},"
+                          f"{la:.1f},{lb:.1f},{why}\n")
+        print(f"per-window values: {args.csv}")
+
+    good = [(t, off, coef) for t, off, coef, _, _, _ in rows if off is not None]
+    bad = [(t, why) for t, off, _, _, _, why in rows if off is None]
+    print(f"windows: {len(rows)} x {args.window} s, matched {len(good)}, no match {len(bad)}")
+    if not good:
+        print("no window matched: check wiring, Line In selected, both boards on noise44")
+        return 1
+    t = np.array([g[0] for g in good])
+    off = np.array([g[1] for g in good])
+    coef = np.array([g[2] for g in good])
+    if np.median(coef) < 0:
+        print("note: the channels are inverted against each other (negative correlation)")
+    print(f"offset B-A [us]: median {np.median(off):.1f}  mean {off.mean():.1f}  "
+          f"std {off.std():.1f}  min {off.min():.1f}  max {off.max():.1f}  "
+          f"p-p {off.max() - off.min():.1f}")
+    p5, p95 = np.percentile(off, [5, 95])
+    print(f"                 5..95 % {p5:.1f} .. {p95:.1f}  "
+          f"(|offset| < 100 us in {np.mean(np.abs(off) < 100) * 100:.0f} % of windows)")
+    if len(t) > 2 and t[-1] > t[0]:
+        slope = np.polyfit(t, off, 1)[0] * 60
+        print(f"drift {slope:+.1f} us/min, correlation median {np.median(np.abs(coef)):.2f}")
+
+    jumps = [(t[i], off[i - 1], off[i]) for i in range(1, len(off))
+             if abs(off[i] - off[i - 1]) > args.jump_us]
+    print(f"jumps > {args.jump_us:.0f} us: {len(jumps)}")
+    for tj, before, after in jumps[:args.list]:
+        print(f"  {tj:8.1f} s  {before:9.1f} -> {after:9.1f} us")
+    if len(jumps) > args.list:
+        print(f"  ... {len(jumps) - args.list} more")
+
+    # merge consecutive unmatched windows into spans
+    spans = []
+    for tb, why in bad:
+        if spans and spans[-1][2] == why and abs(spans[-1][1] - tb) < 1e-6:
+            spans[-1][1] = tb + args.window
+        else:
+            spans.append([tb, tb + args.window, why])
+    if spans:
+        print("without match:")
+        for s, e, why in spans[:args.list]:
+            print(f"  {s:8.1f} .. {e:8.1f} s  {why}")
+        if len(spans) > args.list:
+            print(f"  ... {len(spans) - args.list} more")
+    return 0
+
+
+def pink(n, rng):
+    X = np.fft.rfft(rng.standard_normal(n))
+    f = np.arange(len(X))
+    X[1:] /= np.sqrt(f[1:])
+    X[0] = 0
+    x = np.fft.irfft(X, n)
+    return x / np.abs(x).max() * 0.3
+
+
+def delay(x, d):
+    """x delayed by d samples (fractional, circular)."""
+    X = np.fft.rfft(x)
+    return np.fft.irfft(X * np.exp(-2j * np.pi * np.fft.rfftfreq(len(x)) * d), len(x))
+
+
+def selftest(args):
+    rate, secs = 48000, 60
+    rng = np.random.default_rng(1)
+    n = rate * secs
+    a = pink(n, rng)
+    # B: 37.3 us late for 30 s, then a jump to -512.8 us; a 2 s dropout at 40 s
+    b = np.concatenate((delay(a, 37.3e-6 * rate)[:n // 2], delay(a, -512.8e-6 * rate)[n // 2:]))
+    b[40 * rate:42 * rate] = 0
+    hum = 0.05 * np.sin(2 * np.pi * 50 * np.arange(n) / rate)
+    a = a + hum + 0.003 * rng.standard_normal(n)
+    b = 0.7 * b + hum + 0.003 * rng.standard_normal(n)
+    rows = measure(rate, a, b, args)
+    print("expected: 37.3 us for 0..30 s, then -512.8 us, one jump at 30 s, "
+          "no match 40..42 s (silent B is hidden by hum: 'no match')")
+    report(rows, args)
+    first = [o for t, o, *_ in rows if o is not None and t < 29]
+    second = [o for t, o, *_ in rows if o is not None and 31 < t < 39]
+    err = max(np.abs(np.array(first) - 37.3).max(), np.abs(np.array(second) + 512.8).max())
+    print(f"max error {err:.2f} us")
+    return 0 if err < 2 else 1
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__.split("\n")[0],
+                                formatter_class=argparse.RawDescriptionHelpFormatter,
+                                epilog=__doc__.split("\n", 2)[2])
+    p.add_argument("--window", type=float, default=0.5, help="window length in s (0.5)")
+    p.add_argument("--max-ms", type=float, default=20, help="largest offset searched (20 ms)")
+    p.add_argument("--lo", type=float, default=200, help="band-pass low edge, Hz (200)")
+    p.add_argument("--hi", type=float, default=15000, help="band-pass high edge, Hz (15000)")
+    p.add_argument("--upsample", type=int, default=8, help="correlation interpolation (8)")
+    p.add_argument("--min-coef", type=float, default=0.3,
+                   help="correlation below this = no match (0.3)")
+    p.add_argument("--silence-db", type=float, default=-60,
+                   help="channel below this level (dBFS) = silent (-60)")
+    p.add_argument("--jump-us", type=float, default=200, help="report jumps above this (200 us)")
+    p.add_argument("--cal-us", type=float, default=0, help="subtract this (calibration run)")
+    p.add_argument("--csv", help="write per-window values to this file")
+    p.add_argument("--list", type=int, default=20, help="list at most this many jumps/gaps")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    s = sub.add_parser("run", help="record from Line In, then analyze")
+    s.add_argument("seconds", type=int)
+    s.add_argument("--wav", help="keep the recording here (default sync.wav)")
+    s.add_argument("--device", default="hw:1,0", help="ALSA capture device (hw:1,0)")
+    s.add_argument("--rate", type=int, default=48000, help="sample rate (48000)")
+
+    s = sub.add_parser("analyze", help="analyze a stereo WAV")
+    s.add_argument("file")
+
+    sub.add_parser("selftest", help="synthetic recording with known offsets")
+
+    args = p.parse_args()
+    if args.cmd == "selftest":
+        return selftest(args)
+    path = record(args) if args.cmd == "run" else args.file
+    rate, a, b = read_wav(path)
+    for name, x in (("A (left)", a), ("B (right)", b)):
+        peak = np.abs(x).max()
+        print(f"{name}: level {level_db(x):.1f} dBFS, peak {20 * np.log10(max(peak, 1e-9)):.1f} dBFS"
+              + ("  CLIPPING, lower the board volume or Capture level" if peak > 0.99 else ""))
+    if np.abs(a - b).max() < 1e-3:
+        print("WARNING: both channels are identical: a mono input (Mic) is selected, or one board "
+              "feeds both inputs. Select Line In (see README) unless this is the calibration run")
+    return report(measure(rate, a, b, args), args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
