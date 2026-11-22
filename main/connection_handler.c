@@ -2,7 +2,6 @@
 
 #include "esp_timer.h"
 #include "esp_log.h"
-#include "esp_timer.h"
 #if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
 #include "eth_interface.h"
 #endif
