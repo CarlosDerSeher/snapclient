@@ -35,6 +35,9 @@
 #include "network_interface.h"
 #include "settings_manager.h"
 #include "esp_wifi.h"
+#include "http_auth.h"
+#include "ota_handlers.h"
+#include "esp_ota_ops.h"
 
 #if CONFIG_DAC_TAS5805M
 #include "tas5805m_settings.h"
@@ -71,6 +74,10 @@ extern const uint8_t dac_settings_html_start[] asm("_binary_dac_settings_html_st
 extern const uint8_t dac_settings_html_end[] asm("_binary_dac_settings_html_end");
 extern const uint8_t eq_settings_html_start[] asm("_binary_eq_settings_html_start");
 extern const uint8_t eq_settings_html_end[] asm("_binary_eq_settings_html_end");
+#if CONFIG_SNAPCLIENT_WEB_OTA
+extern const uint8_t ota_update_html_start[] asm("_binary_ota_update_html_start");
+extern const uint8_t ota_update_html_end[] asm("_binary_ota_update_html_end");
+#endif
 extern const uint8_t favicon_svg_start[] asm("_binary_favicon_svg_start");
 extern const uint8_t favicon_svg_end[] asm("_binary_favicon_svg_end");
 
@@ -92,6 +99,9 @@ static const embedded_file_t embedded_files[] = {
 	{"/dsp-settings.html", dsp_settings_html_start, dsp_settings_html_end, "text/html; charset=utf-8"},
 	{"/dac-settings.html", dac_settings_html_start, dac_settings_html_end, "text/html; charset=utf-8"},
 	{"/eq-settings.html", eq_settings_html_start, eq_settings_html_end, "text/html; charset=utf-8"},
+#if CONFIG_SNAPCLIENT_WEB_OTA
+	{"/ota-update.html", ota_update_html_start, ota_update_html_end, "text/html; charset=utf-8"},
+#endif
 	{"/favicon.svg", favicon_svg_start, favicon_svg_end, "image/svg+xml"},
 };
 
@@ -306,7 +316,7 @@ static esp_err_t send_auth_challenge(httpd_req_t *req) {
 	return ESP_ERR_INVALID_STATE;
 }
 
-static esp_err_t require_http_auth(httpd_req_t *req) {
+esp_err_t require_http_auth(httpd_req_t *req) {
 	char header_value[192];
 	char expected_value[192];
 	int header_len = httpd_req_get_hdr_value_len(req, "Authorization");
@@ -338,7 +348,7 @@ static esp_err_t require_http_auth(httpd_req_t *req) {
 	return ESP_OK;
 }
 #else
-static esp_err_t require_http_auth(httpd_req_t *req) {
+esp_err_t require_http_auth(httpd_req_t *req) {
 	(void)req;
 	return ESP_OK;
 }
@@ -1556,7 +1566,13 @@ esp_err_t stop_server(void) {
 /*
  * Function to start the web server
  */
-_Static_assert(CONFIG_LWIP_MAX_SOCKETS - 3 - 2 >= 2,
+#if CONFIG_ESP32_UDP_LOGGER_ENABLED
+#define UDP_LOGGER_SOCKETS 2  // TX and RX
+#else
+#define UDP_LOGGER_SOCKETS 0
+#endif
+
+_Static_assert(CONFIG_LWIP_MAX_SOCKETS - 3 - 1 - UDP_LOGGER_SOCKETS >= 2,
 			   "CONFIG_LWIP_MAX_SOCKETS too low for the web UI");
 
 esp_err_t start_server(const char *base_path, int port) {
@@ -1565,10 +1581,10 @@ esp_err_t start_server(const char *base_path, int port) {
 	config.server_port = port;
 	config.stack_size = 8192;
 	/* esp_http_server reserves 3 sockets for its own use (listener + two UDP
-	   control sockets). Keep two more free for the snapcast connection and
-	   the OTA listener; LWIP_MAX_SOCKETS also limits netconns, so a browser
-	   opening several connections must not starve them. */
-	config.max_open_sockets = CONFIG_LWIP_MAX_SOCKETS - 3 - 2;
+	   control sockets). Keep one more free for the snapcast connection and
+	   two for the UDP logger; LWIP_MAX_SOCKETS also limits netconns, so a
+	   browser opening several connections must not starve them. */
+	config.max_open_sockets = CONFIG_LWIP_MAX_SOCKETS - 3 - 1 - UDP_LOGGER_SOCKETS;
 	config.max_req_hdr_len = 2048;
 	config.max_uri_len = 1024;
 	config.max_uri_handlers = 64;
@@ -1755,6 +1771,10 @@ esp_err_t start_server(const char *base_path, int port) {
 	httpd_register_uri_handler(server, &_options_eq_schema_handler);
 #endif /* CONFIG_DAC_TAS5805M */
 
+#if CONFIG_SNAPCLIENT_WEB_OTA
+	ota_register_handlers(server);
+#endif
+
 	/* URI handler for static files (catch-all, must be last) */
 	httpd_uri_t _static_file_handler = {
 		.uri = "/*",
@@ -1779,6 +1799,12 @@ static void http_server_task(void *pvParameters) {
 	ESP_LOGD(TAG, "%s: started", __func__);
 	// Start Server
 	ESP_ERROR_CHECK(start_server("/html", CONFIG_WEB_PORT));
+
+#if CONFIG_SNAPCLIENT_WEB_OTA
+	// The next update needs this server: only keep an image that got this
+	// far instead of rolling back to the previous OTA partition on reset
+	esp_ota_mark_app_valid_cancel_rollback();
+#endif
 
 	// Ensure mdns setting has a default (true) on first boot - handled by
 	// settings_manager
