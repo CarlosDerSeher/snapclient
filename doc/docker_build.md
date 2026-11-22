@@ -22,19 +22,21 @@ mode is needed. Adjust `/dev/ttyUSB0` if your board shows up under a different n
 `/dev/ttyACM0` for boards with native USB (ESP32-S3). The device must be plugged in when the
 container starts.
 
-Serial ports belong to the `dialout` group. The container gets this group with `--group-add`.
+Serial ports belong to a group (`dialout` on most distributions, `uucp` on Arch Linux). The
+container gets the port's group with `--group-add $(stat -c %g /dev/ttyUSB0)`, which works with any
+group name.
 To use the port outside of docker as well (e.g. `esptool` or the RFC2217 server below), add your
-user to the `dialout` group once and log out and in again:
+user to that group once and log out and in again:
 ```
 sudo usermod -aG dialout $USER
 ```
-On Arch Linux the group is called `uucp` instead of `dialout`.
+On Arch Linux use `uucp` instead of `dialout`.
 
 ## Configure, Build and Flash
 ### Start an interactive IDF environnement
 In this interactive shell you can run menuconfig, build, flash and monitor command.
 ```
-docker run --rm -it --user $(id -u):$(id -g) --group-add $(getent group dialout | cut -d: -f3) --device /dev/ttyUSB0 -e HOME=/tmp -v .:/project -w /project espressif/idf:v5.5.1
+docker run --rm -it --user $(id -u):$(id -g) --group-add $(stat -c %g /dev/ttyUSB0) --device /dev/ttyUSB0 -e HOME=/tmp -v .:/project -w /project espressif/idf:v5.5.1
 ```
 
 ### Configure
@@ -69,7 +71,7 @@ docker run --rm --user $(id -u):$(id -g) -e HOME=/tmp -v .:/project -w /project 
 
 ### Flash
 ```
-docker run --rm -it --user $(id -u):$(id -g) --group-add $(getent group dialout | cut -d: -f3) --device /dev/ttyUSB0 -e HOME=/tmp -v .:/project -w /project espressif/idf:v5.5.1 idf.py -p /dev/ttyUSB0 -b 1000000 flash monitor
+docker run --rm -it --user $(id -u):$(id -g) --group-add $(stat -c %g /dev/ttyUSB0) --device /dev/ttyUSB0 -e HOME=/tmp -v .:/project -w /project espressif/idf:v5.5.1 idf.py -p /dev/ttyUSB0 -b 1000000 flash monitor
 ```
 
 Mapping of serial port to container is not simple in windows but you can merge all generated `bin` files into single firmware and flash the firmware manually using some windows tool.
@@ -110,7 +112,7 @@ docker run
     --rm                            // Removes container after exit
     -it                             // runs interactive terminal
     --user $(id -u):$(id -g)        // runs as your user, so created files belong to you
-    --group-add <gid of dialout>    // grants access to serial ports (group dialout)
+    --group-add <gid of the port>   // grants access to the serial port ($(stat -c %g /dev/ttyUSB0))
     --device /dev/ttyUSB0           // passes the board's serial port into the container
     -e HOME=/tmp                    // writable home directory for the tools
     -v .:/project                   // maps current directory to /project in container

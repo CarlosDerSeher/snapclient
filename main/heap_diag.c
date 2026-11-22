@@ -66,9 +66,15 @@ static void heap_diag_dump(const char *label) {
            heap_caps_get_free_size(CAPS_IRAM),
            heap_caps_get_largest_free_block(CAPS_IRAM),
            heap_caps_get_minimum_free_size(CAPS_IRAM));
+#if CONFIG_IDF_TARGET_ESP32
+  // Only ESP32 has a 32-bit-only IRAM heap; on other targets this is 0. The
+  // two sizes are read one after the other, so clamp: memory freed in
+  // between would make the difference wrap around.
+  size_t free32 = heap_caps_get_free_size(MALLOC_CAP_32BIT);
+  size_t free8 = heap_caps_get_free_size(MALLOC_CAP_8BIT);
   ESP_LOGI(TAG, "IRAM-only (32BIT minus 8BIT) free %u",
-           heap_caps_get_free_size(MALLOC_CAP_32BIT) -
-               heap_caps_get_free_size(MALLOC_CAP_8BIT));
+           (free32 > free8) ? free32 - free8 : 0);
+#endif
 
   UBaseType_t n =
       uxTaskGetSystemState(taskStatus, HEAP_DIAG_MAX_TASKS, NULL);
