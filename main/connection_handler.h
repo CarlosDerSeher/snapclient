@@ -35,12 +35,12 @@ typedef struct {
 
 // Function declarations for connection handling
 void setup_network(esp_netif_t** netif);
-
-int connection_get_byte(connection_t* connection, char* buffer);
 // Stream bytes read by connection_get_byte() since the connection opened
 uint64_t connection_bytes_consumed(void);
 // When stream byte pos (0-based) arrived from the network, in esp_timer
 // microseconds, or -1 if that is no longer known
 int64_t connection_arrival_us(uint64_t pos);
+
+int connection_get_byte(connection_t* connection, char* buffer);
 
 #endif  // __CONNECTION_HANDLER_H__
