@@ -1,0 +1,40 @@
+menu "Volume Buttons"
+
+    config VOLUME_BTN_UP_GPIO
+        int "GPIO for volume-up button"
+        default 27
+        range 0 39
+        help
+            GPIO pin for the volume-up button.
+            Internal pull-up is enabled; wire button between pin and GND (active low).
+
+    config VOLUME_BTN_DOWN_GPIO
+        int "GPIO for volume-down button"
+        default 33
+        range 0 39
+        help
+            GPIO pin for the volume-down button.
+            Same wiring as volume-up.
+
+    config VOLUME_BTN_STREAM_ID
+        string "Snapcast stream name"
+        default "default"
+        help
+            Must match the name= parameter of the stream source in
+            /etc/snapserver.conf (e.g. name=default).
+
+    config VOLUME_BTN_STEP
+        int "Volume step per press"
+        default 5
+        range 1 20
+        help
+            How much MPD volume changes per button press.
+
+    config VOLUME_BTN_DEBOUNCE_MS
+        int "Debounce time (ms)"
+        default 50
+        range 10 500
+        help
+            Minimum press duration required to register a button press.
+
+endmenu
