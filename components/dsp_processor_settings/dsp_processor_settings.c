@@ -237,238 +237,185 @@ esp_err_t dsp_settings_load_flow_param(dspFlows_t flow, const char *param_name,
 	return err;
 }
 
-esp_err_t dsp_settings_get_json(char *json_out, size_t max_len) {
-	ESP_LOGI(TAG, "%s: Start - buffer=%p size=%zu", __func__, json_out,
-			 max_len);
+/*
+ * DSP capabilities for the web UI ("GET /capabilities?tab=dsp")
+ *
+ * The flows and their parameters are described by the const tables below;
+ * dsp_settings_write_json() turns them into JSON (format in
+ * dsp_processor_settings.h) and adds the current value of every parameter.
+ * The JSON is written in small pieces, one flow header or one parameter at a
+ * time, so no heap is needed (a cJSON tree for this took ~260 allocations and
+ * ~15 KB of heap while the response was sent).
+ *
+ * To show another flow or parameter in the web UI, add a row to the tables.
+ * Strings are copied into the JSON as they are: they must not contain '"' or
+ * '\'.
+ */
 
-	if (!json_out || max_len == 0) {
-		ESP_LOGE(TAG, "%s: Invalid arguments", __func__);
+/* One adjustable parameter of a flow, e.g. the bass frequency */
+typedef struct {
+	const char *key;   // filterParams_t field: "fc_1", "gain_1", "fc_3" or "gain_3"
+	const char *name;  // label in the web UI
+	const char *unit;
+	int min, max, def, step;
+} dsp_param_desc_t;
+
+/* One DSP flow and the parameters the web UI can change */
+typedef struct {
+	dspFlows_t flow;
+	const char *id;    // enum name, used by the web UI
+	const char *name;
+	const char *description;
+	const dsp_param_desc_t *params;
+	size_t num_params;
+} dsp_flow_desc_t;
+
+#define DSP_ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
+
+static const dsp_param_desc_t eq_params[] = {
+	{.key = "fc_1", .name = "Bass Frequency", .unit = "Hz",
+	 .min = DSP_BASS_FREQ_MIN, .max = DSP_BASS_FREQ_MAX,
+	 .def = DSP_EQ_BASS_FREQ_DEFAULT, .step = DSP_BASS_FREQ_STEP},
+	{.key = "gain_1", .name = "Bass Gain", .unit = "dB",
+	 .min = DSP_GAIN_MIN, .max = DSP_GAIN_MAX,
+	 .def = DSP_EQ_BASS_GAIN_DEFAULT, .step = DSP_GAIN_STEP},
+	{.key = "fc_3", .name = "Treble Frequency", .unit = "Hz",
+	 .min = DSP_TREBLE_FREQ_MIN, .max = DSP_TREBLE_FREQ_MAX,
+	 .def = DSP_EQ_TREBLE_FREQ_DEFAULT, .step = DSP_TREBLE_FREQ_STEP},
+	{.key = "gain_3", .name = "Treble Gain", .unit = "dB",
+	 .min = DSP_GAIN_MIN, .max = DSP_GAIN_MAX,
+	 .def = DSP_EQ_TREBLE_GAIN_DEFAULT, .step = DSP_GAIN_STEP},
+};
+
+static const dsp_param_desc_t boost_params[] = {
+	{.key = "fc_1", .name = "Bass Frequency", .unit = "Hz",
+	 .min = DSP_BASS_FREQ_MIN, .max = DSP_BASS_FREQ_MAX,
+	 .def = DSP_BASS_FREQ_DEFAULT, .step = DSP_BASS_FREQ_STEP},
+	{.key = "gain_1", .name = "Bass Gain", .unit = "dB",
+	 .min = DSP_BASSBOOST_GAIN_MIN, .max = DSP_BASSBOOST_GAIN_MAX,
+	 .def = DSP_BASSBOOST_GAIN_DEFAULT, .step = DSP_BASSBOOST_GAIN_STEP},
+};
+
+static const dsp_param_desc_t biamp_params[] = {
+	{.key = "fc_1", .name = "Low-Pass Frequency", .unit = "Hz",
+	 .min = DSP_CROSSOVER_FREQ_MIN, .max = DSP_CROSSOVER_FREQ_MAX,
+	 .def = DSP_CROSSOVER_FREQ_DEFAULT, .step = DSP_CROSSOVER_FREQ_STEP},
+	{.key = "gain_1", .name = "Low-Pass Gain", .unit = "dB",
+	 .min = DSP_GAIN_MIN, .max = DSP_GAIN_MAX,
+	 .def = DSP_GAIN_DEFAULT, .step = DSP_GAIN_STEP},
+	{.key = "fc_3", .name = "High-Pass Frequency", .unit = "Hz",
+	 .min = DSP_CROSSOVER_FREQ_MIN, .max = DSP_CROSSOVER_FREQ_MAX,
+	 .def = DSP_CROSSOVER_FREQ_DEFAULT, .step = DSP_CROSSOVER_FREQ_STEP},
+	{.key = "gain_3", .name = "High-Pass Gain", .unit = "dB",
+	 .min = DSP_GAIN_MIN, .max = DSP_GAIN_MAX,
+	 .def = DSP_GAIN_DEFAULT, .step = DSP_GAIN_STEP},
+};
+
+/* Flows shown in the web UI, in display order */
+static const dsp_flow_desc_t ui_flows[] = {
+	{.flow = dspfStereo, .id = "dspfStereo",
+	 .name = "Stereo Pass-Through",
+	 .description = "No DSP processing, optional soft volume"},
+	{.flow = dspfEQBassTreble, .id = "dspfEQBassTreble",
+	 .name = "Bass & Treble EQ",
+	 .description = "Simple 2-band equalizer with bass and treble controls",
+	 .params = eq_params, .num_params = DSP_ARRAY_SIZE(eq_params)},
+	{.flow = dspfBassBoost, .id = "dspfBassBoost",
+	 .name = "Bass Boost",
+	 .description = "Adjustable bass enhancement",
+	 .params = boost_params, .num_params = DSP_ARRAY_SIZE(boost_params)},
+	{.flow = dspfBiamp, .id = "dspfBiamp",
+	 .name = "Bi-Amp Crossover",
+	 .description = "Channel 0: Low-pass, Channel 1: High-pass",
+	 .params = biamp_params, .num_params = DSP_ARRAY_SIZE(biamp_params)},
+};
+
+/* Current value of the parameter named by key */
+static float param_current(const filterParams_t *p, const char *key) {
+	if (strcmp(key, "fc_1") == 0) return p->fc_1;
+	if (strcmp(key, "gain_1") == 0) return p->gain_1;
+	if (strcmp(key, "fc_3") == 0) return p->fc_3;
+	return p->gain_3;
+}
+
+esp_err_t dsp_settings_write_json(dsp_json_write_fn write, void *ctx) {
+	if (!write) {
 		return ESP_ERR_INVALID_ARG;
 	}
 
-	cJSON *root = cJSON_CreateObject();
-	if (!root) {
-		ESP_LOGE(TAG, "%s: Failed to create JSON object", __func__);
-		return ESP_ERR_NO_MEM;
-	}
+	// holds one piece: a parameter is ~140 B, the longest flow header ~150 B
+	char buf[192];
+	int n;
+	esp_err_t err;
 
-	// Add active flow. Default to Stereo pass-through if nothing is stored
-	// Attempt to load stored value; if not present, keep the default.
-	dspFlows_t active_flow = dspfStereo; // default
+	// Default to Stereo pass-through if nothing is stored
+	dspFlows_t active_flow = dspfStereo;
 	(void)dsp_settings_load_active_flow(&active_flow);
-	cJSON_AddNumberToObject(root, "active_flow", (int)active_flow);
 
-	// Add flow schema with current values
-	cJSON *schema = cJSON_CreateArray();
-	if (!schema) {
-		cJSON_Delete(root);
-		return ESP_ERR_NO_MEM;
+	n = snprintf(buf, sizeof(buf),
+				 "{"
+				 "\"active_flow\":%d,"
+				 "\"flows\":[",
+				 (int)active_flow);
+	if ((err = write(ctx, buf, n)) != ESP_OK) return err;
+
+	for (size_t f = 0; f < DSP_ARRAY_SIZE(ui_flows); f++) {
+		const dsp_flow_desc_t *fl = &ui_flows[f];
+		filterParams_t cur = {0};
+		if (fl->num_params) {
+			dsp_settings_get_flow_params(fl->flow, &cur);
+		}
+
+		// flow object, up to the start of its parameter array
+		n = snprintf(buf, sizeof(buf),
+					 "%s{"                      // comma between flows
+					 "\"id\":\"%s\","
+					 "\"name\":\"%s\","
+					 "\"description\":\"%s\","
+					 "\"enum_value\":%d,"
+					 "\"parameters\":[",
+					 f ? "," : "",
+					 fl->id,
+					 fl->name,
+					 fl->description,
+					 (int)fl->flow);
+		if (n < 0 || n >= (int)sizeof(buf)) return ESP_ERR_INVALID_SIZE;
+		if ((err = write(ctx, buf, n)) != ESP_OK) return err;
+
+		for (size_t i = 0; i < fl->num_params; i++) {
+			const dsp_param_desc_t *p = &fl->params[i];
+
+			// one complete parameter object
+			n = snprintf(buf, sizeof(buf),
+						 "%s{"                  // comma between parameters
+						 "\"key\":\"%s\","
+						 "\"name\":\"%s\","
+						 "\"unit\":\"%s\","
+						 "\"min\":%d,"
+						 "\"max\":%d,"
+						 "\"default\":%d,"
+						 "\"step\":%d,"
+						 "\"current\":%d"
+						 "}",
+						 i ? "," : "",
+						 p->key,
+						 p->name,
+						 p->unit,
+						 p->min,
+						 p->max,
+						 p->def,
+						 p->step,
+						 (int)param_current(&cur, p->key));
+			if (n < 0 || n >= (int)sizeof(buf)) return ESP_ERR_INVALID_SIZE;
+			if ((err = write(ctx, buf, n)) != ESP_OK) return err;
+		}
+
+		// close "parameters" and the flow object
+		if ((err = write(ctx, "]}", 2)) != ESP_OK) return err;
 	}
 
-	// Flow: dspfStereo (0)
-	cJSON *stereo = cJSON_CreateObject();
-	cJSON_AddStringToObject(stereo, "id", "dspfStereo");
-	cJSON_AddStringToObject(stereo, "name", "Stereo Pass-Through");
-	cJSON_AddStringToObject(stereo, "description",
-							"No DSP processing, optional soft volume");
-	cJSON_AddNumberToObject(stereo, "enum_value", 0);
-	cJSON_AddItemToObject(stereo, "parameters", cJSON_CreateArray());
-	cJSON_AddItemToArray(schema, stereo);
-
-	// Flow: dspfEQBassTreble (5)
-	filterParams_t eq_current = {0};
-	dsp_settings_get_flow_params(dspfEQBassTreble, &eq_current);
-
-	cJSON *eq = cJSON_CreateObject();
-	cJSON_AddStringToObject(eq, "id", "dspfEQBassTreble");
-	cJSON_AddStringToObject(eq, "name", "Bass & Treble EQ");
-	cJSON_AddStringToObject(
-		eq, "description",
-		"Simple 2-band equalizer with bass and treble controls");
-	cJSON_AddNumberToObject(eq, "enum_value", 5);
-	cJSON *eq_params = cJSON_CreateArray();
-
-	// Bass frequency
-	cJSON *p1 = cJSON_CreateObject();
-	cJSON_AddStringToObject(p1, "key", "fc_1");
-	cJSON_AddStringToObject(p1, "name", "Bass Frequency");
-	cJSON_AddStringToObject(p1, "unit", "Hz");
-	cJSON_AddNumberToObject(p1, "min", (int)DSP_BASS_FREQ_MIN);
-	cJSON_AddNumberToObject(p1, "max", (int)DSP_BASS_FREQ_MAX);
-	cJSON_AddNumberToObject(p1, "default",
-							(int)DSP_EQ_BASS_FREQ_DEFAULT);
-	cJSON_AddNumberToObject(p1, "step", (int)DSP_BASS_FREQ_STEP);
-	cJSON_AddNumberToObject(p1, "current", (int)eq_current.fc_1);
-	cJSON_AddItemToArray(eq_params, p1);
-
-	// Bass gain
-	cJSON *p2 = cJSON_CreateObject();
-	cJSON_AddStringToObject(p2, "key", "gain_1");
-	cJSON_AddStringToObject(p2, "name", "Bass Gain");
-	cJSON_AddStringToObject(p2, "unit", "dB");
-	cJSON_AddNumberToObject(p2, "min", (int)DSP_GAIN_MIN);
-	cJSON_AddNumberToObject(p2, "max", (int)DSP_GAIN_MAX);
-	cJSON_AddNumberToObject(
-		p2, "default",
-		(int)DSP_EQ_BASS_GAIN_DEFAULT);
-	cJSON_AddNumberToObject(p2, "step", (int)DSP_GAIN_STEP);
-	cJSON_AddNumberToObject(p2, "current", (int)eq_current.gain_1);
-	cJSON_AddItemToArray(eq_params, p2);
-
-	// Treble frequency
-	cJSON *p3 = cJSON_CreateObject();
-	cJSON_AddStringToObject(p3, "key", "fc_3");
-	cJSON_AddStringToObject(p3, "name", "Treble Frequency");
-	cJSON_AddStringToObject(p3, "unit", "Hz");
-	cJSON_AddNumberToObject(p3, "min", (int)DSP_TREBLE_FREQ_MIN);
-	cJSON_AddNumberToObject(p3, "max", (int)DSP_TREBLE_FREQ_MAX);
-	cJSON_AddNumberToObject(p3, "default",
-							(int)DSP_EQ_TREBLE_FREQ_DEFAULT);
-	cJSON_AddNumberToObject(p3, "step", (int)DSP_TREBLE_FREQ_STEP);
-	cJSON_AddNumberToObject(p3, "current", (int)eq_current.fc_3);
-	cJSON_AddItemToArray(eq_params, p3);
-
-	// Treble gain
-	cJSON *p4 = cJSON_CreateObject();
-	cJSON_AddStringToObject(p4, "key", "gain_3");
-	cJSON_AddStringToObject(p4, "name", "Treble Gain");
-	cJSON_AddStringToObject(p4, "unit", "dB");
-	cJSON_AddNumberToObject(p4, "min", (int)DSP_GAIN_MIN);
-	cJSON_AddNumberToObject(p4, "max", (int)DSP_GAIN_MAX);
-	cJSON_AddNumberToObject(
-		p4, "default",
-		(int)DSP_EQ_TREBLE_GAIN_DEFAULT);
-	cJSON_AddNumberToObject(p4, "step", (int)DSP_GAIN_STEP);
-	cJSON_AddNumberToObject(p4, "current", (int)eq_current.gain_3);
-	cJSON_AddItemToArray(eq_params, p4);
-
-	cJSON_AddItemToObject(eq, "parameters", eq_params);
-	cJSON_AddItemToArray(schema, eq);
-
-	// Flow: dspfBassBoost (4)
-	filterParams_t boost_current = {0};
-	dsp_settings_get_flow_params(dspfBassBoost, &boost_current);
-
-	cJSON *boost = cJSON_CreateObject();
-	cJSON_AddStringToObject(boost, "id", "dspfBassBoost");
-	cJSON_AddStringToObject(boost, "name", "Bass Boost");
-	cJSON_AddStringToObject(boost, "description",
-							"Adjustable bass enhancement");
-	cJSON_AddNumberToObject(boost, "enum_value", 4);
-	cJSON *boost_params = cJSON_CreateArray();
-
-	cJSON *bp1 = cJSON_CreateObject();
-	cJSON_AddStringToObject(bp1, "key", "fc_1");
-	cJSON_AddStringToObject(bp1, "name", "Bass Frequency");
-	cJSON_AddStringToObject(bp1, "unit", "Hz");
-	cJSON_AddNumberToObject(bp1, "min", (int)DSP_BASS_FREQ_MIN);
-	cJSON_AddNumberToObject(bp1, "max", (int)DSP_BASS_FREQ_MAX);
-	cJSON_AddNumberToObject(bp1, "default", (int)DSP_BASS_FREQ_DEFAULT);
-	cJSON_AddNumberToObject(bp1, "step", (int)DSP_BASS_FREQ_STEP);
-	cJSON_AddNumberToObject(bp1, "current", (int)boost_current.fc_1);
-	cJSON_AddItemToArray(boost_params, bp1);
-
-	cJSON *bp2 = cJSON_CreateObject();
-	cJSON_AddStringToObject(bp2, "key", "gain_1");
-	cJSON_AddStringToObject(bp2, "name", "Bass Gain");
-	cJSON_AddStringToObject(bp2, "unit", "dB");
-	cJSON_AddNumberToObject(bp2, "min", (int)DSP_BASSBOOST_GAIN_MIN);
-	cJSON_AddNumberToObject(bp2, "max", (int)DSP_BASSBOOST_GAIN_MAX);
-	cJSON_AddNumberToObject(bp2, "default", (int)DSP_BASSBOOST_GAIN_DEFAULT);
-	cJSON_AddNumberToObject(bp2, "step", (int)DSP_BASSBOOST_GAIN_STEP);
-	cJSON_AddNumberToObject(bp2, "current", (int)boost_current.gain_1);
-	cJSON_AddItemToArray(boost_params, bp2);
-
-	cJSON_AddItemToObject(boost, "parameters", boost_params);
-	cJSON_AddItemToArray(schema, boost);
-
-	// Flow: dspfBiamp (1)
-	filterParams_t biamp_current = {0};
-	dsp_settings_get_flow_params(dspfBiamp, &biamp_current);
-
-	cJSON *biamp = cJSON_CreateObject();
-	cJSON_AddStringToObject(biamp, "id", "dspfBiamp");
-	cJSON_AddStringToObject(biamp, "name", "Bi-Amp Crossover");
-	cJSON_AddStringToObject(biamp, "description",
-							"Channel 0: Low-pass, Channel 1: High-pass");
-	cJSON_AddNumberToObject(biamp, "enum_value", 1);
-	cJSON *biamp_params = cJSON_CreateArray();
-
-	cJSON *bip1 = cJSON_CreateObject();
-	cJSON_AddStringToObject(bip1, "key", "fc_1");
-	cJSON_AddStringToObject(bip1, "name", "Low-Pass Frequency");
-	cJSON_AddStringToObject(bip1, "unit", "Hz");
-	cJSON_AddNumberToObject(bip1, "min", (int)DSP_CROSSOVER_FREQ_MIN);
-	cJSON_AddNumberToObject(bip1, "max", (int)DSP_CROSSOVER_FREQ_MAX);
-	cJSON_AddNumberToObject(bip1, "default", (int)DSP_CROSSOVER_FREQ_DEFAULT);
-	cJSON_AddNumberToObject(bip1, "step", (int)DSP_CROSSOVER_FREQ_STEP);
-	cJSON_AddNumberToObject(bip1, "current", (int)biamp_current.fc_1);
-	cJSON_AddItemToArray(biamp_params, bip1);
-
-	cJSON *bip2 = cJSON_CreateObject();
-	cJSON_AddStringToObject(bip2, "key", "gain_1");
-	cJSON_AddStringToObject(bip2, "name", "Low-Pass Gain");
-	cJSON_AddStringToObject(bip2, "unit", "dB");
-	cJSON_AddNumberToObject(bip2, "min", (int)DSP_GAIN_MIN);
-	cJSON_AddNumberToObject(bip2, "max", (int)DSP_GAIN_MAX);
-	cJSON_AddNumberToObject(bip2, "default", (int)DSP_GAIN_DEFAULT);
-	cJSON_AddNumberToObject(bip2, "step", (int)DSP_GAIN_STEP);
-	cJSON_AddNumberToObject(bip2, "current", (int)biamp_current.gain_1);
-	cJSON_AddItemToArray(biamp_params, bip2);
-
-	cJSON *bip3 = cJSON_CreateObject();
-	cJSON_AddStringToObject(bip3, "key", "fc_3");
-	cJSON_AddStringToObject(bip3, "name", "High-Pass Frequency");
-	cJSON_AddStringToObject(bip3, "unit", "Hz");
-	cJSON_AddNumberToObject(bip3, "min", (int)DSP_CROSSOVER_FREQ_MIN);
-	cJSON_AddNumberToObject(bip3, "max", (int)DSP_CROSSOVER_FREQ_MAX);
-	cJSON_AddNumberToObject(bip3, "default", (int)DSP_CROSSOVER_FREQ_DEFAULT);
-	cJSON_AddNumberToObject(bip3, "step", (int)DSP_CROSSOVER_FREQ_STEP);
-	cJSON_AddNumberToObject(bip3, "current", (int)biamp_current.fc_3);
-	cJSON_AddItemToArray(biamp_params, bip3);
-
-	cJSON *bip4 = cJSON_CreateObject();
-	cJSON_AddStringToObject(bip4, "key", "gain_3");
-	cJSON_AddStringToObject(bip4, "name", "High-Pass Gain");
-	cJSON_AddStringToObject(bip4, "unit", "dB");
-	cJSON_AddNumberToObject(bip4, "min", (int)DSP_GAIN_MIN);
-	cJSON_AddNumberToObject(bip4, "max", (int)DSP_GAIN_MAX);
-	cJSON_AddNumberToObject(bip4, "default", (int)DSP_GAIN_DEFAULT);
-	cJSON_AddNumberToObject(bip4, "step", (int)DSP_GAIN_STEP);
-	cJSON_AddNumberToObject(bip4, "current", (int)biamp_current.gain_3);
-	cJSON_AddItemToArray(biamp_params, bip4);
-
-	cJSON_AddItemToObject(biamp, "parameters", biamp_params);
-	cJSON_AddItemToArray(schema, biamp);
-
-	cJSON_AddItemToObject(root, "flows", schema);
-
-	// Render to string
-	char *json_str = cJSON_PrintUnformatted(root);
-	cJSON_Delete(root);
-
-	if (!json_str) {
-		ESP_LOGE(TAG, "%s: Failed to render JSON", __func__);
-		return ESP_ERR_NO_MEM;
-	}
-
-	size_t json_len = strlen(json_str);
-	ESP_LOGI(TAG, "%s: Generated JSON size: %zu bytes (buffer size: %zu)",
-			 __func__, json_len, max_len);
-
-	if (json_len >= max_len) {
-		ESP_LOGE(TAG, "%s: JSON too large for buffer (%zu >= %zu)", __func__,
-				 json_len, max_len);
-		cJSON_free(json_str);
-		return ESP_ERR_INVALID_SIZE;
-	}
-
-	strncpy(json_out, json_str, max_len - 1);
-	json_out[max_len - 1] = '\0';
-	cJSON_free(json_str);
-
-	ESP_LOGV(TAG, "%s: JSON generated: %s", __func__, json_out);
-	return ESP_OK;
+	// close "flows" and the root object
+	return write(ctx, "]}", 2);
 }
 
 esp_err_t dsp_settings_set_from_json(const char *json_in) {

@@ -1867,7 +1867,7 @@ void app_main(void) {
   #endif
 
   #if CONFIG_SNAPCLIENT_ENABLE_WEB_UI
-  init_http_server_task();
+  init_http_server();
   #endif
 
   // Enable websocket server
