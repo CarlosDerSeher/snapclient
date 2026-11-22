@@ -88,6 +88,8 @@ int32_t reset_latency_buffer(void);
 int32_t server_now(int64_t *sNow, int64_t *diff2Server);
 
 int32_t pcm_chunk_queue_msg_waiting(void);
+void player_get_buffer_fill(uint32_t *waiting, uint32_t *length,
+                            uint32_t *chunkUs, uint32_t *dmaUs);
 #ifdef __cplusplus
 }
 #endif

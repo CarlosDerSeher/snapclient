@@ -108,6 +108,11 @@ static uint32_t i2sDmaBufCnt;
 static uint32_t i2sDmaBufMaxLen;
 static playerSetting_t *scSet;  // should be used only from http_task
 
+// For player_get_buffer_fill(): duration of the last played PCM chunk and of
+// all I2S DMA buffers
+static volatile int64_t diagChunkUs = 0;
+static volatile int64_t diagDmaUs = 0;
+
 static void tg0_timer_init(void);
 static void tg0_timer_deinit(void);
 
@@ -1413,6 +1418,25 @@ int32_t insert_pcm_chunk(pcm_chunk_message_t *pcmChunk) {
 }
 
 /**
+ * Diagnostics only: PCM chunks waiting for playback, the queue length, and the
+ * duration of one chunk and of the I2S DMA buffers. Not synchronized with the
+ * player task, which may replace the queue when the server settings change.
+ */
+void player_get_buffer_fill(uint32_t *waiting, uint32_t *length,
+                            uint32_t *chunkUs, uint32_t *dmaUs) {
+  QueueHandle_t q = pcmChkQHdl;
+
+  *waiting = 0;
+  *length = 0;
+  if (q) {
+    *waiting = uxQueueMessagesWaiting(q);
+    *length = *waiting + uxQueueSpacesAvailable(q);
+  }
+  *chunkUs = (uint32_t)diagChunkUs;
+  *dmaUs = (uint32_t)diagDmaUs;
+}
+
+/**
  *
  */
 int32_t pcm_chunk_queue_msg_waiting(void) {
@@ -1476,6 +1500,7 @@ static void player_task(void *pvParameters) {
   clientDacLatency_us = (int64_t)scSet.cDacLat_ms * 1000LL;
   dmaDescDuration_us =
               1000000LL * (int64_t)i2sDmaBufMaxLen / (int64_t)scSet.sr;
+  diagDmaUs = dmaDescDuration_us * i2sDmaBufCnt;
 #if !USE_SAMPLE_INSERTION
   // force adjust_apll() to set playback speed
   currentDir = 1;
@@ -1545,6 +1570,7 @@ static void player_task(void *pvParameters) {
 
           dmaDescDuration_us =
               1000000LL * (int64_t)i2sDmaBufMaxLen / (int64_t)__scSet.sr;
+          diagDmaUs = dmaDescDuration_us * i2sDmaBufCnt;
 
 #if !USE_SAMPLE_INSERTION
           // force adjust_apll() to set playback speed
@@ -1613,6 +1639,7 @@ static void player_task(void *pvParameters) {
             1000000LL *
             (int64_t)(chnk->totalSize / ((scSet.bits >> 3) * scSet.ch)) /
             (int64_t)scSet.sr;
+        diagChunkUs = chunkDuration_us;
 
         // ESP_LOGI(TAG, "got pcm chunk with size %d", chnk->fragment->size);
       }
