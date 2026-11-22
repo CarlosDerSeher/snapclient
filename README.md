@@ -50,7 +50,6 @@ Components
    * snapcast module, port of @bridadan scapcast packages decode library
    * player module, which is responsible for sync and low level I2S control
  - net_functions :
- - ota_server :
  - protocol :
  - rtprx : Alternative RTP audio client UDP low latency also opus based
  - websocket :
@@ -222,14 +221,44 @@ so there is a chance that systems running versions of the Firmware < v0.0.3 (bef
 works without any issues but it hasn't been tested for every possible hardware combination. So be prepared to flash using serial connection if
 something goes sideways.
 
+The firmware image to upload is `build/snapclient.bin` (after `idf.py build`).
+Playback stops during the update and the client restarts with the new
+firmware afterwards. If the upload fails or is cancelled, the old firmware
+keeps running.
+
+### Using the web interface
+
+1. Open the client's web interface in a browser: `http://snapclient.local/`
+   (or the client's IP address).
+2. Go to the **OTA Update** tab. It shows the firmware that is currently running.
+3. Select the `.bin` file. The page shows the version, build date and SHA256
+   of the selected image next to the running one, so you can check you picked
+   the right file.
+4. Click **Upload Firmware** and wait. After the restart the page confirms that
+   the new firmware is running (or reports that the device rolled back to the
+   previous one).
+
+The tab is available when `CONFIG_SNAPCLIENT_WEB_OTA` is enabled (default).
+
+### Using the command line
+
 On a linux box:
 
 ```
 cd snapclient
 idf.py build
-curl snapclient.local:8032 --data-binary @- < build/snapclient.bin
+curl --data-binary @build/snapclient.bin http://snapclient.local/api/ota/upload
 ```
+
+If HTTP authentication is enabled (`CONFIG_HTTP_AUTH_ENABLE`), add
+`-u <username>:<password>`. Use the port set in `CONFIG_WEB_PORT` if it is not 80.
+
 Replace `snapclient.local` with your clients IP address. If you have multiple clients you could use the Android or Web App to find out your clients IPs.
+
+>Note:<br>
+>Firmware released before the web interface upload still runs the old OTA server on port 8032.
+>Update such a client once with `curl snapclient.local:8032 --data-binary @- < build/snapclient.bin`,
+>afterwards use the web interface or `/api/ota/upload`.
 
 ## Contribute
 

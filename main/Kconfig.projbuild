@@ -67,7 +67,7 @@ menu "Snapclient Configuration"
 			default n
 			help
 				Require a valid HTTP Basic Authorization header before accepting
-				a firmware upload on the OTA port or serving the web UI.
+				a firmware upload or serving the web UI.
 
 		config HTTP_AUTH_USERNAME
 			string "HTTP auth username"
@@ -83,6 +83,15 @@ menu "Snapclient Configuration"
 			help
 				Password for the OTA and web UI HTTP Basic Auth check.
 				This value is stored in plain text inside sdkconfig.
+
+		config SNAPCLIENT_WEB_OTA
+			bool "Enable OTA firmware upload via web interface"
+			depends on SNAPCLIENT_ENABLE_WEB_UI
+			default y
+			help
+				Expose a /api/ota/upload endpoint and an OTA Update tab in the web UI.
+				This is the only way to update over the air: without it (or without
+				the web UI) the firmware can only be flashed over serial.
 	endmenu
 
 	config USE_SAMPLE_INSERTION
