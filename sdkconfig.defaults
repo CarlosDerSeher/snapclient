@@ -89,3 +89,8 @@ CONFIG_VFS_SUPPORT_TERMIOS=n
 CONFIG_VFS_SUPPORT_SELECT=n
 CONFIG_VFS_SUPPORT_DIR=n
 CONFIG_VFS_INITIALIZE_DEV_NULL=n
+
+# UDP logger off: its Kconfig defaults to y. Enable it in menuconfig for
+# debugging (it costs ~8 KB of queue, two tasks and ~0.5 KB of stack in every
+# task that logs, see TODO.md)
+# CONFIG_ESP32_UDP_LOGGER_ENABLED is not set
