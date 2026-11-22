@@ -82,6 +82,15 @@ static void heap_diag_dump(const char *label) {
   ESP_LOGI(TAG, "pcm queue %lu/%lu chunks of %lu us: %lu ms queued + %lu ms DMA",
            waiting, length, chunkUs, waiting * chunkUs / 1000, dmaUs / 1000);
 
+  uint32_t slots, slotBytes, iramSlots, dramSlots, minFreeSlots, dropped;
+  pcm_pool_get_info(&slots, &slotBytes, &iramSlots, &dramSlots, &minFreeSlots,
+                    &dropped);
+  ESP_LOGI(TAG,
+           "pcm pool %lu chunks of %lu B (%lu KB): %lu IRAM, %lu DRAM/SPIRAM, "
+           "min %lu free, %lu dropped",
+           slots, slotBytes, slots * slotBytes / 1024, iramSlots, dramSlots,
+           minFreeSlots, dropped);
+
   UBaseType_t n =
       uxTaskGetSystemState(taskStatus, HEAP_DIAG_MAX_TASKS, NULL);
   for (UBaseType_t i = 0; i < n; i++) {
