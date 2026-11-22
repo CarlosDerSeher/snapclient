@@ -1090,7 +1090,10 @@ void handle_chunk_message(codec_type_t codec, playerSetting_t *scSet,
 
 void update_state(bool *received_wire_chnk, bool *playback, bool paused) {
   static int64_t last = 0;
-  static snapclient_state_t state = IDLE; //Todo
+  // Read the shared state, not a private copy: a new connection resets
+  // sc_state to IDLE, and a copy still saying PLAYING would never set it
+  // back (codec stays stopped, Wi-Fi power save stays on)
+  snapclient_state_t state = sc_get_snapclient_state();
   if ((paused || state != PLAYING) && (!paused || state != PAUSED) && *received_wire_chnk) {
     xSemaphoreTake(snapclientStateMux, portMAX_DELAY);
     if (paused) {
@@ -1102,7 +1105,6 @@ void update_state(bool *received_wire_chnk, bool *playback, bool paused) {
       ESP_LOGI(TAG, "Set playing");
       *playback = true;
     }
-    state = sc_state;
     xSemaphoreGive(snapclientStateMux);
     sc_call_state_cb();
     last = esp_timer_get_time();
@@ -1115,7 +1117,6 @@ void update_state(bool *received_wire_chnk, bool *playback, bool paused) {
         xSemaphoreTake(snapclientStateMux, portMAX_DELAY);
         sc_state = IDLE;
         *playback = false;
-        state = sc_state;
         xSemaphoreGive(snapclientStateMux);
         sc_call_state_cb();
       ESP_LOGI(TAG, "Set idle");
