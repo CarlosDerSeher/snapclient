@@ -42,5 +42,10 @@ uint64_t connection_bytes_consumed(void);
 int64_t connection_arrival_us(uint64_t pos);
 
 int connection_get_byte(connection_t* connection, char* buffer);
+#if CONFIG_SNAPCLIENT_WEB_UI_STATUS
+uint32_t connection_get_last_snapserver_connect_uptime_sec(void);
+const char* connection_get_last_snapserver_host(void);
+uint16_t connection_get_last_snapserver_port(void);
+#endif
 
 #endif  // __CONNECTION_HANDLER_H__
