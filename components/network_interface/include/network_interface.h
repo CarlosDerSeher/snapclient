@@ -55,4 +55,9 @@ esp_err_t network_playback_started(void);
  * @return ESP_OK on success, ESP_ERR_INVALID_STATE if not initialized */
 esp_err_t network_playback_stopped(void);
 
+/** Signal that the snapserver is being looked up via mDNS (active=true)
+ *  or that the lookup has finished (active=false). Keeps WiFi power save
+ *  shallow enough to receive the multicast answers. */
+void network_server_discovery_active(bool active);
+
 #endif /* COMPONENTS_NETWORK_INTERFACE_INCLUDE_NETWORK_INTERFACE_H_ */
