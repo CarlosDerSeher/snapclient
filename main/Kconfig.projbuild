@@ -37,6 +37,17 @@ menu "Snapclient Configuration"
         help
             Name of the client to register the snapserver.
 
+    config SNAPCLIENT_DISABLE_OPUS
+        bool "Disable Opus support"
+        default n
+        help
+            Build without the Opus decoder. The snapserver must then use the flac or pcm codec;
+            an Opus stream is rejected with an error in the log.
+
+            The Opus decoder keeps large arrays on the stack, so without it the snapcast client
+            task stack shrinks from 13 KB to 4 KB, and the firmware is ~90 KB smaller.
+            Recommended for boards without PSRAM, where every KB of RAM is audio buffer space.
+
 	menu "HTTP Server Setting"
 		config SNAPCLIENT_ENABLE_WEB_UI
 			bool "Enable local web UI"

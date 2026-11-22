@@ -210,7 +210,16 @@ parser_return_state_t parse_codec_header_message(
   // ESP_LOGI (TAG, "got codec string: %s", tmp);
 
   if (strcmp(codecString, "opus") == 0) {
+#if CONFIG_SNAPCLIENT_DISABLE_OPUS
+    *codec = NONE;
+    ESP_LOGE(TAG, "Codec : opus support is disabled in this build "
+                  "(CONFIG_SNAPCLIENT_DISABLE_OPUS)");
+    ESP_LOGI(TAG, "Change encoder codec to flac or pcm in "
+                  "/etc/snapserver.conf on server");
+    return PARSER_RESTART_CONNECTION;
+#else
     *codec = OPUS;
+#endif
   } else if (strcmp(codecString, "flac") == 0) {
     *codec = FLAC;
   } else if (strcmp(codecString, "pcm") == 0) {
