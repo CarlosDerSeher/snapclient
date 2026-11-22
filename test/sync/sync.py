@@ -6,11 +6,15 @@ the right Line In. Both channels are sampled by the same ADC, so the time offset
 recorded channels is the offset between the two boards. The boards play the noise44 stream of
 test/netsim/testserver.sh (pink noise, no silence, so FLAC compresses it like music).
 
+  sync.py live [--seconds S] [--wav FILE]
+                                     measure while recording, one line per window, summary
+                                     at Ctrl-C
   sync.py run SECONDS [--wav FILE]   record from Line In, then analyze
   sync.py analyze FILE               analyze a stereo WAV recorded earlier
   sync.py selftest                   analyze a synthetic recording with known offsets
 
-The recording is cut into windows (default 0.5 s). For each window the two channels are
+The recording is cut into windows (default 0.5 s, back to back, so every sample is used;
+--step shorter than --window makes them overlap for more values per second). For each window the two channels are
 cross-correlated (band-passed, so hum and DC don't pull the peak to 0) and the peak is located
 to a fraction of a sample. Positive offset = board B plays later than board A.
 
@@ -56,25 +60,27 @@ def level_db(x):
     return 20 * np.log10(max(np.sqrt(np.mean(x * x)), 1e-9))
 
 
-def measure(rate, a, b, args):
-    """One row per window: (time_s, offset_us or None, coefficient, level A, level B, reason)."""
-    n = int(args.window * rate)
-    maxlag = int(args.max_ms * rate / 1000)
-    nfft = 1 << int(np.ceil(np.log2(n + maxlag)))
-    up = args.upsample
-    f = np.fft.rfftfreq(nfft, 1 / rate)
-    band = (f >= args.lo) & (f <= min(args.hi, rate / 2 * 0.95))
-    lim = maxlag * up
-    rows = []
-    for start in range(0, len(a) - n + 1, n):
-        sa, sb = a[start:start + n], b[start:start + n]
+class Meter:
+    """Offset between the two channels of one window."""
+
+    def __init__(self, rate, args):
+        self.rate, self.args = rate, args
+        self.n = int(args.window * rate)
+        self.step = int((args.step or args.window) * rate)
+        maxlag = int(args.max_ms * rate / 1000)
+        self.nfft = 1 << int(np.ceil(np.log2(self.n + maxlag)))
+        f = np.fft.rfftfreq(self.nfft, 1 / rate)
+        self.band = (f >= args.lo) & (f <= min(args.hi, rate / 2 * 0.95))
+        self.lim = maxlag * args.upsample
+
+    def window(self, t, sa, sb):
+        """(time_s, offset_us or None, coefficient, level A, level B, reason)"""
+        args, nfft, up, lim = self.args, self.nfft, self.args.upsample, self.lim
         la, lb = level_db(sa), level_db(sb)
-        t = start / rate
         if la < args.silence_db or lb < args.silence_db:
-            rows.append((t, None, 0.0, la, lb, "silent " + ("A" if la < args.silence_db else "B")))
-            continue
-        A = np.fft.rfft(sa, nfft) * band
-        B = np.fft.rfft(sb, nfft) * band
+            return (t, None, 0.0, la, lb, "silent " + ("A" if la < args.silence_db else "B"))
+        A = np.fft.rfft(sa, nfft) * self.band
+        B = np.fft.rfft(sb, nfft) * self.band
         # c[k] = sum b[i + k] a[i]: peaks at k = d if B is A delayed by d samples
         c = np.fft.irfft(B * np.conj(A), nfft * up) * up
         c = np.concatenate((c[-lim:], c[:lim + 1]))
@@ -88,11 +94,74 @@ def measure(rate, a, b, args):
             if den:
                 frac = 0.5 * (y0 - y2) / den
         if abs(coef) < args.min_coef:
-            rows.append((t, None, coef, la, lb, "no match"))
-            continue
+            return (t, None, coef, la, lb, "no match")
         lag = (i - lim + frac) / up
-        rows.append((t, lag / rate * 1e6 - args.cal_us, coef, la, lb, ""))
-    return rows
+        return (t, lag / self.rate * 1e6 - args.cal_us, coef, la, lb, "")
+
+
+def measure(rate, a, b, args):
+    m = Meter(rate, args)
+    return [m.window(s / rate, a[s:s + m.n], b[s:s + m.n])
+            for s in range(0, len(a) - m.n + 1, m.step)]
+
+
+def fmt_row(row):
+    t, off, coef, la, lb, why = row
+    val = f"{off:9.1f} us" if off is not None else f"{'-':>9s}   "
+    return f"{t:8.2f} s {val}  corr {coef:5.2f}  A {la:6.1f} dB  B {lb:6.1f} dB  {why}"
+
+
+def live(args):
+    """Record until Ctrl-C (or --seconds), measure each window as it arrives."""
+    rate = args.rate
+    cmd = ["arecord", "-q", "-D", args.device, "-f", "S16_LE", "-r", str(rate), "-c", "2",
+           "-t", "raw"]
+    if args.seconds:
+        cmd += ["-d", str(args.seconds)]
+    print(" ".join(cmd), file=sys.stderr)
+    m = Meter(rate, args)
+    wav = None
+    if args.wav:
+        wav = wave.open(args.wav, "wb")
+        wav.setnchannels(2), wav.setsampwidth(2), wav.setframerate(rate)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+    buf = np.zeros((0, 2))
+    pos = 0          # sample index of buf[0]
+    rows, prev, clipped = [], None, False
+    try:
+        while True:
+            raw = proc.stdout.read(m.step * 4)
+            if not raw:
+                break
+            raw = raw[:len(raw) // 4 * 4]
+            if wav:
+                wav.writeframes(raw)
+            x = np.frombuffer(raw, dtype="<i2").reshape(-1, 2) / 32768.0
+            if not clipped and np.abs(x).max() > 0.99:
+                clipped = True
+                print("CLIPPING, lower the board volume or Capture level", file=sys.stderr)
+            buf = np.concatenate((buf, x))
+            while len(buf) >= m.n:
+                row = m.window(pos / rate, buf[:m.n, 0], buf[:m.n, 1])
+                rows.append(row)
+                mark = ""
+                if row[1] is not None and prev is not None and abs(row[1] - prev) > args.jump_us:
+                    mark = f"  JUMP {row[1] - prev:+.1f} us"
+                if row[1] is not None:
+                    prev = row[1]
+                if not args.quiet or mark or row[1] is None:
+                    print(fmt_row(row) + mark, flush=True)
+                buf = buf[m.step:]
+                pos += m.step
+    except KeyboardInterrupt:
+        pass
+    finally:
+        proc.terminate()
+        proc.wait()
+        if wav:
+            wav.close()
+    print()
+    return report(rows, args)
 
 
 def report(rows, args):
@@ -106,7 +175,8 @@ def report(rows, args):
 
     good = [(t, off, coef) for t, off, coef, _, _, _ in rows if off is not None]
     bad = [(t, why) for t, off, _, _, _, why in rows if off is None]
-    print(f"windows: {len(rows)} x {args.window} s, matched {len(good)}, no match {len(bad)}")
+    print(f"windows: {len(rows)} x {args.window} s every {args.step or args.window} s, "
+          f"matched {len(good)}, no match {len(bad)}")
     if not good:
         print("no window matched: check wiring, Line In selected, both boards on noise44")
         return 1
@@ -135,11 +205,12 @@ def report(rows, args):
 
     # merge consecutive unmatched windows into spans
     spans = []
+    step = args.step or args.window
     for tb, why in bad:
         if spans and spans[-1][2] == why and abs(spans[-1][1] - tb) < 1e-6:
-            spans[-1][1] = tb + args.window
+            spans[-1][1] = tb + step
         else:
-            spans.append([tb, tb + args.window, why])
+            spans.append([tb, tb + step, why])
     if spans:
         print("without match:")
         for s, e, why in spans[:args.list]:
@@ -191,6 +262,8 @@ def main():
                                 formatter_class=argparse.RawDescriptionHelpFormatter,
                                 epilog=__doc__.split("\n", 2)[2])
     p.add_argument("--window", type=float, default=0.5, help="window length in s (0.5)")
+    p.add_argument("--step", type=float,
+                   help="start a window every STEP s (default: --window, no overlap)")
     p.add_argument("--max-ms", type=float, default=20, help="largest offset searched (20 ms)")
     p.add_argument("--lo", type=float, default=200, help="band-pass low edge, Hz (200)")
     p.add_argument("--hi", type=float, default=15000, help="band-pass high edge, Hz (15000)")
@@ -211,6 +284,14 @@ def main():
     s.add_argument("--device", default="hw:1,0", help="ALSA capture device (hw:1,0)")
     s.add_argument("--rate", type=int, default=48000, help="sample rate (48000)")
 
+    s = sub.add_parser("live", help="measure while recording, until Ctrl-C")
+    s.add_argument("--seconds", type=int, help="stop after this many seconds")
+    s.add_argument("--wav", help="also save the recording here")
+    s.add_argument("--device", default="hw:1,0", help="ALSA capture device (hw:1,0)")
+    s.add_argument("--rate", type=int, default=48000, help="sample rate (48000)")
+    s.add_argument("--quiet", action="store_true",
+                   help="print only jumps and windows without a match")
+
     s = sub.add_parser("analyze", help="analyze a stereo WAV")
     s.add_argument("file")
 
@@ -219,6 +300,8 @@ def main():
     args = p.parse_args()
     if args.cmd == "selftest":
         return selftest(args)
+    if args.cmd == "live":
+        return live(args)
     path = record(args) if args.cmd == "run" else args.file
     rate, a, b = read_wav(path)
     for name, x in (("A (left)", a), ("B (right)", b)):
