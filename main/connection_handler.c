@@ -1,6 +1,7 @@
 #include "connection_handler.h"
 
 #include "esp_log.h"
+#include "esp_timer.h"
 #if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
 #include "eth_interface.h"
 #endif
@@ -10,6 +11,9 @@
 #include "net_functions.h"
 #include "network_interface.h"
 #include "settings_manager.h"
+
+static void arrival_reset(void);
+static void netconn_event_cb(struct netconn* conn, enum netconn_evt evt, u16_t len);
 
 // External variable that need to be accessible
 extern struct netconn* lwipNetconn;
@@ -246,11 +250,13 @@ void setup_network(esp_netif_t** netif) {
     }
 
     if (remote_ip.type == IPADDR_TYPE_V4) {
-      lwipNetconn = netconn_new(NETCONN_TCP);
+      arrival_reset();
+      lwipNetconn = netconn_new_with_callback(NETCONN_TCP, netconn_event_cb);
 
       ESP_LOGV(TAG, "netconn using IPv4");
     } else if (remote_ip.type == IPADDR_TYPE_V6) {
-      lwipNetconn = netconn_new(NETCONN_TCP_IPV6);
+      arrival_reset();
+      lwipNetconn = netconn_new_with_callback(NETCONN_TCP_IPV6, netconn_event_cb);
 
       ESP_LOGV(TAG, "netconn using IPv6");
     } else {
@@ -309,6 +315,64 @@ void setup_network(esp_netif_t** netif) {
     ESP_LOGI(TAG, "netconn connected using %s", network_get_ifkey(*netif));
     break;  // SUCCESS
   }
+}
+
+/* Arrival time of received TCP data, stamped in the lwIP thread when a
+ * segment is queued for the application, keyed by the running byte count.
+ * Lets the parser find when the bytes it reads actually arrived, however
+ * long they waited while earlier data was being decoded. */
+#define ARRIVAL_RING_LEN 32
+typedef struct {
+  uint64_t end;    // stream byte count after this segment
+  int64_t time_us;
+} arrival_t;
+static arrival_t arrival_ring[ARRIVAL_RING_LEN];
+static volatile uint32_t arrival_head = 0;  // entries written so far
+static uint64_t arrival_total = 0;          // bytes received (lwIP thread)
+static uint64_t bytes_consumed = 0;         // bytes read by the parser
+static portMUX_TYPE arrival_mux = portMUX_INITIALIZER_UNLOCKED;
+
+static void arrival_reset(void) {
+  taskENTER_CRITICAL(&arrival_mux);
+  arrival_head = 0;
+  arrival_total = 0;
+  bytes_consumed = 0;
+  taskEXIT_CRITICAL(&arrival_mux);
+}
+
+static void netconn_event_cb(struct netconn* conn, enum netconn_evt evt,
+                             u16_t len) {
+  (void)conn;
+  if (evt != NETCONN_EVT_RCVPLUS || len == 0) {
+    return;
+  }
+  int64_t now = esp_timer_get_time();
+  taskENTER_CRITICAL(&arrival_mux);
+  arrival_total += len;
+  arrival_t* a = &arrival_ring[arrival_head % ARRIVAL_RING_LEN];
+  a->end = arrival_total;
+  a->time_us = now;
+  arrival_head++;
+  taskEXIT_CRITICAL(&arrival_mux);
+}
+
+uint64_t connection_bytes_consumed(void) { return bytes_consumed; }
+
+/* Arrival time of stream byte pos (0-based), or -1 if no longer known. */
+int64_t connection_arrival_us(uint64_t pos) {
+  int64_t t = -1;
+  taskENTER_CRITICAL(&arrival_mux);
+  uint32_t n = arrival_head < ARRIVAL_RING_LEN ? arrival_head : ARRIVAL_RING_LEN;
+  // oldest to newest: the first segment ending after pos holds it
+  for (uint32_t i = arrival_head - n; i != arrival_head; i++) {
+    arrival_t* a = &arrival_ring[i % ARRIVAL_RING_LEN];
+    if (a->end > pos) {
+      t = (i == arrival_head - n && n == ARRIVAL_RING_LEN) ? -1 : a->time_us;
+      break;
+    }
+  }
+  taskEXIT_CRITICAL(&arrival_mux);
+  return t;
 }
 
 static int receive_data(struct netbuf** firstNetBuf, bool isMuted,
@@ -447,5 +511,6 @@ int connection_get_byte(connection_t* connection, char* buffer) {
   *buffer = *(connection->start);
   connection->start++;
   connection->len--;
+  bytes_consumed++;
   return 0;
 }

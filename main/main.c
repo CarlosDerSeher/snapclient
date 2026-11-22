@@ -1147,9 +1147,18 @@ int process_data(snapcast_protocol_parser_t *parser,
     return -1;  // restart connection
   }
   time_sync_data->now = esp_timer_get_time();
-  base_message_rx.received.sec = time_sync_data->now / 1000000;
-  base_message_rx.received.usec =
-      time_sync_data->now - base_message_rx.received.sec * 1000000;
+  int64_t rx_stamp = time_sync_data->now;
+  if (base_message_rx.type == SNAPCAST_MESSAGE_TIME) {
+    // Time sync needs the time the reply arrived, not when it got parsed:
+    // it waits behind the audio queued before it (up to ~10 ms of decoding),
+    // and half of that delay would end up in the server time offset
+    int64_t arrived = connection_arrival_us(connection_bytes_consumed() - 1);
+    if (arrived > 0) {
+      rx_stamp = arrived;
+    }
+  }
+  base_message_rx.received.sec = rx_stamp / 1000000;
+  base_message_rx.received.usec = rx_stamp - base_message_rx.received.sec * 1000000;
 
   switch (base_message_rx.type) {
     case SNAPCAST_MESSAGE_WIRE_CHUNK: {
