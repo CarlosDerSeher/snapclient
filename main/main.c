@@ -116,6 +116,10 @@ TaskHandle_t t_http_get_task = NULL;
 
 #define FAST_SYNC_LATENCY_BUF 10000      // in µs
 #define NORMAL_SYNC_LATENCY_BUF 1000000  // in µs
+// At most this many time requests are in flight. If no reply came for this
+// long, send the next one anyway.
+#define TIME_REQUESTS_IN_FLIGHT 4
+#define TIME_REPLY_TIMEOUT_US 500000
 
 /* snapast parameters; configurable in menuconfig */
 #define SNAPCAST_USE_SOFT_VOL CONFIG_SNAPCLIENT_USE_SOFT_VOL
@@ -293,6 +297,8 @@ typedef struct {
   int64_t lastTimeSync;
   int64_t lastTimeSyncSent;
   uint64_t timeout;
+  uint32_t inFlight;  // time requests still waiting for their reply
+  int64_t lastRxStamp;  // arrival time of the last time reply
 } time_sync_data_t;
 
 /**
@@ -1302,6 +1308,17 @@ int process_data(snapcast_protocol_parser_t *parser,
       if (parse_time_message(parser, &base_message_rx, &time_message_rx) != PARSER_OK) {
         return -1;
       }
+      if (time_sync_data->inFlight > 0) {
+        time_sync_data->inFlight--;
+      }
+      // Replies that arrived in the same TCP segment share one arrival
+      // stamp: they were held up on the way, so their round trip says little
+      // about the offset, and the time filter rejects duplicate stamps.
+      if (rx_stamp == time_sync_data->lastRxStamp) {
+        ESP_LOGD(TAG, "time reply with duplicate arrival stamp skipped");
+        return 0;
+      }
+      time_sync_data->lastRxStamp = rx_stamp;
       time_sync_msg_received(&base_message_rx, &time_message_rx, time_sync_data, *received_codec_header);
       return 0;
     }
@@ -1332,10 +1349,18 @@ void before_receive_callback(before_receive_callback_data_t *data) {
   bool received_codec_header = *data->received_codec_header;
 
   time_sync_data->now = esp_timer_get_time();
-  // send time sync message
-  if ((received_codec_header && (time_sync_data->now - time_sync_data->lastTimeSyncSent) >= time_sync_data->timeout)) {
+  // send time sync message, but keep only a few in flight: on a slow link
+  // (RTT 250 ms) fast sync would otherwise keep ~25 requests in flight and
+  // the replies arrive in bursts
+  int64_t since_sent = time_sync_data->now - time_sync_data->lastTimeSyncSent;
+  if (since_sent >= TIME_REPLY_TIMEOUT_US) {
+    time_sync_data->inFlight = 0;  // replies overdue, don't wait for them
+  }
+  if (received_codec_header && since_sent >= (int64_t)time_sync_data->timeout &&
+      time_sync_data->inFlight < TIME_REQUESTS_IN_FLIGHT) {
     time_sync_msg_cb(NULL);
     time_sync_data->lastTimeSyncSent = time_sync_data->now;
+    time_sync_data->inFlight++;
     
     // ESP_LOGI(TAG, "time sync sent after %lluus", timeout);
   }
@@ -1370,6 +1395,8 @@ static void http_get_task(void *pvParameters) {
   time_sync_data_t time_sync_data;
   time_sync_data.lastTimeSync = 0;
   time_sync_data.lastTimeSyncSent = 0;
+  time_sync_data.inFlight = 0;
+  time_sync_data.lastRxStamp = 0;
   bool received_codec_header = false;
   codec_type_t codec = NONE;
   snapcastSetting_t scSet;
@@ -1576,6 +1603,7 @@ static void http_get_task(void *pvParameters) {
 
     // as we need fast time syncs in the beginning we set receive timeout very low
     time_sync_data.timeout = FAST_SYNC_LATENCY_BUF;
+    time_sync_data.inFlight = 0;
     netconn_set_recvtimeout(lwipNetconn, time_sync_data.timeout / 1000); // timeout in ms
 
 
