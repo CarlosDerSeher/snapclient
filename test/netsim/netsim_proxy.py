@@ -11,6 +11,7 @@ Commands (from --control FILE, a --schedule entry, or stdin with --stdin):
                                    mean MEAN_GAP s; a fixed SEED gives the same sequence every run
   jitter off                       stop random stalls
   rate KBYTES_PER_S | rate off     limit throughput in each direction (slow link)
+  delay SECONDS | delay off        hold each direction for SECONDS (one way, RTT = 2 x SECONDS)
   quit                             exit
 
 Examples:
@@ -38,6 +39,7 @@ class NetSim:
     def __init__(self, log=print):
         self.stall_until = 0.0
         self.rate = 0  # bytes per second, 0 = unlimited
+        self.delay = 0.0  # one-way delay in seconds, per direction
         self._jitter_gen = 0
         self._log = log
         self.stop = threading.Event()
@@ -76,6 +78,9 @@ class NetSim:
                     args = (self._jitter_gen, float(a[1]), float(a[2]), float(a[3]), int(a[4]))
                     threading.Thread(target=self._jitter, args=args, daemon=True).start()
                 self.log('jitter', *a[1:])
+            elif a[0] == 'delay':
+                self.delay = 0.0 if a[1] == 'off' else float(a[1])
+                self.log('delay', a[1])
             elif a[0] == 'rate':
                 self.rate = 0 if a[1] == 'off' else int(float(a[1]) * 1000)
                 self.log('rate', a[1])
@@ -90,6 +95,7 @@ class NetSim:
     def pump(self, src, dst, name):
         """Forward src -> dst. A reader thread always drains src, so stalls hold data here."""
         buf = bytearray()
+        arrivals = []  # (time, end offset in buf) per received block, for delay
         lock = threading.Lock()
         eof = threading.Event()
 
@@ -104,6 +110,7 @@ class NetSim:
                     return
                 with lock:
                     buf.extend(d)
+                    arrivals.append((time.time(), len(buf)))
 
         threading.Thread(target=reader, daemon=True).start()
         was_stalled = False
@@ -115,12 +122,20 @@ class NetSim:
             else:
                 with lock:
                     n = len(buf)
+                    if self.delay:
+                        # only bytes that have been held for the delay are due
+                        n = 0
+                        for t, end in arrivals:
+                            if t + self.delay > now:
+                                break
+                            n = end
                     if self.rate:
                         budget = min(budget + (now - last) * self.rate, self.rate * 0.05)
                         n = min(n, int(budget))
                         budget -= n
                     out = bytes(buf[:n])
                     del buf[:n]
+                    arrivals[:] = [(t, end - n) for t, end in arrivals if end > n]
                     left = len(buf)
                 if was_stalled:
                     self.log('%s burst %d B' % (name, len(out) + left))
