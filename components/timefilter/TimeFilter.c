@@ -41,7 +41,7 @@ void TIMEFILTER_Insert(sTimeFilter_t *timeFilter, int64_t measurement, int64_t m
   if (time_added <= timeFilter->last_update_) {
     // Skip non-monotonic timestamps (duplicates or out-of-order packets)
     // This protects against division by zero and backwards time progression
-    ESP_LOGE("TF", "time ERROR, old %lld, new %lld",timeFilter->last_update_, time_added);
+    ESP_LOGD("TF", "non-monotonic time stamp skipped, old %lld, new %lld",timeFilter->last_update_, time_added);
     return;
   }
 
