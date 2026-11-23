@@ -41,32 +41,6 @@
 #endif
 #endif
 
-#if defined(CONFIG_WIFI_AUTH_WEP)
-  #define WIFI_MIN_AUTHTYPE WIFI_AUTH_WEP
-#elif defined(CONFIG_WIFI_AUTH_WPA_PSK)
-  #define WIFI_MIN_AUTHTYPE WIFI_AUTH_WPA_PSK
-#elif defined(CONFIG_WIFI_AUTH_WPA2_PSK)
-  #define WIFI_MIN_AUTHTYPE WIFI_AUTH_WPA2_PSK
-#elif defined(CONFIG_WIFI_AUTH_WPA_WPA2_PSK)
-  #define WIFI_MIN_AUTHTYPE WIFI_AUTH_WPA_WPA2_PSK
-#elif defined(CONFIG_WIFI_AUTH_ENTERPRISE)
-  #define WIFI_MIN_AUTHTYPE WIFI_AUTH_ENTERPRISE
-#elif defined(CONFIG_WIFI_AUTH_WPA2_ENTERPRISE)
-  #define WIFI_MIN_AUTHTYPE WIFI_AUTH_WPA2_ENTERPRISE
-#elif defined(CONFIG_WIFI_AUTH_WPA3_PSK)
-  #define WIFI_MIN_AUTHTYPE WIFI_AUTH_WPA3_PSK
-#elif defined(CONFIG_WIFI_AUTH_WPA2_WPA3_PSK)
-  #define WIFI_MIN_AUTHTYPE WIFI_AUTH_WPA2_WPA3_PSK
-#elif defined(CONFIG_WIFI_AUTH_WAPI_PSK)
-  #define WIFI_MIN_AUTHTYPE WIFI_AUTH_WAPI_PSK
-#elif defined(CONFIG_WIFI_AUTH_OWE)
-  #define WIFI_MIN_AUTHTYPE WIFI_AUTH_OWE
-#elif defined(CONFIG_WIFI_AUTH_WPA3_ENT_192)
-  #define WIFI_MIN_AUTHTYPE WIFI_AUTH_WPA3_ENT_192
-#else
-  #define WIFI_MIN_AUTHTYPE WIFI_AUTH_WPA_WPA2_PSK
-#endif
-
 static const char *TAG = "WIFI_IF";
 
 static char mac_address[18];
@@ -175,11 +149,48 @@ static volatile bool wifi_suppressed_for_takeover = false;
    but we only care about one event - are we connected
    to the AP with an IP? */
 
+/*
+ * Scan all channels and join the strongest AP with the configured SSID. The
+ * driver negotiates the encryption with the AP; we only set the weakest mode
+ * to accept: open without a password, WPA or better (WPA2, WPA3) with one.
+ */
+static void wifi_sta_set_scan_config(wifi_config_t *cfg) {
+  cfg->sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
+  cfg->sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
+  cfg->sta.threshold.authmode =
+      cfg->sta.password[0] ? WIFI_AUTH_WPA_PSK : WIFI_AUTH_OPEN;
+  cfg->sta.pmf_cfg.capable = true;
+  cfg->sta.pmf_cfg.required = false;
+  cfg->sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
+}
+
+static const char *wifi_auth_name(wifi_auth_mode_t m) {
+  switch (m) {
+    case WIFI_AUTH_OPEN: return "open";
+    case WIFI_AUTH_WEP: return "WEP";
+    case WIFI_AUTH_WPA_PSK: return "WPA";
+    case WIFI_AUTH_WPA2_PSK: return "WPA2";
+    case WIFI_AUTH_WPA_WPA2_PSK: return "WPA/WPA2";
+    case WIFI_AUTH_WPA3_PSK: return "WPA3";
+    case WIFI_AUTH_WPA2_WPA3_PSK: return "WPA2/WPA3";
+    case WIFI_AUTH_OWE: return "OWE";
+    default: return "other";
+  }
+}
+
 // Event handler for catching system events
 static void event_handler(void *arg, esp_event_base_t event_base, int event_id,
                           void *event_data) {
   if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
     esp_wifi_connect();
+  } else if (event_base == WIFI_EVENT &&
+             event_id == WIFI_EVENT_STA_CONNECTED) {
+    wifi_event_sta_connected_t *ev = (wifi_event_sta_connected_t *)event_data;
+    wifi_ap_record_t ap;
+    int rssi = (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) ? ap.rssi : 0;
+    ESP_LOGI(TAG, "connected to %.*s, BSSID " MACSTR ", channel %u, %d dBm, %s",
+             ev->ssid_len, (const char *)ev->ssid, MAC2STR(ev->bssid),
+             ev->channel, rssi, wifi_auth_name(ev->authmode));
   } else if (event_base == WIFI_EVENT &&
              event_id == WIFI_EVENT_STA_DISCONNECTED) {
     xSemaphoreTake(connIpSemaphoreHandle, portMAX_DELAY);
@@ -344,7 +355,7 @@ void wifi_start(void) {
 
   wifi_config_t wifi_config;
   ESP_ERROR_CHECK(esp_wifi_get_config(WIFI_IF_STA, &wifi_config));
-  wifi_config.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
+  wifi_sta_set_scan_config(&wifi_config);
   ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
 
   ESP_ERROR_CHECK(esp_event_handler_register(
@@ -395,11 +406,9 @@ void wifi_start(void) {
           {
               .ssid = WIFI_SSID,
               .password = WIFI_PASSWORD,
-              .sort_method = WIFI_CONNECT_AP_BY_SIGNAL,
-              .threshold.authmode = WIFI_MIN_AUTHTYPE,
-              .pmf_cfg = {.capable = true, .required = false},
           },
   };
+  wifi_sta_set_scan_config(&wifi_config);
 
   /* Start Wi-Fi station */
   ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
