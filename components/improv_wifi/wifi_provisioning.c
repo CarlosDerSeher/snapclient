@@ -208,6 +208,9 @@ bool improv_wifi_connect(const char *ssid, const char *password) {
   ESP_ERROR_CHECK(esp_wifi_get_config(WIFI_IF_STA, &wifi_config));
   strcpy((char *)wifi_config.sta.ssid, ssid);
   strcpy((char *)wifi_config.sta.password, password);
+  // weakest mode to accept, as in wifi_interface.c: open only without password
+  wifi_config.sta.threshold.authmode =
+      password[0] ? WIFI_AUTH_WPA_PSK : WIFI_AUTH_OPEN;
   ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
 
   esp_wifi_connect();
