@@ -59,6 +59,7 @@
 #include "FLAC/stream_decoder.h"
 #include "connection_handler.h"
 #include "heap_diag.h"
+#include "sync_diag.h"
 #include "esp_ota_ops.h"
 #include "player.h"
 #include "settings_manager.h"
@@ -1256,6 +1257,10 @@ int process_data(snapcast_protocol_parser_t *parser,
   }
   base_message_rx.received.sec = rx_stamp / 1000000;
   base_message_rx.received.usec = rx_stamp - base_message_rx.received.sec * 1000000;
+  sync_diag_msg(base_message_rx.type,
+                (int64_t)base_message_rx.sent.sec * 1000000LL +
+                    base_message_rx.sent.usec,
+                rx_stamp);
 
   switch (base_message_rx.type) {
     case SNAPCAST_MESSAGE_WIRE_CHUNK: {
@@ -1311,6 +1316,13 @@ int process_data(snapcast_protocol_parser_t *parser,
       if (time_sync_data->inFlight > 0) {
         time_sync_data->inFlight--;
       }
+      // round trip: (T2 - T1) from the server + (T4 - T3) here
+      sync_diag_time_reply(
+          (int64_t)time_message_rx.latency.sec * 1000000LL +
+              time_message_rx.latency.usec + rx_stamp -
+              ((int64_t)base_message_rx.sent.sec * 1000000LL +
+               base_message_rx.sent.usec),
+          rx_stamp == time_sync_data->lastRxStamp);
       // Replies that arrived in the same TCP segment share one arrival
       // stamp: they were held up on the way, so their round trip says little
       // about the offset, and the time filter rejects duplicate stamps.
@@ -1354,11 +1366,15 @@ void before_receive_callback(before_receive_callback_data_t *data) {
   // the replies arrive in bursts
   int64_t since_sent = time_sync_data->now - time_sync_data->lastTimeSyncSent;
   if (since_sent >= TIME_REPLY_TIMEOUT_US) {
+    if (time_sync_data->inFlight > 0) {
+      sync_diag_time_timeout();
+    }
     time_sync_data->inFlight = 0;  // replies overdue, don't wait for them
   }
   if (received_codec_header && since_sent >= (int64_t)time_sync_data->timeout &&
       time_sync_data->inFlight < TIME_REQUESTS_IN_FLIGHT) {
     time_sync_msg_cb(NULL);
+    sync_diag_time_sent();
     time_sync_data->lastTimeSyncSent = time_sync_data->now;
     time_sync_data->inFlight++;
     
@@ -1851,6 +1867,7 @@ void app_main(void) {
   network_events_init();
   network_if_init();
   heap_diag_init();
+  sync_diag_init();
 
 #if CONFIG_AUDIO_BOARD_CUSTOM && CONFIG_DAC_ADAU1961
   // some codecs need i2s mclk for initialization

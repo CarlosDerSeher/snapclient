@@ -124,6 +124,7 @@ bool playerPaused = false;
 static SemaphoreHandle_t playerStateMux = NULL;
 
 static void (*state_cb)(bool) = NULL;
+static volatile player_event_cb_t event_cb = NULL;
 static void (*audio_set_mute)(bool mute);
 static bool (*lock_i2s)(bool, TickType_t) = NULL;
 
@@ -446,6 +447,15 @@ int deinit_player(void) {
   ESP_LOGI(TAG, "deinit player done");
 
   return ret;
+}
+
+void player_set_event_cb(player_event_cb_t cb) { event_cb = cb; }
+
+static void player_event(player_event_t event, int64_t value) {
+  player_event_cb_t cb = event_cb;
+  if (cb != NULL) {
+    cb(event, value);
+  }
 }
 
 void call_state_cb(void) {
@@ -1109,8 +1119,14 @@ pcm_chunk_message_t *player_chunk_get(void) {
     return NULL;
   }
 
+  player_event_cb_t cb = event_cb;
+  int64_t waitStart = cb ? esp_timer_get_time() : 0;
   pcm_chunk_message_t *chunk = pcm_pool_get_free(
       playerStarted ? pdMS_TO_TICKS(PLAYER_FREE_CHUNK_WAIT_MS) : 0);
+  if (cb) {
+    cb(chunk ? PLAYER_EVENT_FREE_CHUNK_WAIT : PLAYER_EVENT_FREE_CHUNK_FAIL,
+       esp_timer_get_time() - waitStart);
+  }
   if (chunk == NULL) {
     ESP_LOGV(TAG, "no free pcm chunk, %lu waiting for playback",
              pcm_pool_filled_count());
@@ -1478,6 +1494,7 @@ static void player_task(void *pvParameters) {
           vTaskDelay(pdMS_TO_TICKS(2));
           audio_set_mute(false);
 
+          player_event(PLAYER_EVENT_RESYNC_INITIAL, 0);
           ESP_LOGI(TAG, "initial sync age: %lldus, chunk duration: %lldus", age,
                    chunkDuration_us);
 
@@ -1497,6 +1514,7 @@ static void player_task(void *pvParameters) {
           
           int msgWaiting = pcm_pool_filled_count();
 
+          player_event(PLAYER_EVENT_RESYNC_HARD1, 0);
           ESP_LOGW(TAG,
                    "RESYNCING HARD 1: age %lldus, latency %lldus, free %d, "
                    "largest block %d, rssi: %d, left in queue %d, dropped %lu",
@@ -1633,6 +1651,7 @@ static void player_task(void *pvParameters) {
             wifi_ap_record_t ap;
             esp_wifi_sta_get_ap_info(&ap);
 
+            player_event(PLAYER_EVENT_RESYNC_HARD2, 0);
             ESP_LOGW(TAG,
                      "RESYNCING HARD 2: age %lldus, latency %lldus, free "
                      "%d, largest block %d, %d, rssi: %d, dropped %lu",
