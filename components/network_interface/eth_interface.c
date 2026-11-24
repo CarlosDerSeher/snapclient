@@ -112,7 +112,7 @@ static esp_eth_handle_t *s_eth_handles = NULL;
 
 /* Playback monitor task - watches for playback stopped events */
 static TaskHandle_t playback_monitor_task_handle = NULL;
-#define PLAYBACK_MONITOR_TASK_STACK   2560  // peak 1.9 KB (takeover after playback stop)
+#define PLAYBACK_MONITOR_TASK_STACK   3072  // peak 2.1 KB (takeover after playback stop)
 #define PLAYBACK_MONITOR_TASK_PRIORITY 4
 
 /* Forward declaration for playback stopped handler */
