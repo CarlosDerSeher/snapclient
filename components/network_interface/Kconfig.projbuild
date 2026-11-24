@@ -86,6 +86,17 @@ menu "Snapclient Ethernet Configuration"
             default 0
             help
                 Set PHY address according your board schematic.
+
+        config SNAPCLIENT_ETH_LINK_TEST
+            bool "Ethernet link test hook (testing only)"
+            default n
+            help
+                Listens on UDP port 9997: "d" powers the PHY down (the switch
+                sees the link go down, as if the cable were pulled), "u" powers
+                it up again and restarts auto-negotiation. Used by
+                test/ethstress to test the Wi-Fi fallback and the Ethernet
+                takeover. Anyone on the LAN can switch the link: never enable
+                it in a build for normal use.
     endif # SNAPCLIENT_USE_INTERNAL_ETHERNET
 
     config SNAPCLIENT_USE_SPI_ETHERNET
