@@ -48,7 +48,10 @@ static const char *TAG = "ETH_IF";
 #define ETH_GATEWAY_PING_COUNT        3     // Number of ping attempts for gateway check
 #define ETH_GATEWAY_PING_TIMEOUT_MS   1000  // Timeout per ping attempt
 #define ETH_GATEWAY_CHECK_TIMEOUT_MS  5000  // Overall timeout for gateway reachability check
-#define ETH_STATIC_IP_TASK_STACK      4096  // Stack size for static IP background task
+/* Ethernet driver receive task (emac_rx / w5500_tsk), IDF default 4096:
+ * peak use ~0.95 KB with audio streaming (LAN8720 and W5500) */
+#define ETH_RX_TASK_STACK             2048
+#define ETH_STATIC_IP_TASK_STACK      3072  // static IP task (exists only while configuring): peak 2.0 KB
 #define ETH_STATIC_IP_TASK_PRIORITY   5     // Priority for static IP background task
 #define ETH_TAKEOVER_MIN_GRACE_MS     500   // Minimum delay before takeover (prevents immediate switch during race condition window)
 
@@ -109,7 +112,7 @@ static esp_eth_handle_t *s_eth_handles = NULL;
 
 /* Playback monitor task - watches for playback stopped events */
 static TaskHandle_t playback_monitor_task_handle = NULL;
-#define PLAYBACK_MONITOR_TASK_STACK   4096
+#define PLAYBACK_MONITOR_TASK_STACK   2560  // peak 1.9 KB (takeover after playback stop)
 #define PLAYBACK_MONITOR_TASK_PRIORITY 4
 
 /* Forward declaration for playback stopped handler */
@@ -334,6 +337,7 @@ static esp_eth_handle_t eth_init_internal(esp_eth_mac_t **mac_out,
 
   // Init common MAC and PHY configs to default
   eth_mac_config_t mac_config = ETH_MAC_DEFAULT_CONFIG();
+  mac_config.rx_task_stack_size = ETH_RX_TASK_STACK;
   eth_phy_config_t phy_config = ETH_PHY_DEFAULT_CONFIG();
 
   // Update PHY config based on board specific configuration
@@ -464,6 +468,7 @@ static esp_eth_handle_t eth_init_spi(
 
   // Init common MAC and PHY configs to default
   eth_mac_config_t mac_config = ETH_MAC_DEFAULT_CONFIG();
+  mac_config.rx_task_stack_size = ETH_RX_TASK_STACK;
   eth_phy_config_t phy_config = ETH_PHY_DEFAULT_CONFIG();
 
   // Update PHY config based on board specific configuration
