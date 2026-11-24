@@ -26,6 +26,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
+#include "wifi_interface.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "pcm_pool.h"
@@ -202,7 +203,7 @@ static void sync_diag_task(void *arg) {
     get_diff_to_server(&diff, esp_timer_get_time());
     int8_t rssi = 0;
     wifi_ap_record_t ap;
-    if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
+    if (wifi_get_ap_record(&ap)) {
       rssi = ap.rssi;
     }
 
