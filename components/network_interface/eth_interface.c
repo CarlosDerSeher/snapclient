@@ -829,6 +829,18 @@ static esp_err_t eth_apply_static_ip(esp_netif_t *netif) {
  * @param netif The Ethernet netif to update (NULL to skip netif update)
  * @return ESP_OK on success, error code on failure
  */
+/**
+ * @brief Whether the netif gets its IPv4 address from DHCP right now
+ *
+ * False in static IP mode, true in DHCP mode and when static IP mode fell
+ * back to DHCP (gateway unreachable).
+ */
+static bool eth_dhcpc_running(esp_netif_t *netif) {
+  esp_netif_dhcp_status_t status = ESP_NETIF_DHCP_INIT;
+  return esp_netif_dhcpc_get_status(netif, &status) == ESP_OK &&
+         status == ESP_NETIF_DHCP_STARTED;
+}
+
 static esp_err_t eth_apply_unified_mac(esp_netif_t *netif) {
   if (!s_eth_handles) return ESP_ERR_INVALID_STATE;
 
@@ -923,9 +935,13 @@ static void eth_check_and_apply_takeover(esp_netif_t *netif) {
       mac_unification_netif = NULL;
       xSemaphoreGive(connIpSemaphoreHandle);
 
-      // Restart DHCP to obtain IP with unified MAC
-      esp_netif_dhcpc_stop(netif);
-      esp_netif_dhcpc_start(netif);
+      // DHCP: get a lease for the unified MAC. A static IP doesn't depend
+      // on the MAC, so keep it (restarting DHCP here replaced it with a
+      // lease). The unified MAC is the Wi-Fi MAC the LAN already knows.
+      if (eth_dhcpc_running(netif)) {
+        esp_netif_dhcpc_stop(netif);
+        esp_netif_dhcpc_start(netif);
+      }
 
       sc_restart_snapclient();
     } else {
@@ -1451,7 +1467,10 @@ static void eth_on_playback_stopped(void) {
     // reconnected from the temporary Ethernet IP (DHCP) or over Wi-Fi
     // (static), and that connection was aborted moments later.
     // we_changed_default_netif also arms the Wi-Fi fallback on link loss.
-    if (!do_static_ip) {
+    // DHCP only: a static IP (already configured, or applied by the deferred
+    // static IP task below) is kept.
+    bool use_dhcp = !do_static_ip && eth_dhcpc_running(pending_netif);
+    if (use_dhcp) {
       esp_netif_dhcpc_stop(pending_netif);
     }
     esp_err_t err = esp_netif_set_default_netif(pending_netif);
@@ -1486,7 +1505,7 @@ static void eth_on_playback_stopped(void) {
       if (sta_netif) {
         esp_netif_set_default_netif(sta_netif);
       }
-      if (!do_static_ip) {
+      if (use_dhcp) {
         esp_netif_dhcpc_start(pending_netif);  // stopped in step 1
       }
       xSemaphoreTake(connIpSemaphoreHandle, portMAX_DELAY);
@@ -1497,7 +1516,9 @@ static void eth_on_playback_stopped(void) {
     }
 
     if (!do_static_ip) {
-      esp_netif_dhcpc_start(pending_netif);
+      if (use_dhcp) {
+        esp_netif_dhcpc_start(pending_netif);
+      }
       return;
     }
     // Static IP mode: fall through to static IP handling below
