@@ -18,6 +18,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
+#include "wifi_interface.h"
 #include "soc/rtc.h"
 
 #if SOC_I2S_SUPPORTS_APLL
@@ -1507,8 +1508,8 @@ static void player_task(void *pvParameters) {
             chnk = NULL;
           }
 
-          wifi_ap_record_t ap;
-          esp_wifi_sta_get_ap_info(&ap);
+          wifi_ap_record_t ap = {0};
+          wifi_get_ap_record(&ap);  // rssi 0 when not on Wi-Fi
 
           my_gptimer_stop(gptimer);
           
@@ -1648,8 +1649,8 @@ static void player_task(void *pvParameters) {
               chnk = NULL;
             }
 
-            wifi_ap_record_t ap;
-            esp_wifi_sta_get_ap_info(&ap);
+            wifi_ap_record_t ap = {0};
+            wifi_get_ap_record(&ap);  // rssi 0 when not on Wi-Fi
 
             player_event(PLAYER_EVENT_RESYNC_HARD2, 0);
             ESP_LOGW(TAG,

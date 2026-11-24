@@ -144,6 +144,8 @@ static esp_netif_ip_info_t ip_info = {{0}, {0}, {0}};
 static bool connected = false;
 static SemaphoreHandle_t connIpSemaphoreHandle = NULL;
 static volatile bool wifi_suppressed_for_takeover = false;
+/* station associated with an AP (WIFI_EVENT_STA_CONNECTED .. DISCONNECTED) */
+static volatile bool wifi_associated = false;
 
 /* The event group allows multiple bits for each event,
    but we only care about one event - are we connected
@@ -186,6 +188,7 @@ static void event_handler(void *arg, esp_event_base_t event_base, int event_id,
   } else if (event_base == WIFI_EVENT &&
              event_id == WIFI_EVENT_STA_CONNECTED) {
     wifi_event_sta_connected_t *ev = (wifi_event_sta_connected_t *)event_data;
+    wifi_associated = true;
     wifi_ap_record_t ap;
     int rssi = (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) ? ap.rssi : 0;
     ESP_LOGI(TAG, "connected to %.*s, BSSID " MACSTR ", channel %u, %d dBm, %s",
@@ -193,6 +196,7 @@ static void event_handler(void *arg, esp_event_base_t event_base, int event_id,
              ev->channel, rssi, wifi_auth_name(ev->authmode));
   } else if (event_base == WIFI_EVENT &&
              event_id == WIFI_EVENT_STA_DISCONNECTED) {
+    wifi_associated = false;
     xSemaphoreTake(connIpSemaphoreHandle, portMAX_DELAY);
     connected = false;
     xSemaphoreGive(connIpSemaphoreHandle);
@@ -291,6 +295,20 @@ static void lost_ip_event_handler(void *arg, esp_event_base_t event_base,
 
 /**
  */
+/**
+ * @brief Record of the AP the station is associated with
+ *
+ * Use this instead of esp_wifi_sta_get_ap_info(): called while the station is
+ * not associated (Wi-Fi off during Ethernet, or reconnecting), the Wi-Fi
+ * driver logs "Haven't to connect to a suitable AP now!" on every call.
+ *
+ * @param[out] ap record of the current AP
+ * @return true if associated and @p ap is filled in, false otherwise
+ */
+bool wifi_get_ap_record(wifi_ap_record_t *ap) {
+  return wifi_associated && esp_wifi_sta_get_ap_info(ap) == ESP_OK;
+}
+
 bool wifi_get_ip(esp_netif_ip_info_t *ip) {
   xSemaphoreTake(connIpSemaphoreHandle, portMAX_DELAY);
 

@@ -33,6 +33,7 @@
 #include "freertos/task.h"
 #include "mbedtls/base64.h"
 #include "network_interface.h"
+#include "wifi_interface.h"
 #include "settings_manager.h"
 #include "esp_wifi.h"
 #include "http_auth.h"
@@ -168,7 +169,7 @@ static esp_err_t build_status_json(char *json_out, size_t max_len) {
 		snprintf(ip_str, sizeof(ip_str), IPSTR, IP2STR(&ip_info.ip));
 	}
 
-	if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+	if (wifi_get_ap_record(&ap_info)) {
 		snprintf(wifi_ssid, sizeof(wifi_ssid), "%s", (const char *)ap_info.ssid);
 		wifi_rssi_dbm = ap_info.rssi;
 		wifi_connected = true;

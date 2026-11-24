@@ -15,4 +15,5 @@ endif()
 idf_component_register(SRCS ${SRCS}
                        INCLUDE_DIRS "include"
                        PRIV_INCLUDE_DIRS "priv_include"
+                       REQUIRES esp_netif esp_wifi
                        PRIV_REQUIRES ${PRIV_DEPS})
