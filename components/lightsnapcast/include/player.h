@@ -83,6 +83,22 @@ int32_t server_now(int64_t *sNow, int64_t *diff2Server);
 int32_t pcm_chunk_queue_msg_waiting(void);
 void player_get_buffer_fill(uint32_t *waiting, uint32_t *length,
                             uint32_t *chunkUs, uint32_t *dmaUs);
+
+// Events for diagnostics. The callback runs in the task that reports the event
+// (player task, or the decoder for the free-chunk events), so it must be short
+// and must not block.
+typedef enum {
+  PLAYER_EVENT_RESYNC_INITIAL,  // playback (re)started, first chunk synced
+  PLAYER_EVENT_RESYNC_HARD1,    // first chunk already late, start retried
+  PLAYER_EVENT_RESYNC_HARD2,    // queue empty or drifted, playback restarted
+  PLAYER_EVENT_FREE_CHUNK_WAIT, // decoder got a free pcm chunk; value: µs waited
+  PLAYER_EVENT_FREE_CHUNK_FAIL, // no free pcm chunk, audio dropped; value: µs waited
+} player_event_t;
+
+typedef void (*player_event_cb_t)(player_event_t event, int64_t value);
+
+// NULL removes the callback
+void player_set_event_cb(player_event_cb_t cb);
 #ifdef __cplusplus
 }
 #endif
