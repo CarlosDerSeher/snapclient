@@ -3,6 +3,7 @@
  *
  * SPDX-License-Identifier: Unlicense OR CC0-1.0
  */
+#include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -264,6 +265,60 @@ typedef struct {
 } spi_eth_module_config_t;
 
 #if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET
+#if CONFIG_SNAPCLIENT_ETH_PHY_LAN87XX
+/**
+ * @brief Force the LAN87xx into "all capable, auto-negotiation" mode
+ *
+ * The LAN8720 latches its operating mode (special modes register 18,
+ * MODE[2:0]) from the RXD0/RXD1/CRS_DV strap pins when it leaves reset. On
+ * some boards these pins are not reliably high at that moment: on an ADAU1961
+ * board half of the resets latched mode 000 (10BASE-T half duplex,
+ * auto-negotiation off) or 011 (100BASE-TX full duplex, auto-negotiation off),
+ * and the link never came up against an auto-negotiating switch. The MODE
+ * field is writable and is applied by a soft reset, so set it to 111 and
+ * reset the PHY. Must run before esp_eth_start().
+ */
+static void lan87xx_force_autoneg_mode(esp_eth_handle_t eth_handle) {
+  const uint32_t REG_BMCR = 0, REG_SMR = 18;
+  const uint32_t BMCR_RESET = 1 << 15;
+  const uint32_t SMR_MODE_MASK = 0x7 << 5, SMR_MODE_ALL = 0x7 << 5;
+  uint32_t smr = 0, bmcr = 0;
+  esp_eth_phy_reg_rw_data_t smr_rw = {.reg_addr = REG_SMR, .reg_value_p = &smr};
+  esp_eth_phy_reg_rw_data_t bmcr_rw = {.reg_addr = REG_BMCR, .reg_value_p = &bmcr};
+
+  if (esp_eth_ioctl(eth_handle, ETH_CMD_READ_PHY_REG, &smr_rw) != ESP_OK) {
+    ESP_LOGW(TAG, "LAN87xx: can't read special modes register");
+    return;
+  }
+  if ((smr & SMR_MODE_MASK) == SMR_MODE_ALL) {
+    return;
+  }
+
+  ESP_LOGW(TAG, "LAN87xx strapped to mode %" PRIu32 " (no auto-negotiation), "
+           "switching to mode 7", (smr & SMR_MODE_MASK) >> 5);
+  smr = (smr & ~SMR_MODE_MASK) | SMR_MODE_ALL;
+  bmcr = BMCR_RESET;
+  if (esp_eth_ioctl(eth_handle, ETH_CMD_WRITE_PHY_REG, &smr_rw) != ESP_OK ||
+      esp_eth_ioctl(eth_handle, ETH_CMD_WRITE_PHY_REG, &bmcr_rw) != ESP_OK) {
+    ESP_LOGW(TAG, "LAN87xx: failed to set mode");
+    return;
+  }
+  // soft reset takes well under 1 ms; give it up to 100 ms
+  for (int i = 0; i < 10; i++) {
+    vTaskDelay(pdMS_TO_TICKS(10));
+    if (esp_eth_ioctl(eth_handle, ETH_CMD_READ_PHY_REG, &bmcr_rw) == ESP_OK &&
+        !(bmcr & BMCR_RESET)) {
+      break;
+    }
+  }
+  esp_eth_ioctl(eth_handle, ETH_CMD_READ_PHY_REG, &smr_rw);
+  if ((smr & SMR_MODE_MASK) != SMR_MODE_ALL) {
+    ESP_LOGW(TAG, "LAN87xx: mode still %" PRIu32 " after reset",
+             (smr & SMR_MODE_MASK) >> 5);
+  }
+}
+#endif
+
 /**
  * @brief Internal ESP32 Ethernet initialization
  *
@@ -324,6 +379,10 @@ static esp_eth_handle_t eth_init_internal(esp_eth_mac_t **mac_out,
   esp_eth_config_t config = ETH_DEFAULT_CONFIG(mac, phy);
   ESP_GOTO_ON_FALSE(esp_eth_driver_install(&config, &eth_handle) == ESP_OK,
                     NULL, err, TAG, "Ethernet driver install failed");
+
+#if CONFIG_SNAPCLIENT_ETH_PHY_LAN87XX
+  lan87xx_force_autoneg_mode(eth_handle);
+#endif
 
   // MAC is NOT set here - Ethernet uses its default (eFuse) MAC at init time.
   // Unified MAC is applied later via eth_apply_unified_mac() when safe to do so.
