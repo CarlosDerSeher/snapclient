@@ -1443,11 +1443,14 @@ static void eth_on_playback_stopped(void) {
     want_eth_takeover = false;
     xSemaphoreGive(connIpSemaphoreHandle);
 
-    // Step 1: Request reconnect FIRST so the main loop cleanly closes the
-    // old TCP connection (netconn_close + netconn_delete) before we kill WiFi.
-    // Without this, esp_wifi_disconnect() kills the TCP abruptly and the
-    // server may not detect the disconnect before our new HELLO arrives.
-    if (do_takeover) {
+    // Step 1: Make Ethernet the default netif and drop its temporary IP
+    // (obtained with the temporary MAC) BEFORE requesting the reconnect. The
+    // main loop closes the old Wi-Fi connection cleanly, backs off 2 s and
+    // then waits in "Default netif ETH_DEF waiting for IP..." until DHCP with
+    // the unified MAC is done. Without dropping the IP it reconnected from the
+    // temporary address, and that connection was aborted when the IP changed.
+    if (!do_static_ip) {
+      esp_netif_dhcpc_stop(pending_netif);
       esp_err_t err = esp_netif_set_default_netif(pending_netif);
       if (err == ESP_OK) {
         xSemaphoreTake(connIpSemaphoreHandle, portMAX_DELAY);
@@ -1481,6 +1484,9 @@ static void eth_on_playback_stopped(void) {
       if (sta_netif) {
         esp_netif_set_default_netif(sta_netif);
       }
+      if (!do_static_ip) {
+        esp_netif_dhcpc_start(pending_netif);  // stopped in step 1
+      }
       xSemaphoreTake(connIpSemaphoreHandle, portMAX_DELAY);
       we_changed_default_netif = false;
       want_eth_takeover = true;  // allow retry
@@ -1488,22 +1494,7 @@ static void eth_on_playback_stopped(void) {
       return;
     }
 
-    if (do_takeover) {
-      esp_netif_dhcpc_stop(pending_netif);
-      esp_netif_dhcpc_start(pending_netif);
-      return;
-    }
-
     if (!do_static_ip) {
-      esp_err_t err = esp_netif_set_default_netif(pending_netif);
-      if (err == ESP_OK) {
-        xSemaphoreTake(connIpSemaphoreHandle, portMAX_DELAY);
-        we_changed_default_netif = true;
-        xSemaphoreGive(connIpSemaphoreHandle);
-      } else {
-        ESP_LOGE(TAG, "Failed to set default netif: %s", esp_err_to_name(err));
-      }
-      esp_netif_dhcpc_stop(pending_netif);
       esp_netif_dhcpc_start(pending_netif);
       return;
     }
