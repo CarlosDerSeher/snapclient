@@ -62,7 +62,11 @@ void setup_network(esp_netif_t** netif) {
         network_get_netif_from_desc(NETWORK_INTERFACE_DESC_STA);
 #if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
     CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
-    int eth_wait_count = 0;
+    // The Ethernet link-up grace period is for boot only: once a connection
+    // was set up (or the grace period ran out), a missing Ethernet link is
+    // real (e.g. cable unplugged -> Wi-Fi fallback) and waiting only adds
+    // silence.
+    static int eth_wait_count = 0;
 #endif
     while (1) {
       // If an external module has set a preferred/default netif, prefer it
@@ -93,8 +97,9 @@ void setup_network(esp_netif_t** netif) {
               vTaskDelay(pdMS_TO_TICKS(1000));
               continue;
             }
-            ESP_LOGI(TAG, "Ethernet not up after grace period, proceeding with WiFi");
-            eth_wait_count = 0;
+            if (eth_wait_count == 3) {
+              ESP_LOGI(TAG, "Ethernet not up after grace period, proceeding with WiFi");
+            }
           }
 #endif
           *netif = default_netif;
@@ -141,6 +146,10 @@ void setup_network(esp_netif_t** netif) {
 
       vTaskDelay(pdMS_TO_TICKS(1000));
     }
+#if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || \
+    CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
+    eth_wait_count = 4;  // grace period used up, see above
+#endif
 
     /* Decide at runtime whether to use mDNS or static server config.
      * The settings_manager holds the mdns flag and optional server host/port.
