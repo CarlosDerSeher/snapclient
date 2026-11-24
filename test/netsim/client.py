@@ -91,7 +91,8 @@ def find_board(server, which):
         if not c["connected"]:
             continue
         if which:
-            if which in (c["id"], c["host"]["name"], c["config"]["name"], c["host"]["ip"]):
+            ip = c["host"]["ip"].removeprefix("::ffff:")
+            if which in (c["id"], c["host"]["name"], c["config"]["name"], c["host"]["ip"], ip):
                 found.append((g, c))
         elif c["host"]["os"] == "esp32":
             found.append((g, c))
