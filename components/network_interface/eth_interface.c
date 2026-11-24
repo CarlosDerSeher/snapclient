@@ -118,6 +118,45 @@ static TaskHandle_t playback_monitor_task_handle = NULL;
 /* Forward declaration for playback stopped handler */
 static void eth_on_playback_stopped(void);
 
+#if CONFIG_SNAPCLIENT_ETH_LINK_TEST
+/*
+ * Test hook for test/ethstress (Kconfig SNAPCLIENT_ETH_LINK_TEST): UDP port
+ * 9997, "d" powers the PHY down (BMCR bit 11, the switch sees the link go
+ * down), "u" powers it up and restarts auto-negotiation.
+ */
+#define ETH_LINK_TEST_PORT 9997
+static void eth_link_test_task(void *arg) {
+  (void)arg;
+  int sock = socket(AF_INET, SOCK_DGRAM, 0);
+  struct sockaddr_in addr = {.sin_family = AF_INET,
+                             .sin_port = htons(ETH_LINK_TEST_PORT),
+                             .sin_addr.s_addr = htonl(INADDR_ANY)};
+  if (sock < 0 || bind(sock, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+    ESP_LOGE(TAG, "link test: no UDP socket");
+    if (sock >= 0) close(sock);
+    vTaskDelete(NULL);
+  }
+  ESP_LOGW(TAG, "link test hook on UDP %d (testing only)", ETH_LINK_TEST_PORT);
+  while (1) {
+    char c;
+    if (recv(sock, &c, 1, 0) != 1 || (c != 'd' && c != 'u') ||
+        !s_eth_handles || !s_eth_handles[0]) {
+      continue;
+    }
+    uint32_t bmcr = 0;
+    esp_eth_phy_reg_rw_data_t rw = {.reg_addr = 0, .reg_value_p = &bmcr};
+    esp_eth_ioctl(s_eth_handles[0], ETH_CMD_READ_PHY_REG, &rw);
+    if (c == 'd') {
+      bmcr |= 1 << 11;  // power down
+    } else {
+      bmcr = (bmcr & ~(1 << 11)) | (1 << 12) | (1 << 9);  // up, restart AN
+    }
+    esp_eth_ioctl(s_eth_handles[0], ETH_CMD_WRITE_PHY_REG, &rw);
+    ESP_LOGW(TAG, "link test: PHY %s", c == 'd' ? "down" : "up");
+  }
+}
+#endif
+
 /**
  * @brief Task that monitors playback events and triggers pending operations
  *
@@ -638,16 +677,34 @@ err:
 
 /* ============ Gateway Ping Check ============ */
 
+#if CONFIG_SNAPCLIENT_HEAP_DIAG
+/* Lowest free stack seen in the ping task; logged when the static IP task
+ * ends (both tasks only exist while the static IP is set up). */
+static volatile UBaseType_t ping_stack_free = UINT32_MAX;
+#define PING_STACK_SAMPLE()                                    \
+  do {                                                         \
+    UBaseType_t f = uxTaskGetStackHighWaterMark(NULL);         \
+    if (f < ping_stack_free) ping_stack_free = f;              \
+  } while (0)
+#else
+#define PING_STACK_SAMPLE() \
+  do {                      \
+  } while (0)
+#endif
+
 static void ping_on_success(esp_ping_handle_t hdl, void *args) {
+  PING_STACK_SAMPLE();
   ping_success = true;
   xSemaphoreGive(ping_done_sem);
 }
 
 static void ping_on_timeout(esp_ping_handle_t hdl, void *args) {
+  PING_STACK_SAMPLE();
   // Don't signal yet - let it try all attempts
 }
 
 static void ping_on_end(esp_ping_handle_t hdl, void *args) {
+  PING_STACK_SAMPLE();
   if (!ping_success) {
     xSemaphoreGive(ping_done_sem);  // Signal failure after all retries
   }
@@ -1070,6 +1127,15 @@ static void static_ip_task(void *pvParameters) {
     xSemaphoreGive(connIpSemaphoreHandle);
   }
 
+#if CONFIG_SNAPCLIENT_HEAP_DIAG
+  // Short-lived tasks don't show up in the periodic HEAPDIAG stack list
+  ESP_LOGI("HEAPDIAG", "stack %-16s hwm %5u (task ends)",
+           pcTaskGetName(NULL), (unsigned)uxTaskGetStackHighWaterMark(NULL));
+  if (ping_stack_free != UINT32_MAX) {
+    ESP_LOGI("HEAPDIAG", "stack %-16s hwm %5u (task ended)", "ping",
+             (unsigned)ping_stack_free);
+  }
+#endif
   vTaskDelete(NULL);
 }
 
@@ -1787,6 +1853,9 @@ void eth_start(void) {
   }
 
   // Start playback monitor task to handle deferred operations when playback stops
+#if CONFIG_SNAPCLIENT_ETH_LINK_TEST
+  xTaskCreate(eth_link_test_task, "eth_ltest", 2560, NULL, 3, NULL);
+#endif
   if (playback_monitor_task_handle == NULL) {
     BaseType_t task_created = xTaskCreate(
         playback_monitor_task,
