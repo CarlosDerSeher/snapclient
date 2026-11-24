@@ -188,6 +188,15 @@ static void event_handler(void *arg, esp_event_base_t event_base, int event_id,
   } else if (event_base == WIFI_EVENT &&
              event_id == WIFI_EVENT_STA_CONNECTED) {
     wifi_event_sta_connected_t *ev = (wifi_event_sta_connected_t *)event_data;
+    if (wifi_suppressed_for_takeover) {
+      // A connect attempt that was already running when Ethernet took over
+      // (esp_wifi_disconnect() doesn't stop it) completes anyway. Leave at
+      // once: Ethernet uses the same MAC, and the switch would send its
+      // traffic here.
+      ESP_LOGI(TAG, "associated while suppressed for ETH takeover, disconnecting");
+      esp_wifi_disconnect();
+      return;
+    }
     wifi_associated = true;
     wifi_ap_record_t ap;
     int rssi = (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) ? ap.rssi : 0;
@@ -244,6 +253,13 @@ static void got_ip_event_handler(void *arg, esp_event_base_t event_base,
                                  int32_t event_id, void *event_data) {
   ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
   if (!network_is_our_netif(NETWORK_INTERFACE_DESC_STA, event->esp_netif)) {
+    return;
+  }
+
+  if (wifi_suppressed_for_takeover) {
+    // see WIFI_EVENT_STA_CONNECTED in event_handler()
+    ESP_LOGI(TAG, "got IP while suppressed for ETH takeover, disconnecting");
+    esp_wifi_disconnect();
     return;
   }
 
