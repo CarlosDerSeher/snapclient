@@ -1069,8 +1069,9 @@ void handle_chunk_message(codec_type_t codec, playerSetting_t *scSet,
       bytes = (uint32_t)decoded * scSet->ch * sizeof(opus_int16);
       volatile uint32_t *sample = (volatile uint32_t *)chunk->payload;
       for (uint32_t i = 0, cnt = 0; i < bytes / 4; i++, cnt += 2) {
-        sample[i] = (((uint32_t)opusScratch[cnt] << 16) & 0xFFFF0000) |
-                    (((uint32_t)opusScratch[cnt + 1] << 0) & 0x0000FFFF);
+        // left channel in the lower half, as for FLAC and PCM
+        sample[i] = ((uint32_t)opusScratch[cnt] & 0x0000FFFF) |
+                    ((uint32_t)opusScratch[cnt + 1] << 16);
       }
       chunk->totalSize = bytes;
       chunk->timestamp = wire_chnk->timestamp;

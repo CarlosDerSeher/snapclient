@@ -131,7 +131,7 @@ parser_return_state_t parse_wire_chunk_message(snapcast_protocol_parser_t* parse
         char tmp_val;
         if (!read_byte(parser, &tmp_val)) return PARSER_RESTART_CONNECTION;
         
-        tmpData |= ((uint32_t)tmp_val << (8 * payloadDataShift));
+        tmpData |= ((uint32_t)(uint8_t)tmp_val << (8 * payloadDataShift));
 
         payloadDataShift--;
         if (payloadDataShift < 0) {
@@ -139,24 +139,11 @@ parser_return_state_t parse_wire_chunk_message(snapcast_protocol_parser_t* parse
 
           if (*pcmData) {
             volatile uint32_t* sample;
-            uint8_t dummy1;
-            uint32_t dummy2 = 0;
 
-            // TODO: find a more
-            // clever way to do this,
-            // best would be to
-            // actually store it the
-            // right way in the first
-            // place
-            dummy1 = tmpData >> 24;
-            dummy2 |= (uint32_t)dummy1 << 16;
-            dummy1 = tmpData >> 16;
-            dummy2 |= (uint32_t)dummy1 << 24;
-            dummy1 = tmpData >> 8;
-            dummy2 |= (uint32_t)dummy1 << 0;
-            dummy1 = tmpData >> 0;
-            dummy2 |= (uint32_t)dummy1 << 8;
-            tmpData = dummy2;
+            // tmpData holds the 4 bytes in wire order, first byte on
+            // top: swap to memory order (little endian, left channel in
+            // the lower half, as for FLAC and Opus)
+            tmpData = __builtin_bswap32(tmpData);
 
             sample = (volatile uint32_t *)(&((*pcmData)->payload[payloadOffset]));
             *sample = (volatile uint32_t)tmpData;
