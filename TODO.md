@@ -143,6 +143,14 @@ W5500 IPv6 multicast warning), and the S3 player task had 160 B left.
   its clock sync stalls; that happens with every firmware variant tried, while the same image on
   the rev v3.0 LyraT boots clean. Possibly a faulty board; try a second rev v1 board before
   spending more time on it.
+- Smoother sample insertion: to correct the sync, the player drops the last frame of a chunk or
+  plays it twice, a one-frame step (22.7 µs at 44.1 kHz) at one point in the waveform. Rare in
+  steady state (the I2S clock is ~5.5 ppm slow: one correction every 4–5 s), more often after a
+  start or resync. Measure first: a loud 5–10 kHz tone, error in the windows with a correction
+  vs. the rest (the worst SINAD windows in the channel order test, 21–24 dB vs. ~40 dB, may be
+  these). If it shows, resample the corrected chunk from N to N∓1 frames with linear
+  interpolation instead (a 0.09 % pitch change for one chunk, no step; 32-bit access only, chunks
+  may be in IRAM).
 - Many hard resyncs after a late stretch: when audio arrives seconds late but without a long gap
   (Wi-Fi retries at a weak signal, seen in #261: up to 4 s late, gaps only 0.4–0.6 s), every late
   chunk is dropped with its own "HARD 1" resync, 50–110 per episode. Drop all chunks that
