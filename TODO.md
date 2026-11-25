@@ -80,19 +80,16 @@ W5500 IPv6 multicast warning), and the S3 player task had 160 B left.
   `components/network_interface/eth_interface.c`, then check boot timing and that a plugged-in cable
   still gets link and IP.
 - Hard resyncs: #117, #191, #226.
-- Hard resyncs at startup under packet loss: playback starts with a server time offset that is off
-  by up to ~150 ms, then hard-resyncs every 2.6 s (up to 4 times) while the estimate converges.
-  Seen in every run with 2 % loss (`test/netsim/netem.sh`), never without loss. Likely cause: time
-  replies share the TCP connection with the audio, so a retransmission delays them by 200 ms or more
-  (offset error ≈ delay / 2). Time replies are now stamped when they arrive instead of when they
-  are parsed (see Sync between boards), which removes the decode delay but not a retransmission. The time filter counts as full after 29 samples taken 10 ms apart
-  during the startup burst, takes the first sample as the offset and the first two as the drift,
-  and then samples only once per second. Confirm by logging each sample (round trip, offset, filter
-  estimate) for the first seconds. Possible fixes:
-  - count the filter as full only after a minimum time span (e.g. 2–3 s of fast sync), not after
-    29 samples;
-  - ignore samples whose round trip is far above the lowest seen so far (as NTP does);
-  - start from the sample with the shortest round trip instead of the first one.
+- Time filter start with packet loss: checked with 2 % loss in both directions (`netem.sh`), 6
+  restarts each on the ADAU1961 board (Ethernet) and a LyraT (Wi-Fi), and with proxy stalls: no
+  hard resyncs. The startup resyncs seen before came from before time replies were stamped on
+  arrival. Under loss single samples are up to 690 ms off (round trip up to 4.6 s); the filter
+  weights samples by their round trip, so they hardly move the estimate, except the very first
+  sample, which is taken as it is (the estimate was 690 ms off for 0.4 s once). Playback starts
+  only after 29 samples, by then the estimate was within 0.1 ms every time. Cheap insurance: while
+  filling, skip samples whose round trip is far above the lowest so far, so the first sample
+  can't be a bad one. `CONFIG_SNAPCLIENT_SYNC_DIAG` logs the first 48 samples after the filter
+  starts empty.
 - Sync between boards. Measured with `test/sync/` (branch `sync-measure`, not merged yet): two
   boards' analog outputs into the PC's Line In, offset per 0.5 s window from cross-correlating a
   pink-noise stream. LyraT 4.3 vs ADAU1961 board, 200 s each:
