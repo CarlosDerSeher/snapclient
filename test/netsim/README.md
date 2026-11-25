@@ -15,6 +15,12 @@ the backlog arrives later and slower than after a proxy stall, so recovery times
 optimistic, and the client's pbufs and Wi-Fi RX buffers are stressed less. For loss and extra
 delay, add netem on the same host (see [Packet loss](#packet-loss-netem)).
 
+The proxy holds at most 256 KB per direction (`--max-buffer KB`, 0 = unlimited). When a client
+reads slower than the server sends, the proxy stops reading and the server sees a full TCP window,
+as on a real link, so snapserver drops old chunks. Without the limit the proxy queued minutes of
+audio for a client that fell behind, and its time-sync replies waited behind that backlog.
+`--stats 1` logs the bytes queued per direction every second.
+
 ## Setup
 
 ```
@@ -122,5 +128,5 @@ Reference scenario used for the RAM work: FLAC 44.1 kHz, server buffer 750 ms, 6
 ## CI
 
 `test_netsim_proxy.py` tests the proxy itself on the host (pass-through, stall and burst, rate
-limit) and runs in the `netsim` workflow. A hardware-in-the-loop job would run the scenario above
+limit, buffer limit) and runs in the `netsim` workflow. A hardware-in-the-loop job would run the scenario above
 against a board on the runner's network and fail on hard resyncs or errors from `--counts`.

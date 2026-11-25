@@ -91,5 +91,47 @@ class ProxyTest(unittest.TestCase):
         self.assertLess(self.roundtrip(b'y' * 50000), 0.3)
 
 
+class BackpressureTest(unittest.TestCase):
+    """A client that doesn't read must stop the server: the proxy holds at most --max-buffer."""
+
+    def sent_while_client_sleeps(self, extra_args):
+        srv = socket.socket()
+        srv.bind(('127.0.0.1', 0))
+        srv.listen(1)
+        port = free_port()
+        proc = subprocess.Popen(
+            [sys.executable, os.path.join(HERE, 'netsim_proxy.py'), '--listen', '127.0.0.1:%d' % port,
+             '--target', '127.0.0.1:%d' % srv.getsockname()[1]] + extra_args,
+            stdout=subprocess.PIPE, text=True)
+        try:
+            proc.stdout.readline()
+            c = socket.socket()
+            c.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 64 * 1024)
+            c.connect(('127.0.0.1', port))
+            s, _ = srv.accept()
+            s.setblocking(False)
+            sent, end, chunk = 0, time.time() + 1.5, b'z' * 65536
+            while time.time() < end:
+                try:
+                    sent += s.send(chunk)
+                except BlockingIOError:
+                    time.sleep(0.005)
+            c.close()
+            s.close()
+            return sent
+        finally:
+            srv.close()
+            proc.kill()
+            proc.wait()
+            proc.stdout.close()
+
+    def test_bounded(self):
+        # proxy 256 KB + its 64 KB socket buffers + the sender's send buffer (~2.5 MB on Linux)
+        self.assertLess(self.sent_while_client_sleeps([]), 8 * 1024 * 1024)
+
+    def test_unlimited(self):
+        self.assertGreater(self.sent_while_client_sleeps(['--max-buffer', '0']), 64 * 1024 * 1024)
+
+
 if __name__ == '__main__':
     unittest.main()

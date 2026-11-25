@@ -5,6 +5,12 @@ The client connects to the proxy instead of the server. While a stall is active,
 reading from both ends but holds the data, then sends it in one burst when the stall ends: to the
 client this looks like a Wi-Fi outage followed by the backlog arriving at full speed.
 
+The proxy holds at most --max-buffer KB per direction (default 256). Beyond that it stops reading,
+so the sender sees a full TCP window, as it would on a real link: snapserver then drops chunks that
+are too old instead of the proxy queueing minutes of audio for a slow client. The proxy's own
+sockets get 64 KB kernel buffers; the server's send buffer (Linux autotuning, ~2.5 MB) remains,
+as it would without the proxy.
+
 Commands (from --control FILE, a --schedule entry, or stdin with --stdin):
   stall SECONDS                    hold both directions for SECONDS
   jitter MIN MAX MEAN_GAP SEED     random stalls of uniform(MIN, MAX) s with exponential gaps of
@@ -36,7 +42,9 @@ import time
 
 
 class NetSim:
-    def __init__(self, log=print):
+    def __init__(self, log=print, max_buffer=256 * 1024, stats=0.0):
+        self.max_buffer = max_buffer  # bytes held per direction, 0 = unlimited
+        self.stats = stats  # seconds between "queued" log lines, 0 = off
         self.stall_until = 0.0
         self.rate = 0  # bytes per second, 0 = unlimited
         self.delay = 0.0  # one-way delay in seconds, per direction
@@ -93,7 +101,8 @@ class NetSim:
             self.log('bad command:', line.strip())
 
     def pump(self, src, dst, name):
-        """Forward src -> dst. A reader thread always drains src, so stalls hold data here."""
+        """Forward src -> dst. A reader thread drains src into buf (up to max_buffer), so stalls
+        hold data here."""
         buf = bytearray()
         arrivals = []  # (time, end offset in buf) per received block, for delay
         lock = threading.Lock()
@@ -101,6 +110,10 @@ class NetSim:
 
         def reader():
             while True:
+                while self.max_buffer and len(buf) >= self.max_buffer:
+                    # full: leave the rest in the sender's socket (backpressure)
+                    if self.stop.wait(0.002):
+                        return
                 try:
                     d = src.recv(65536)
                 except OSError:
@@ -115,8 +128,12 @@ class NetSim:
         threading.Thread(target=reader, daemon=True).start()
         was_stalled = False
         budget, last = 0.0, time.time()
+        next_stats = time.time() + self.stats
         while not self.stop.is_set():
             now = time.time()
+            if self.stats and now >= next_stats:
+                next_stats = now + self.stats
+                self.log('%s queued %d B' % (name, len(buf)))
             if self.stalled():
                 was_stalled = True
             else:
@@ -156,6 +173,9 @@ class NetSim:
                 pass
 
 
+SOCKBUF = 64 * 1024  # kernel send/receive buffer per proxy socket with --max-buffer
+
+
 def parse_addr(s, default_host):
     host, _, port = s.rpartition(':')
     return (host or default_host), int(port)
@@ -167,11 +187,17 @@ def main():
     ap.add_argument('--target', default='127.0.0.1:1704', help='snapserver HOST:PORT (default 127.0.0.1:1704)')
     ap.add_argument('--control', help='file polled for commands; removed after reading')
     ap.add_argument('--stdin', action='store_true', help='read commands from stdin')
+    ap.add_argument('--max-buffer', type=int, default=256, metavar='KB',
+                    help='data held per direction before the proxy stops reading (default 256, '
+                         '0 = unlimited)')
+    ap.add_argument('--stats', type=float, default=0, metavar='SECONDS',
+                    help='log the bytes queued per direction every SECONDS')
     ap.add_argument('--schedule', nargs='*', default=[], metavar='"T CMD"',
                     help='run CMD T seconds after start, e.g. "60 jitter 0.1 0.7 3 1"')
     o = ap.parse_args()
 
-    sim = NetSim(log=lambda *a: print(*a, flush=True))
+    sim = NetSim(log=lambda *a: print(*a, flush=True), max_buffer=o.max_buffer * 1024,
+                 stats=o.stats)
     lhost, lport = parse_addr(o.listen, '0.0.0.0')
     target = parse_addr(o.target, '127.0.0.1')
     t0 = time.time()
@@ -207,6 +233,10 @@ def main():
 
     ls = socket.socket()
     ls.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    if o.max_buffer:
+        # small kernel buffers too, or Linux autotuning holds megabytes on localhost
+        for opt in (socket.SO_RCVBUF, socket.SO_SNDBUF):
+            ls.setsockopt(socket.SOL_SOCKET, opt, SOCKBUF)
     ls.bind((lhost, lport))
     ls.listen(4)
     ls.settimeout(0.2)
@@ -218,7 +248,12 @@ def main():
             continue
         sim.log('connection from %s:%d' % addr)
         try:
-            s = socket.create_connection(target, timeout=5)
+            s = socket.socket(socket.AF_INET6 if ':' in target[0] else socket.AF_INET)
+            if o.max_buffer:
+                for opt in (socket.SO_RCVBUF, socket.SO_SNDBUF):
+                    s.setsockopt(socket.SOL_SOCKET, opt, SOCKBUF)
+            s.settimeout(5)
+            s.connect(target)
             s.settimeout(None)
         except OSError as e:
             sim.log('server not reachable:', e)
