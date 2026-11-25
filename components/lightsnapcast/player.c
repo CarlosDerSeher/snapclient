@@ -145,6 +145,62 @@ static void (*audio_set_mute)(bool mute);
 static bool (*lock_i2s)(bool, TickType_t) = NULL;
 
 static i2s_chan_handle_t tx_chan = NULL;  // I2S tx channel handler
+
+// Real I2S output timing, written by the DMA callbacks: descriptors sent and
+// underruns since the last initial sync, and when the last descriptor
+// finished. The sync loop takes the playout time from these instead of
+// counting written samples: the I2S clock divider is not exact (-5.5 ppm at
+// 44.1 kHz from the 160 MHz PLL), and an underrun plays a descriptor of zeros
+// the sample count never sees. Both used to add up to a growing offset that
+// the loop could not detect (~0.33 ms/min, 141 ms after a night).
+#if CONFIG_I2S_ISR_IRAM_SAFE
+#define I2S_CB_ATTR IRAM_ATTR
+#else
+#define I2S_CB_ATTR
+#endif
+
+static uint32_t i2sDescSent = 0;
+static uint32_t i2sUnderruns = 0;
+static int64_t i2sLastSentUs = 0;
+static portMUX_TYPE i2sTimingMux = portMUX_INITIALIZER_UNLOCKED;
+
+static bool I2S_CB_ATTR i2s_on_sent(i2s_chan_handle_t handle,
+                                    i2s_event_data_t *event, void *user_ctx) {
+  int64_t now = esp_timer_get_time();
+  portENTER_CRITICAL_ISR(&i2sTimingMux);
+  i2sDescSent++;
+  i2sLastSentUs = now;
+  portEXIT_CRITICAL_ISR(&i2sTimingMux);
+  return false;
+}
+
+// Called after on_sent when the descriptor just sent had not been refilled,
+// so it played zeros (auto_clear)
+static bool I2S_CB_ATTR i2s_on_send_q_ovf(i2s_chan_handle_t handle,
+                                          i2s_event_data_t *event,
+                                          void *user_ctx) {
+  portENTER_CRITICAL_ISR(&i2sTimingMux);
+  i2sUnderruns++;
+  portEXIT_CRITICAL_ISR(&i2sTimingMux);
+  return false;
+}
+
+static void i2s_timing_reset(void) {
+  portENTER_CRITICAL(&i2sTimingMux);
+  i2sDescSent = 0;
+  i2sUnderruns = 0;
+  i2sLastSentUs = 0;
+  portEXIT_CRITICAL(&i2sTimingMux);
+}
+
+static void i2s_timing_get(uint32_t *descs, uint32_t *underruns,
+                           int64_t *lastSentUs) {
+  portENTER_CRITICAL(&i2sTimingMux);
+  *descs = i2sDescSent;
+  *underruns = i2sUnderruns;
+  *lastSentUs = i2sLastSentUs;
+  portEXIT_CRITICAL(&i2sTimingMux);
+}
 static bool i2sEnabled = false;
 
 i2s_std_gpio_config_t pin_config0;
@@ -384,6 +440,12 @@ static esp_err_t player_setup_i2s(playerSetting_t *setting, bool lock) {
 #endif
 
   ESP_ERROR_CHECK(i2s_channel_init_std_mode(tx_chan, &tx_std_cfg));
+
+  i2s_event_callbacks_t i2sCbs = {
+      .on_sent = i2s_on_sent,
+      .on_send_q_ovf = i2s_on_send_q_ovf,
+  };
+  ESP_ERROR_CHECK(i2s_channel_register_event_callback(tx_chan, &i2sCbs, NULL));
   // This prevents pops/clicks on some I2S codecs
   ensure_noiseless(tx_chan);
 
@@ -1277,6 +1339,7 @@ static void player_task(void *pvParameters) {
   int64_t outputBufferDacTime_us = 0;
   int64_t dmaDescDuration_us = 0;
   int64_t playback_start_time_us = 0;
+  uint32_t underrunsSeen = 0;
   uint64_t samples_written = 0;  
   // pcm_pool_dropped() at the last initial sync: drops since then are gaps
   uint32_t droppedAtSync = pcm_pool_dropped();
@@ -1493,9 +1556,12 @@ static void player_task(void *pvParameters) {
           // vTaskDelay( pdMS_TO_TICKS(-age / 1000) );
 
           my_gptimer_stop(gptimer);
-          
+
+          i2s_timing_reset();
+          underrunsSeen = 0;
+
           my_i2s_channel_enable(tx_chan);
-          
+
           playback_start_time_us = esp_timer_get_time();
           samples_written = i2sDmaBufCnt * i2sDmaBufMaxLen;
 
@@ -1621,31 +1687,36 @@ static void player_task(void *pvParameters) {
 
         if (server_now(&serverNow, &diff2Server) >= 0) {
           {
-            int64_t now_us = esp_timer_get_time();
-            // actually played out samples
+            // samples written to I2S, minus what is still queued in DMA:
+            // the frame that plays now
             int64_t samples_played = samples_written - i2sDmaBufCnt * i2sDmaBufMaxLen;
-            #if 0
-            // actually played out samples estimate based on clock
-            //double samples_played_est = (now_us - playback_start_time_us) * ((float)scSet.sr / 1e6);
-            // samples expected to have played
-            double samples_expected = (target_play_local_us - playback_start_time_us) * ((float)scSet.sr / 1e6);
-            double error_samples = samples_expected - samples_played;
-            ESP_LOGI(TAG, "%0.2lf", error_samples);
-            #endif
-            
+
             // expected play out based on timestamp
             int64_t target_play_local_us = chunkStart - diff2Server + buf_us - outputBufferDacTime_us - clientDacLatency_us;
-            // Ideal playout time based on local audio clock                    
-            int64_t actual_play_local_us = playback_start_time_us + (int64_t)((samples_played * 1000000ll) / (int64_t)scSet.sr);
+
+            // when that frame actually plays: the DMA finished its last
+            // descriptor at lastSentUs, after (descs - underruns) descriptors
+            // of audio; the few frames in between at the nominal rate
+            uint32_t descs, underruns;
+            int64_t lastSentUs;
+            i2s_timing_get(&descs, &underruns, &lastSentUs);
+            int64_t actual_play_local_us;
+            if (descs > 0) {
+              int64_t framesSent = (int64_t)(descs - underruns) * i2sDmaBufMaxLen;
+              actual_play_local_us = lastSentUs + ((samples_played - framesSent) * 1000000LL) / (int64_t)scSet.sr;
+            } else {
+              actual_play_local_us = playback_start_time_us + (samples_played * 1000000LL) / (int64_t)scSet.sr;
+            }
             int64_t error_us = actual_play_local_us - target_play_local_us;
-            // ESP_LOGI(TAG, "%lld", error_us);
+
+            if (underruns != underrunsSeen) {
+              ESP_LOGW(TAG, "I2S underrun: %lu descriptors of silence",
+                       underruns - underrunsSeen);
+              underrunsSeen = underruns;
+            }
 
             age = error_us;
           }
-          
-          
-//          age = serverNow - chunkStart - buf_us + clientDacLatency_us +
-//                outputBufferDacTime_us;
 
           int64_t shortMedian, miniMedian;
 
