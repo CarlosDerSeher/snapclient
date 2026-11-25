@@ -36,7 +36,8 @@
 
 static const char *TAG = "SYNCDIAG";
 
-#define SYNC_DIAG_STACK_SIZE (3 * 1024)
+// 3 KB had 48 B left on an ESP32-S3 after an hour (#261)
+#define SYNC_DIAG_STACK_SIZE (4 * 1024)
 
 typedef struct {
   uint32_t n;
