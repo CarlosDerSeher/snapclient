@@ -23,6 +23,12 @@ void sync_diag_time_sent(void);
 void sync_diag_time_timeout(void);
 // a time reply: its round trip, and whether it was skipped as a duplicate
 void sync_diag_time_reply(int64_t rtt_us, bool duplicate);
+// a time sample went into the time filter: its arrival (esp_timer µs), round
+// trip, the offset it measured and the filter's estimate afterwards, and
+// whether the filter counts as full. Recorded from when the filter is empty
+// until TIME_SAMPLES_LOGGED samples, then logged in one block.
+void sync_diag_time_sample(int64_t rx_local_us, int64_t rtt_us,
+                           int64_t sample_us, int64_t est_us, bool full);
 
 #else
 
@@ -32,6 +38,9 @@ static inline void sync_diag_msg(uint16_t type, int64_t sent_server_us,
 static inline void sync_diag_time_sent(void) {}
 static inline void sync_diag_time_timeout(void) {}
 static inline void sync_diag_time_reply(int64_t rtt_us, bool duplicate) {}
+static inline void sync_diag_time_sample(int64_t rx_local_us, int64_t rtt_us,
+                                         int64_t sample_us, int64_t est_us,
+                                         bool full) {}
 
 #endif
 

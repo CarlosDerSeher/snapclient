@@ -121,6 +121,25 @@ receiving it. Large values mean the message was stuck on the way (server send qu
 retransmits). If the lag is small but the change is still heard late, the delay is in the client.
 `(no time sync yet)` is printed before the first time reply; the lag cannot be computed then.
 
+### `time samples since the filter was empty`
+
+Once per connect (or whenever the time filter starts over), the first 48 time samples as one block,
+logged when the 48th has arrived (so the logging doesn't delay them):
+
+```
+SYNCDIAG: ts     0    3701        0        0 filling
+SYNCDIAG: ts    28    3089     -448     -448 filling
+...
+SYNCDIAG: ts  1543    3009      521      891
+```
+
+Columns: arrival in ms since the first sample, round trip in µs, the offset this sample measured
+and the filter's estimate after it, both in µs relative to the first sample; `filling` until the
+filter counts as full (29 samples, taken 10 ms apart, then one per second). A sample with a long
+round trip and a large offset was held up on the way (e.g. a TCP retransmit); it should barely move
+the estimate. Playback starts once the filter is full, so a large estimate at that point means a
+wrong start.
+
 ### Line 1: message lag
 
 `lag ms chunk a/b/c (n N) settings a/b/c time a/b/c, unsynced U, gap max G ms`

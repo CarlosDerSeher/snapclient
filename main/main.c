@@ -348,6 +348,16 @@ void time_sync_msg_received(base_message_t *base_message_rx,
   player_latency_insert(tmpDiffToServer);
 #endif
 
+#if CONFIG_SNAPCLIENT_SYNC_DIAG
+  {
+    int64_t est = 0;
+    bool full = false;
+    get_diff_to_server(&est, trx);
+    latency_buffer_full(&full);
+    sync_diag_time_sample(trx, tdif + ttx, tmpDiffToServer, est, full);
+  }
+#endif
+
   // ESP_LOGI(TAG, "Current latency:%lld:",
   // tmpDiffToServer);
 

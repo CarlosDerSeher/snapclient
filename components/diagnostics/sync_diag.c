@@ -14,6 +14,9 @@
  *   resync  initial syncs, HARD 1, HARD 2
  *   wifi    RSSI now, disconnects and the last reason
  * Every server settings message is also logged right away with its lag.
+ * The first time samples after the time filter starts empty (connect,
+ * reconnect) are logged as one block: arrival, round trip, measured offset
+ * and the filter's estimate, relative to the first sample.
  */
 #include "sync_diag.h"
 
@@ -177,6 +180,63 @@ static void wifi_disc_handler(void *arg, esp_event_base_t base, int32_t id,
 }
 
 // "min/avg/max" in ms, or "-" without samples
+// time samples from an empty filter on, logged by the task when complete
+#define TIME_SAMPLES_LOGGED 48
+
+typedef struct {
+  int32_t t_ms;     // arrival, since the first sample
+  int32_t rtt_us;
+  int32_t sample_us, est_us;  // relative to the first sample
+  bool full;
+} time_sample_t;
+
+static time_sample_t tsBuf[TIME_SAMPLES_LOGGED];
+static uint32_t tsCount = 0;  // recorded; TIME_SAMPLES_LOGGED + 1 = logged
+static int64_t tsT0, tsRef;
+static bool tsWasFull = true;
+
+void sync_diag_time_sample(int64_t rx_local_us, int64_t rtt_us,
+                           int64_t sample_us, int64_t est_us, bool full) {
+  taskENTER_CRITICAL(&lock);
+  if (!full && tsWasFull) {
+    tsCount = 0;  // the filter was reset: record from here
+    tsT0 = rx_local_us;
+    tsRef = sample_us;
+  }
+  tsWasFull = full;
+  if (tsCount < TIME_SAMPLES_LOGGED) {
+    tsBuf[tsCount++] = (time_sample_t){
+        .t_ms = (int32_t)((rx_local_us - tsT0) / 1000),
+        .rtt_us = (int32_t)rtt_us,
+        .sample_us = (int32_t)(sample_us - tsRef),
+        .est_us = (int32_t)(est_us - tsRef),
+        .full = full,
+    };
+  }
+  taskEXIT_CRITICAL(&lock);
+}
+
+static void time_samples_log(void) {
+  static time_sample_t buf[TIME_SAMPLES_LOGGED];
+  taskENTER_CRITICAL(&lock);
+  bool due = (tsCount == TIME_SAMPLES_LOGGED);
+  if (due) {
+    memcpy(buf, tsBuf, sizeof(buf));
+    tsCount++;  // logged
+  }
+  taskEXIT_CRITICAL(&lock);
+  if (!due) {
+    return;
+  }
+  ESP_LOGI(TAG, "time samples since the filter was empty (us, relative to "
+                "the first sample): t ms, rtt, sample, estimate");
+  for (int i = 0; i < TIME_SAMPLES_LOGGED; i++) {
+    ESP_LOGI(TAG, "ts %5" PRId32 " %7" PRId32 " %8" PRId32 " %8" PRId32 "%s",
+             buf[i].t_ms, buf[i].rtt_us, buf[i].sample_us, buf[i].est_us,
+             buf[i].full ? "" : " filling");
+  }
+}
+
 static const char *fmt_ms(char *buf, size_t len, const stat_t *s) {
   if (s->n == 0) {
     snprintf(buf, len, "-");
@@ -236,6 +296,7 @@ static void sync_diag_task(void *arg) {
              s.resyncInit, s.resyncHard1, s.resyncHard2, rssi, s.wifiDisc,
              (unsigned)s.wifiReason, esp_app_get_description()->version);
     lastDiff = diff;
+    time_samples_log();
   }
 }
 
