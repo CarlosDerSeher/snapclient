@@ -162,7 +162,9 @@ W5500 IPv6 multicast warning), and the S3 player task had 160 B left.
   - Fixed: after a reconnect the state stayed IDLE, so the codec stayed stopped (ADAU1961 silent)
     and Wi-Fi power save stayed on during playback.
   - Left: a constant ~400 µs offset (ADAU1961 later), probably the codecs' different output
-    latency. The client latency setting only takes whole milliseconds.
+    latency. The client latency setting only takes whole milliseconds. Now compensated per DAC
+    with `CONFIG_DAC_GROUP_DELAY_FRAMES` (frames, converted with the current sample rate), but only
+    the ADAU1961 has a value so far (25, datasheet); see "DAC group delays" below.
   - Left: the control loop corrects only when the median error passes ±128 µs (`SHORT_OFFSET`),
     then inserts or drops one sample per chunk, which shows up as ~230 µs steps between boards.
     Smaller now that the time base is clean.
@@ -170,6 +172,38 @@ W5500 IPv6 multicast warning), and the S3 player task had 160 B left.
     against the server; the offset is only followed, never predicted.
   - Left: the LyraT's time round trip is ~5 ms (minimum 1.7 ms) even with arrival stamps, so its
     delay is before the board (Wi-Fi, TCP or server). Needs a packet capture.
+- DAC group delays: `CONFIG_DAC_GROUP_DELAY_FRAMES` defaults to 0 for every DAC except the
+  ADAU1961 (25 frames = 567 µs at 44.1 kHz). Find the delay of the others, from the datasheet's
+  interpolation filter table where it is given, otherwise by measurement with `test/sync/` against
+  the ADAU1961 board as reference (same firmware and DSP settings on both, swap the Line In plugs
+  for a second run to cancel the sound card's channel skew). Then add a `default` per DAC in
+  `components/audio_board/Kconfig.projbuild`:
+  - ES8388 (LyraT 4.2/4.3, AI-Thinker): not in the datasheet (rev. 5.0). First measurement
+    (44.1 kHz, ADAU1961 with its 25 frames as reference, one plug orientation): LyraT ~336 µs
+    later, so roughly 15 frames. Swap the plugs to cancel the sound card skew before using it.
+  - PCM5102A (PCM5100A/5101A): 20/fS normal filter, 3.5/fS low latency (datasheet table; the
+    filter section says 22/fS), check by measurement. PCM5121/5122: 20/fS.
+  - TAS57xx (TAS5754M/56M): probably the PCM51xx filters (20/fS), not confirmed.
+  - TAS5805M: no datasheet value; TI (E2E) says the delay comes from the DSP (EQ, SRC) and depends
+    on the configuration (0-127 samples for the FIR). Measure with our default EQ.
+  - MA120 / MA120X0, MAX98357, PT8211: no datasheet value. PT8211 has no oversampling filter, so
+    probably ~0.
+  - The DACs of the other ESP-ADF boards (LyraTD-MSC, LyraT-Mini, Korvo DU1906, Kaluga).
+  - ADAU1961 at 88.2/96 kHz: the driver leaves R17 at its default (CONVSR = base rate), so the
+    chip runs 96 kHz as its base rate in normal mode. The datasheet's 11/fS is for the 96 kHz mode
+    (CONVSR = fS/0.5 from a 48 kHz base); whether our setup is in spec and what its delay is needs
+    a measurement.
+- Sync drift fixed (experimental): the control loop took the play time from the written sample
+  count at the nominal rate, but the I2S clock divider runs ~5.5 ppm slow at 44.1 kHz (same on
+  every ESP32, measured with the DMA on_sent callback), and underruns (zeros from `auto_clear`)
+  were not seen at all. Boards drifted ~0.33 ms/min later without a resync, 141 ms after a night.
+  Now the play time comes from the DMA callbacks (last descriptor time, underrun count). Check
+  48 kHz and APLL builds (`USE_SAMPLE_INSERTION` off) too, and a long run (several hours).
+- ADAU1961 with 24-bit streams: for more than 16 bits the player sets the I2S MCLK to 384 × fs
+  (`player_setup_i2s()`), but the ADAU1961 driver always sets R0 INFREQ to 256 × fs, so the codec
+  would take 1.5 × the stream rate as its base rate. INFREQ has no 384 × fs setting (256, 512,
+  768 or 1024 × fs), so for this codec use MCLK 768 × fs with INFREQ = 10 (an integer BCLK divider
+  for 24-bit slots too), or the PLL. Not tested yet; check with a 24-bit test stream.
 - LyraT 4.3 with ESP32 rev v1.0 crashes at boot in ~1 of 5 boots: heap corruption shortly after
   got-IP, seen in `udp_sendto()` from the UDP logger and, with the logger off, in `heap_caps_free()`
   inside the mDNS server lookup. A LyraT with rev v3.0 and the ADAU1961 board (no PSRAM) don't show
