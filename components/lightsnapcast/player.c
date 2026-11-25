@@ -1677,7 +1677,7 @@ static void player_task(void *pvParameters) {
         }
 
         do {
-            size_t framesToBytes = (scSet.ch + (scSet.bits >> 3));
+            size_t framesToBytes = (scSet.ch * (scSet.bits >> 3));
 #if USE_SAMPLE_INSERTION
             uint32_t sampleSizeInBytes =
                 framesToBytes * INSERT_SAMPLES;
