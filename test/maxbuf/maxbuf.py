@@ -61,7 +61,10 @@ def judge(seg):
         r["pool_failed"] = bool(fit)
     sync = seg.find("initial sync age")
     r["synced"] = sync >= 0
-    r["resyncs"] = len(re.findall(r"RESYNCING HARD", seg[sync:])) if sync >= 0 else 0
+    # one line per second at most, "(+N suppressed)" counts the skipped ones
+    r["resyncs"] = (len(re.findall(r"RESYNCING HARD", seg[sync:])) +
+                    sum(int(n) for n in re.findall(r"\(\+(\d+) suppressed\)", seg[sync:]))
+                    if sync >= 0 else 0)
     r["alloc_errors"] = len(re.findall(
         r"couldn't get memory|failed to allocate|Failed to allocate|no memory", seg))
     r["crash"] = bool(re.search(r"Guru Meditation|abort\(\)|rst:0x", seg))

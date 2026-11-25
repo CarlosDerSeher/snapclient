@@ -201,6 +201,34 @@ static void i2s_timing_get(uint32_t *descs, uint32_t *underruns,
   *lastSentUs = i2sLastSentUs;
   portEXIT_CRITICAL(&i2sTimingMux);
 }
+
+// RESYNCING HARD 1/2 lines: at most one per second, shared by both. While
+// catching up, hard resyncs come ~70 times per second; each line blocks this
+// high-priority task ~12 ms on the UART, and the Wi-Fi and heap queries in it
+// ran on every resync. Based on #234 by W-Floyd.
+#define RESYNC_LOG_INTERVAL_US 1000000LL
+
+static int64_t resyncLogLastUs = 0;
+static uint32_t resyncLogSuppressed = 0;
+
+/**
+ * True if a RESYNCING HARD line may be printed now; then *suppressed is the
+ * number of lines skipped since the last one. Otherwise counts this one as
+ * skipped.
+ */
+static bool resync_log_due(uint32_t *suppressed) {
+  int64_t now = esp_timer_get_time();
+  if ((resyncLogLastUs != 0) &&
+      (now - resyncLogLastUs < RESYNC_LOG_INTERVAL_US)) {
+    resyncLogSuppressed++;
+    return false;
+  }
+  resyncLogLastUs = now;
+  *suppressed = resyncLogSuppressed;
+  resyncLogSuppressed = 0;
+  return true;
+}
+
 static bool i2sEnabled = false;
 
 i2s_std_gpio_config_t pin_config0;
@@ -1591,21 +1619,25 @@ static void player_task(void *pvParameters) {
             chnk = NULL;
           }
 
-          wifi_ap_record_t ap = {0};
-          wifi_get_ap_record(&ap);  // rssi 0 when not on Wi-Fi
-
           my_gptimer_stop(gptimer);
-          
-          int msgWaiting = pcm_pool_filled_count();
 
           player_event(PLAYER_EVENT_RESYNC_HARD1, 0);
-          ESP_LOGW(TAG,
-                   "RESYNCING HARD 1: age %lldus, latency %lldus, free %d, "
-                   "largest block %d, rssi: %d, left in queue %d, dropped %lu",
-                   age, diff2Server, heap_caps_get_free_size(MALLOC_CAP_32BIT),
-                   heap_caps_get_largest_free_block(MALLOC_CAP_32BIT), ap.rssi,
-                   msgWaiting, pcm_pool_dropped() - droppedAtSync);
-                   
+          uint32_t suppressed;
+          if (resync_log_due(&suppressed)) {
+            wifi_ap_record_t ap = {0};
+            wifi_get_ap_record(&ap);  // rssi 0 when not on Wi-Fi
+
+            ESP_LOGW(TAG,
+                     "RESYNCING HARD 1: age %lldus, latency %lldus, free %d, "
+                     "largest block %d, rssi: %d, left in queue %d, "
+                     "dropped %lu (+%lu suppressed)",
+                     age, diff2Server,
+                     heap_caps_get_free_size(MALLOC_CAP_32BIT),
+                     heap_caps_get_largest_free_block(MALLOC_CAP_32BIT),
+                     ap.rssi, pcm_pool_filled_count(),
+                     pcm_pool_dropped() - droppedAtSync, suppressed);
+          }
+
           // get count of chunks we are late for
           uint32_t c = ceil((float)age / (float)chunkDuration_us);  // round up
 
@@ -1737,17 +1769,22 @@ static void player_task(void *pvParameters) {
               chnk = NULL;
             }
 
-            wifi_ap_record_t ap = {0};
-            wifi_get_ap_record(&ap);  // rssi 0 when not on Wi-Fi
-
             player_event(PLAYER_EVENT_RESYNC_HARD2, 0);
-            ESP_LOGW(TAG,
-                     "RESYNCING HARD 2: age %lldus, latency %lldus, free "
-                     "%d, largest block %d, %d, rssi: %d, dropped %lu",
-                     age, diff2Server,
-                     heap_caps_get_free_size(MALLOC_CAP_32BIT),
-                     heap_caps_get_largest_free_block(MALLOC_CAP_32BIT),
-                     msgWaiting, ap.rssi, pcm_pool_dropped() - droppedAtSync);
+            uint32_t suppressed;
+            if (resync_log_due(&suppressed)) {
+              wifi_ap_record_t ap = {0};
+              wifi_get_ap_record(&ap);  // rssi 0 when not on Wi-Fi
+
+              ESP_LOGW(TAG,
+                       "RESYNCING HARD 2: age %lldus, latency %lldus, free "
+                       "%d, largest block %d, %d, rssi: %d, dropped %lu "
+                       "(+%lu suppressed)",
+                       age, diff2Server,
+                       heap_caps_get_free_size(MALLOC_CAP_32BIT),
+                       heap_caps_get_largest_free_block(MALLOC_CAP_32BIT),
+                       msgWaiting, ap.rssi, pcm_pool_dropped() - droppedAtSync,
+                       suppressed);
+            }
 
             my_gptimer_stop(gptimer);
 
