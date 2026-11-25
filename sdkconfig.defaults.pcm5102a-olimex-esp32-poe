@@ -400,7 +400,6 @@ CONFIG_SNAPCLIENT_NAME="Oli"
 CONFIG_WEB_PORT=80
 # end of HTTP Server Setting
 
-CONFIG_USE_SAMPLE_INSERTION=y
 # end of Snapclient Configuration
 
 #

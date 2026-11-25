@@ -19,12 +19,6 @@
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "wifi_interface.h"
-#include "soc/rtc.h"
-
-#if SOC_I2S_SUPPORTS_APLL
-#include "clk_ctrl_os.h"
-#endif
-
 #if CONFIG_PM_ENABLE
 #include "esp_pm.h"
 #endif
@@ -38,14 +32,10 @@
 #include "player.h"
 #include "snapcast.h"
 
-#define USE_SAMPLE_INSERTION CONFIG_USE_SAMPLE_INSERTION
-
 #define SYNC_TASK_PRIORITY 20
 #define SYNC_TASK_CORE_ID 1  // tskNO_AFFINITY
 
 static const char *TAG = "PLAYER";
-
-#if USE_SAMPLE_INSERTION
 
 #if CONFIG_PM_ENABLE
 esp_pm_lock_handle_t player_pm_lock_handle = NULL;
@@ -57,21 +47,8 @@ esp_pm_lock_handle_t player_pm_lock_handle = NULL;
 const uint32_t SHORT_OFFSET = 128;
 const uint32_t MINI_OFFSET = 64;
 
-#else
-const uint32_t SHORT_OFFSET = 2;
-const uint32_t MINI_OFFSET = 1;
-#endif
-
-/**
- * @brief Pre define APLL parameters, save compute time. They are calculated in
- * player_setup_i2s() | bits_per_sample | rate | sdm0 | sdm1 | sdm2 | odir
- *
- * apll_freq = xtal_freq * (4 + sdm2 + sdm1/256 + sdm0/65536)/((o_div + 2) * 2)
- * I2S bit clock is (apll_freq / 16)
- */
-static uint32_t apll_normal_predefine[6] = {0, 0, 0, 0, 0, 0};
-static uint32_t apll_corr_predefine[][6] = {{0, 0, 0, 0, 0, 0},
-                                            {0, 0, 0, 0, 0, 0}};
+#define I2S_DMA_DESC_NUM 2
+#define I2S_DMA_DESC_FRAMES 1023  // max frames per DMA descriptor
 
 static SemaphoreHandle_t latencyBufSemaphoreHandle = NULL;
 static SemaphoreHandle_t latencyBufFullSemaphoreHandle = NULL;
@@ -96,8 +73,6 @@ static sMedianNode_t shortMedianBuffer[SHORT_BUFFER_LEN];
 
 static sMedianFilter_t miniMedianFilter;
 static sMedianNode_t miniMedianBuffer[MINI_BUFFER_LEN];
-
-static int8_t currentDir = 0;  //!< current apll direction, see apll_adjust()
 
 static TaskHandle_t playerTaskHandle = NULL;
 
@@ -346,74 +321,10 @@ static esp_err_t player_setup_i2s(playerSetting_t *setting, bool lock) {
     bits = I2S_DATA_BIT_WIDTH_16BIT;
   }
 
-  // ensure save setting
-  uint32_t chkInFrames = setting->chkInFrames;
-  if (chkInFrames == 0) {
-    chkInFrames = 1152;
-  }
-
-#if USE_SAMPLE_INSERTION
-  i2sDmaBufCnt = 2;
-  // OPUS has a minimum frame size of 120
-  // with DMA buffer set to this value sync algorithm
-  // works for all decoders. We set it to 100 so
-  // there will be free space for sample stuffing in each round
-  i2sDmaBufMaxLen = 1023;
-#else
-  int fi2s_clk;
-  const int __dmaBufMaxLen = 1023;
-  int __dmaBufCnt;
-  int __dmaBufLen;
-
-  __dmaBufCnt = 1;
-  __dmaBufLen = chkInFrames;
-  while ((__dmaBufLen >= __dmaBufMaxLen) || (__dmaBufCnt <= 1)) {
-    if ((__dmaBufLen % 2) == 0) {
-      __dmaBufCnt *= 2;
-      __dmaBufLen /= 2;
-    } else {
-      ESP_LOGE(TAG,
-               "player_setup_i2s: Can't setup i2s with this configuration");
-
-      return -1;
-    }
-  }
-
-  i2sDmaBufCnt = __dmaBufCnt * CHNK_CTRL_CNT;
-  i2sDmaBufMaxLen = __dmaBufLen;
-
-  // check i2s_set_get_apll_freq() how it is done
-  fi2s_clk =
-      2 * sr * I2S_MCLK_MULTIPLE_256;  // setting->ch * setting->bits * m_scale;
-
-  apll_normal_predefine[0] = bits;
-  apll_normal_predefine[1] = sr;
-  if (rtc_clk_apll_coeff_calc(
-          fi2s_clk, &apll_normal_predefine[5], &apll_normal_predefine[2],
-          &apll_normal_predefine[3], &apll_normal_predefine[4]) == 0) {
-    ESP_LOGE(TAG, "ERROR, fi2s_clk");
-  }
-
-#define UPPER_SR_SCALER 1.0001
-#define LOWER_SR_SCALER 0.9999
-
-  apll_corr_predefine[0][0] = bits;
-  apll_corr_predefine[0][1] = sr * UPPER_SR_SCALER;
-  if (rtc_clk_apll_coeff_calc(
-          fi2s_clk * UPPER_SR_SCALER, &apll_corr_predefine[0][5],
-          &apll_corr_predefine[0][2], &apll_corr_predefine[0][3],
-          &apll_corr_predefine[0][4]) == 0) {
-    ESP_LOGE(TAG, "ERROR, fi2s_clk * %f", UPPER_SR_SCALER);
-  }
-  apll_corr_predefine[1][0] = bits;
-  apll_corr_predefine[1][1] = sr * LOWER_SR_SCALER;
-  if (rtc_clk_apll_coeff_calc(
-          fi2s_clk * LOWER_SR_SCALER, &apll_corr_predefine[1][5],
-          &apll_corr_predefine[1][2], &apll_corr_predefine[1][3],
-          &apll_corr_predefine[1][4]) == 0) {
-    ESP_LOGE(TAG, "ERROR, fi2s_clk * %f", LOWER_SR_SCALER);
-  }
-#endif
+  // Fixed DMA size for every codec and chunk size; sample insertion
+  // adds or drops a frame at the chunk boundaries.
+  i2sDmaBufCnt = I2S_DMA_DESC_NUM;
+  i2sDmaBufMaxLen = I2S_DMA_DESC_FRAMES;
 
   if (tx_chan) {
     my_i2s_channel_disable(tx_chan);
@@ -437,11 +348,7 @@ static esp_err_t player_setup_i2s(playerSetting_t *setting, bool lock) {
 
   i2s_std_clk_config_t i2s_clkcfg = I2S_STD_CLK_DEFAULT_CONFIG(sr);
 
-#if USE_SAMPLE_INSERTION
   i2s_clkcfg.clk_src = I2S_CLK_SRC_DEFAULT;
-#else
-  i2s_clkcfg.clk_src = I2S_CLK_SRC_APLL;
-#endif
 
   // Please set the mclk_multiple to I2S_MCLK_MULTIPLE_384
   // while using 24 bits data width Otherwise the sample rate
@@ -1115,61 +1022,11 @@ static void tg0_timer1_start(uint64_t alarm_value) {
   // ESP_LOGI(TAG, "started age timer");
 }
 
-#if !USE_SAMPLE_INSERTION
-// void rtc_clk_apll_enable(bool enable, uint32_t sdm0, uint32_t sdm1, uint32_t
-// sdm2, uint32_t o_div); apll_freq = xtal_freq * (4 + sdm2 + sdm1/256 +
-// sdm0/65536)/((o_div + 2) * 2) xtal == 40MHz on lyrat v4.3 I2S bit_clock =
-// rate * (number of channels) * bits_per_sample
-void adjust_apll(int8_t direction) {
-  int sdm0, sdm1, sdm2, o_div;
-
-  // only change if necessary
-  if (currentDir == direction) {
-    return;
-  }
-
-  if (direction == 1) {
-    // speed up
-    sdm0 = apll_corr_predefine[0][2];
-    sdm1 = apll_corr_predefine[0][3];
-    sdm2 = apll_corr_predefine[0][4];
-    o_div = apll_corr_predefine[0][5];
-  } else if (direction == -1) {
-    // slow down
-    sdm0 = apll_corr_predefine[1][2];
-    sdm1 = apll_corr_predefine[1][3];
-    sdm2 = apll_corr_predefine[1][4];
-    o_div = apll_corr_predefine[1][5];
-  } else {
-    // reset to normal playback speed
-    sdm0 = apll_normal_predefine[2];
-    sdm1 = apll_normal_predefine[3];
-    sdm2 = apll_normal_predefine[4];
-    o_div = apll_normal_predefine[5];
-
-    direction = 0;
-  }
-
-  //  periph_rtc_apll_acquire();
-  rtc_clk_apll_coeff_set(o_div, sdm0, sdm1, sdm2);
-  // rtc_clk_apll_enable(1, sdm0, sdm1, sdm2, o_div);
-
-  currentDir = direction;
-}
-#endif
-
 /**
  * Frames the I2S DMA buffers hold, as player_setup_i2s() sets them up
  */
-static uint32_t player_dma_frames(uint32_t chkInFrames) {
-#if USE_SAMPLE_INSERTION
-  (void)chkInFrames;
-
-  return 2 * 1023;
-#else
-  // split into CHNK_CTRL_CNT * (power of 2) buffers, the same frames in total
-  return chkInFrames * CHNK_CTRL_CNT;
-#endif
+static uint32_t player_dma_frames(void) {
+  return I2S_DMA_DESC_NUM * I2S_DMA_DESC_FRAMES;
 }
 
 // Chunks on top of the play queue. None: the decoder waits for a free chunk
@@ -1193,7 +1050,7 @@ uint32_t player_chunk_slots(int32_t sr, uint32_t chkInFrames,
   uint64_t frames = (uint64_t)sr * buf_ms;
   uint64_t perChunk = (uint64_t)chkInFrames * 1000;
   int64_t queued = (int64_t)((frames + perChunk - 1) / perChunk) -
-                   player_dma_frames(chkInFrames) / chkInFrames;
+                   player_dma_frames() / chkInFrames;
   if (queued < 1) {
     queued = 1;
   }
@@ -1392,11 +1249,6 @@ static void player_task(void *pvParameters) {
   dmaDescDuration_us =
               1000000LL * (int64_t)i2sDmaBufMaxLen / (int64_t)scSet.sr;
   diagDmaUs = dmaDescDuration_us * i2sDmaBufCnt;
-#if !USE_SAMPLE_INSERTION
-  // force adjust_apll() to set playback speed
-  currentDir = 1;
-  adjust_apll(0);
-#endif
 
   audio_set_mute(false);
 
@@ -1457,12 +1309,6 @@ static void player_task(void *pvParameters) {
           dmaDescDuration_us =
               1000000LL * (int64_t)i2sDmaBufMaxLen / (int64_t)__scSet.sr;
           diagDmaUs = dmaDescDuration_us * i2sDmaBufCnt;
-
-#if !USE_SAMPLE_INSERTION
-          // force adjust_apll() to set playback speed
-          currentDir = 1;
-          adjust_apll(0);
-#endif
 
           initialSync = 0;
         }
@@ -1532,9 +1378,6 @@ static void player_task(void *pvParameters) {
 
           my_i2s_channel_disable(tx_chan);
 
-#if !USE_SAMPLE_INSERTION
-          adjust_apll(0);  // reset to normal playback speed
-#endif
           while (1) {
             if (chnk == NULL) {
               bool stop = false;
@@ -1678,7 +1521,6 @@ static void player_task(void *pvParameters) {
 
         do {
             size_t framesToBytes = (scSet.ch * (scSet.bits >> 3));
-#if USE_SAMPLE_INSERTION
             uint32_t sampleSizeInBytes =
                 framesToBytes * INSERT_SAMPLES;
 
@@ -1686,7 +1528,6 @@ static void player_task(void *pvParameters) {
               size -= sampleSizeInBytes;
               dir_insert_sample = 0;
             }
-#endif
             i2s_channel_write(tx_chan, p_payload, size, &written, portMAX_DELAY);
 
             samples_written += (written / framesToBytes);
@@ -1694,7 +1535,6 @@ static void player_task(void *pvParameters) {
             p_payload += written;
             chunkStart += (1000000ll * (written / framesToBytes) / scSet.sr);
 
-#if USE_SAMPLE_INSERTION
             if (dir_insert_sample < 0) {
               if (i2s_channel_write(tx_chan, p_payload - sampleSizeInBytes, sampleSizeInBytes, &written, portMAX_DELAY) != ESP_OK) {
                 ESP_LOGE(TAG, "i2s_playback_task:  I2S write error %d", 1);
@@ -1705,7 +1545,6 @@ static void player_task(void *pvParameters) {
                 chunkStart += (1000000ll * (written / framesToBytes) / scSet.sr);
               }
             }
-#endif
             if (size == 0) {
               pcm_pool_put_free(chnk);
               chnk = NULL;
@@ -1758,7 +1597,7 @@ static void player_task(void *pvParameters) {
           int msgWaiting = pcm_pool_filled_count();
 
           // resync hard if we are getting very late / early.
-          // rest gets tuned in through apll speed control or sample insertion
+          // rest gets tuned in through sample insertion
           if ((msgWaiting == 0) ||
               (MEDIANFILTER_isFull(&shortMedianFilter, 0) &&
                ((shortMedian > hardResyncThreshold) ||
@@ -1799,7 +1638,7 @@ static void player_task(void *pvParameters) {
             continue;
           }
 
-#if USE_SAMPLE_INSERTION  // insert samples to adjust sync
+          // insert samples to adjust sync
           if ((enableControlLoop == true) &&
               (MEDIANFILTER_isFull(&shortMedianFilter, 0))) {
             if ((shortMedian < -shortOffset) && (miniMedian < -miniOffset) &&
@@ -1815,21 +1654,6 @@ static void player_task(void *pvParameters) {
               insertedSamplesCounter -= INSERT_SAMPLES;
             }
           }
-#else  // use APLL to adjust sync
-          if ((enableControlLoop == true) &&
-              (MEDIANFILTER_isFull(&shortMedianFilter, 0))) {
-            if ((shortMedian < -shortOffset) && (miniMedian < -miniOffset) &&
-                (age < -miniOffset)) {  // we are early
-              dir = -1;
-            } else if ((shortMedian > shortOffset) &&
-                       (miniMedian > miniOffset) &&
-                       (age > miniOffset)) {  // we are late
-              dir = 1;
-            }
-
-            adjust_apll(dir);
-          }
-#endif
            ESP_LOGD(TAG, "%d, %lldus, %lldus, %lldus, q:%d, %lld, %lld", dir,
                    age, shortMedian, miniMedian,
                    pcm_pool_filled_count(), insertedSamplesCounter,

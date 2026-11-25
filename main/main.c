@@ -1885,7 +1885,7 @@ void app_main(void) {
 
   i2s_std_clk_config_t i2s_clkcfg = {
       .sample_rate_hz = 44100,
-      .clk_src = I2S_CLK_SRC_APLL,
+      .clk_src = I2S_CLK_SRC_DEFAULT,
       .mclk_multiple = I2S_MCLK_MULTIPLE_256,
   };
   i2s_std_config_t tx_std_cfg = {

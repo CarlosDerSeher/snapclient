@@ -105,15 +105,4 @@ menu "Snapclient Configuration"
 				the web UI) the firmware can only be flashed over serial.
 	endmenu
 
-	config USE_SAMPLE_INSERTION
-        bool "Use sample insertion"
-        default y
-        help
-            There are two syncronization implementations.
-
-            1. APLL tuning (ONLY use with DACs having MCLK input)
-            2. sample insertion (duplicates a sample now and then to keep up sync)
-
-            Both approaches have similar performance keeping clients in sync <= 500µs
-
 endmenu

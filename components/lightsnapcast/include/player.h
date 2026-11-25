@@ -16,10 +16,6 @@ extern "C" {
 
 #define I2S_PORT I2S_NUM_0
 
-// TODO: maybe calculate this dynamically based on chunk duration and buffer
-// size?!
-#define CHNK_CTRL_CNT 2
-
 //#define LATENCY_MEDIAN_FILTER_LEN 199
 #define LATENCY_TIME_FILTER_FULL 29
 
