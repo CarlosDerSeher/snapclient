@@ -117,6 +117,21 @@ static void tg0_timer_deinit(void);
 
 static bool gpTimerRunning = false;
 
+/**
+ * Latency between the I2S output and the analog output: the client latency set
+ * on the server plus the DAC's own filter delay (CONFIG_DAC_GROUP_DELAY_FRAMES,
+ * in frames of the current sample rate).
+ */
+static int64_t client_dac_latency_us(const playerSetting_t *set) {
+  int64_t us = (int64_t)set->cDacLat_ms * 1000LL;
+#if CONFIG_DAC_GROUP_DELAY_FRAMES > 0
+  if (set->sr > 0) {
+    us += (int64_t)CONFIG_DAC_GROUP_DELAY_FRAMES * 1000000LL / set->sr;
+  }
+#endif
+  return us;
+}
+
 static void player_task(void *pvParameters);
 
 //player state
@@ -1280,7 +1295,9 @@ static void player_task(void *pvParameters) {
   audio_set_mute(true);
 
   buf_us = (int64_t)(scSet.buf_ms) * 1000LL;
-  clientDacLatency_us = (int64_t)scSet.cDacLat_ms * 1000LL;
+  clientDacLatency_us = client_dac_latency_us(&scSet);
+  ESP_LOGI(TAG, "output latency %lld us (client %d ms, DAC %d frames)",
+           clientDacLatency_us, scSet.cDacLat_ms, CONFIG_DAC_GROUP_DELAY_FRAMES);
   dmaDescDuration_us =
               1000000LL * (int64_t)i2sDmaBufMaxLen / (int64_t)scSet.sr;
   diagDmaUs = dmaDescDuration_us * i2sDmaBufCnt;
@@ -1328,7 +1345,7 @@ static void player_task(void *pvParameters) {
           (__scSet.sr > 0)) {
         buf_us = (int64_t)(__scSet.buf_ms) * 1000LL;
 
-        clientDacLatency_us = (int64_t)__scSet.cDacLat_ms * 1000LL;
+        clientDacLatency_us = client_dac_latency_us(&__scSet);
 
         if ((scSet.sr != __scSet.sr) || (scSet.bits != __scSet.bits) ||
             (scSet.ch != __scSet.ch)) {

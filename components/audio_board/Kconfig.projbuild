@@ -366,4 +366,20 @@ menu "Audio Board"
 
 	endmenu
 
+	config DAC_GROUP_DELAY_FRAMES
+	    int "DAC group delay (frames)"
+	    range 0 1000
+	    default 25 if AUDIO_BOARD_CUSTOM && DAC_ADAU1961
+	    default 0
+	    help
+	        Delay of the DAC's digital interpolation filter in sample frames (1/fs), as given in
+	        the DAC datasheet. The player starts each sample this much earlier, so boards with
+	        different DACs play in sync at the analog output. It is converted with the current
+	        sample rate and added to the latency set for the client on the server.
+
+	        Known values (normal speed, up to 48 kHz):
+	        - ADAU1961: 25 (datasheet, DAC interpolation filter, 48 kHz mode)
+	        Other DACs default to 0 until their delay is measured (see TODO.md). Set it by hand
+	        for a DAC not listed here.
+
 endmenu
