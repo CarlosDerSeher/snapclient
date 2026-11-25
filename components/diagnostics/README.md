@@ -29,8 +29,8 @@ Options:
 - `CONFIG_SNAPCLIENT_HEAP_DIAG_PLAY_LONG_S` (default 600): when the "playback long" report
   is written after playback starts.
 
-A report is a block between `==== <label> (uptime N s) ====` and `==== end <label> ====`. It is
-written at:
+A report is a block between `==== <label> (uptime N s, <firmware version>) ====` and
+`==== end <label> ====`. It is written at:
 
 | Label | When |
 |---|---|
@@ -45,7 +45,7 @@ written at:
 Example (ESP32 without PSRAM, Ethernet, playing FLAC 44.1 kHz with a 700 ms buffer):
 
 ```
-HEAPDIAG: ==== playback +10 s (uptime 17 s) ====
+HEAPDIAG: ==== playback +10 s (uptime 17 s, v0.0.4-12-g1a2b3c4) ====
 HEAPDIAG: 8BIT free 39788 largest 34816 min 9996
 HEAPDIAG: 32BIT|EXEC free 40048 largest 34816 min 12024
 HEAPDIAG: IRAM-only (32BIT minus 8BIT) free 2868
@@ -93,7 +93,7 @@ Example of a normal interval (FLAC 48 kHz, 20 ms chunks, 700 ms buffer, weak Wi-
 SYNCDIAG: server settings arrived, lag 4 ms
 SYNCDIAG: lag ms chunk 1/4/12 (n 417) settings 4/4/4 time 1/3/6, unsynced 0, gap max 49 ms
 SYNCDIAG: time sent 10 replies 10 dup 0 timeouts 0, rtt ms 5/7/10, offset 310043621195 us (moved -1039)
-SYNCDIAG: queue min 25, free waits 0 (0 ms, max 0 ms) failed 0, resync init 0 hard1 0 hard2 0, wifi -69 dBm, disconnects 0 (reason 0)
+SYNCDIAG: queue min 25, free waits 0 (0 ms, max 0 ms) failed 0, resync init 0 hard1 0 hard2 0, wifi -69 dBm, disconnects 0 (reason 0), fw v0.0.4-12-g1a2b3c4
 ```
 
 The same client while the network stalled for ~0.7 s:
@@ -103,7 +103,7 @@ PLAYER: RESYNCING HARD 2: age 91us, ...
 PLAYER: RESYNCING HARD 1: age 9533us, ...
 SYNCDIAG: lag ms chunk 2/42/663 (n 417) settings 2/4/6 time 2/7/43, unsynced 0, gap max 699 ms
 SYNCDIAG: time sent 10 replies 10 dup 0 timeouts 0, rtt ms 6/11/44, offset 310043621722 us (moved 148)
-SYNCDIAG: queue min 0, free waits 0 (0 ms, max 0 ms) failed 0, resync init 1 hard1 1 hard2 1, wifi -69 dBm, disconnects 0 (reason 0)
+SYNCDIAG: queue min 0, free waits 0 (0 ms, max 0 ms) failed 0, resync init 1 hard1 1 hard2 1, wifi -69 dBm, disconnects 0 (reason 0), fw v0.0.4-12-g1a2b3c4
 ```
 
 Values written as `a/b/c` are min/avg/max in ms over the interval; `-` means no samples.
@@ -160,7 +160,7 @@ retransmits). If the lag is small but the change is still heard late, the delay 
 
 ### Line 3: playback, resyncs, Wi-Fi
 
-`queue min Q, free waits W (T ms, max X ms) failed F, resync init I hard1 H1 hard2 H2, wifi R dBm, disconnects D (reason C)`
+`queue min Q, free waits W (T ms, max X ms) failed F, resync init I hard1 H1 hard2 H2, wifi R dBm, disconnects D (reason C), fw V`
 
 - **queue min**: fewest decoded chunks waiting for playback, sampled whenever an audio chunk
   arrives. In steady state it is close to `buf_ms / chunk duration`. 0 means the queue ran empty:
@@ -180,6 +180,7 @@ retransmits). If the lag is small but the change is still heard late, the delay 
 - **wifi**: signal strength of the current access point (0 on Ethernet or when not connected).
   Below about −75 dBm, retransmits and stalls become common.
 - **disconnects**: Wi-Fi disconnects in this interval and the reason code of the last one
+- **fw**: firmware version (`git describe`; the part after `-g` is the commit)
   (`wifi_err_reason_t` in ESP-IDF, e.g. 200 = beacon timeout, 201 = AP not found,
   15 = 4-way handshake timeout).
 

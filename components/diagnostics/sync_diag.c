@@ -22,6 +22,7 @@
 #include <inttypes.h>
 #include <string.h>
 
+#include "esp_app_desc.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -228,11 +229,11 @@ static void sync_diag_task(void *arg) {
              "queue min %ld, free waits %" PRIu32 " (%" PRId64
              " ms, max %" PRId64 " ms) failed %" PRIu32
              ", resync init %" PRIu32 " hard1 %" PRIu32 " hard2 %" PRIu32
-             ", wifi %d dBm, disconnects %" PRIu32 " (reason %u)",
+             ", wifi %d dBm, disconnects %" PRIu32 " (reason %u), fw %s",
              s.queueMin == UINT32_MAX ? -1L : (long)s.queueMin, s.freeWaits,
              s.freeWaitSum / 1000, s.freeWaitMax / 1000, s.freeFails,
              s.resyncInit, s.resyncHard1, s.resyncHard2, rssi, s.wifiDisc,
-             (unsigned)s.wifiReason);
+             (unsigned)s.wifiReason, esp_app_get_description()->version);
     lastDiff = diff;
   }
 }

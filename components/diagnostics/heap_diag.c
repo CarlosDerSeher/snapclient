@@ -6,6 +6,7 @@
 
 #include <stdint.h>
 
+#include "esp_app_desc.h"
 #include "esp_event.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -56,7 +57,8 @@ static void heap_diag_post(diag_msg_type_t type, const char *label) {
 static void heap_diag_dump(const char *label) {
   int64_t uptime_s = esp_timer_get_time() / 1000000;
 
-  ESP_LOGI(TAG, "==== %s (uptime %lld s) ====", label, uptime_s);
+  ESP_LOGI(TAG, "==== %s (uptime %lld s, %s) ====", label, uptime_s,
+           esp_app_get_description()->version);
   ESP_LOGI(TAG, "8BIT free %u largest %u min %u",
            heap_caps_get_free_size(MALLOC_CAP_8BIT),
            heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),

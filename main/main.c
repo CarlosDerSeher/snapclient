@@ -3,6 +3,7 @@
 
 #include "board.h"
 #include "driver/timer_types_legacy.h"
+#include "esp_app_desc.h"
 #include "esp_event.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -88,8 +89,6 @@ static void error_callback(const FLAC__StreamDecoder *decoder,
                            void *client_data);
 
 static FLAC__StreamDecoder *flacDecoder = NULL;
-
-const char *VERSION_STRING = "0.0.4";
 
 #define HTTP_TASK_PRIORITY 17
 #define HTTP_TASK_CORE_ID 1
@@ -1547,7 +1546,7 @@ static void http_get_task(void *pvParameters) {
     }
     hello_message.hostname = device_hostname;
 
-    hello_message.version = (char *)VERSION_STRING;
+    hello_message.version = (char *)esp_app_get_description()->version;
     hello_message.client_name = "libsnapcast";
     hello_message.os = "esp32";
     hello_message.arch = "xtensa";
@@ -1815,6 +1814,12 @@ void app_main(void) {
   ESP_ERROR_CHECK(ret);
 
   esp_log_level_set("*", ESP_LOG_INFO);
+
+  // IDF's own startup lines (app version etc.) are hidden by the default log
+  // level, so print the version here; see CMakeLists.txt for where it is from
+  const esp_app_desc_t *app = esp_app_get_description();
+  ESP_LOGI(TAG, "snapclient %s, IDF %s, built %s %s", app->version,
+           app->idf_ver, app->date, app->time);
 
   // if enabled these cause a timer srv stack overflow
   esp_log_level_set("HEADPHONE", ESP_LOG_NONE);

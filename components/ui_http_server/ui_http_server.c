@@ -16,6 +16,7 @@
 #include <stdlib.h>
 
 #include "cJSON.h"
+#include "esp_app_desc.h"
 #include "esp_chip_info.h"
 #include "dsp_processor_settings.h"
 #include "esp_err.h"
@@ -50,7 +51,6 @@ static httpd_handle_t server = NULL;
 
 #if CONFIG_SNAPCLIENT_WEB_UI_STATUS
 extern struct netconn *lwipNetconn;
-extern const char *VERSION_STRING;
 extern uint32_t connection_get_last_snapserver_connect_uptime_sec(void);
 extern const char *connection_get_last_snapserver_host(void);
 extern uint16_t connection_get_last_snapserver_port(void);
@@ -201,7 +201,7 @@ static esp_err_t build_status_json(char *json_out, size_t max_len) {
 	}
 
 	cJSON_AddStringToObject(root, "app_version",
-							(VERSION_STRING != NULL) ? VERSION_STRING : "unknown");
+							esp_app_get_description()->version);
 	cJSON_AddStringToObject(root, "target", CONFIG_IDF_TARGET);
 	cJSON_AddNumberToObject(root, "chip_cores", chip_info.cores);
 	cJSON_AddNumberToObject(root, "chip_revision", chip_info.revision);
