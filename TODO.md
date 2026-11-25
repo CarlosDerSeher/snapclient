@@ -143,9 +143,10 @@ W5500 IPv6 multicast warning), and the S3 player task had 160 B left.
   its clock sync stalls; that happens with every firmware variant tried, while the same image on
   the rev v3.0 LyraT boots clean. Possibly a faulty board; try a second rev v1 board before
   spending more time on it.
-- Channel order differs between codecs: FLAC packs a stereo frame as `L | R << 16`, Opus and PCM
-  as `L << 16 | R`. One of them plays left and right swapped. Check with an L/R test signal per
-  codec, then use one layout everywhere.
+- Many hard resyncs after a late stretch: when audio arrives seconds late but without a long gap
+  (Wi-Fi retries at a weak signal, seen in #261: up to 4 s late, gaps only 0.4–0.6 s), every late
+  chunk is dropped with its own "HARD 1" resync, 50–110 per episode. Drop all chunks that
+  are already too late in one go and resync once.
 - Update libFLAC: the submodule is at 1.3.3+85 (July 2021, already has the 1.3.4 CVE fix), upstream
   is at 1.5.0. Upstream has oss-fuzz fixes for malformed frames. The most important one is a heap
   overflow when a frame's predictor order is larger than its blocksize (`2f209573`); others are
@@ -178,6 +179,10 @@ W5500 IPv6 multicast warning), and the S3 player task had 160 B left.
 - Wi-Fi TX power (#232) follow-ups: fold the boot-time TX power block, which appears twice in
   `wifi_start()`, into one helper; clamp the stored value at boot (only the web handler clamps to
   34–80); log errors from `esp_wifi_set_max_tx_power()`.
+- Release tags: the firmware version is `git describe` (logged at boot and in the diagnostics),
+  but `v0.0.4` is on a master merge commit that `develop` and `experimental` don't contain, so
+  their builds still count from `v0.0.3`. Merge master back once, then tag test builds on
+  `experimental` (e.g. `v0.0.5-exp.1`) so testers' logs show a readable version.
 - Remove unused `tas5805m_settings_get_json()` and `tas5805m_settings_get_schema_json()`.
 - Put Kconfig options in better places in the tree.
 - Replace the ADF components copied into the tree with files pulled in via `CMakeLists.txt`.
