@@ -208,17 +208,13 @@ W5500 IPv6 multicast warning), and the S3 player task had 160 B left.
   got-IP, seen in `udp_sendto()` from the UDP logger and, with the logger off, in `heap_caps_free()`
   inside the mDNS server lookup. A LyraT with rev v3.0 and the ADAU1961 board (no PSRAM) don't show
   it. Check the PSRAM cache workaround for rev v1 and what touches the heap around got-IP.
-- Rate-limit the "RESYNCING HARD 1/2" warnings in `player_task` (#234, closed, credit W-Floyd): at
-  most one line per second with one shared timestamp at file scope, query Wi-Fi/heap info only when
-  a line is printed, and report how many were suppressed ("(+12 suppressed)"). Today every hard
-  resync calls `esp_wifi_sta_get_ap_info()` and `heap_caps_*` in the high-priority player task, and
-  a ~130-char line blocks ~11 ms at 115200 baud once the UART buffer is full. Separate PR from 1.3.
+  The same rev v1.0 board also answers pings only after 1–9 s for minutes after most restarts, so
+  its clock sync stalls; that happens with every firmware variant tried, while the same image on
+  the rev v3.0 LyraT boots clean. Possibly a faulty board; try a second rev v1 board before
+  spending more time on it.
 - Channel order differs between codecs: FLAC packs a stereo frame as `L | R << 16`, Opus and PCM
   as `L << 16 | R`. One of them plays left and right swapped. Check with an L/R test signal per
   codec, then use one layout everywhere.
-- `player_task` computes the frame size in its I2S write loop as `ch + (bits >> 3)` instead of
-  `ch * (bits >> 3)` (also in the disabled `#else` variant). Correct by chance only for 16-bit
-  stereo; wrong sample counts and chunk timing for mono, 24 or 32 bit.
 - Update libFLAC: the submodule is at 1.3.3+85 (July 2021, already has the 1.3.4 CVE fix), upstream
   is at 1.5.0. Upstream has oss-fuzz fixes for malformed frames. The most important one is a heap
   overflow when a frame's predictor order is larger than its blocksize (`2f209573`); others are
