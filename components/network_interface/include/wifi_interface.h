@@ -21,6 +21,9 @@
 
 bool wifi_get_ip(esp_netif_ip_info_t *ip);
 bool wifi_get_ap_record(wifi_ap_record_t *ap);
+/* true while associated over Wi-Fi with a power save mode for idle (not
+ * suppressed for an Ethernet takeover, CONFIG_WIFI_PS_NONE_MODE not set) */
+bool wifi_idle_power_save(void);
 void wifi_start(void);
 
 #endif /* _WIFI_INTERFACE_H_ */

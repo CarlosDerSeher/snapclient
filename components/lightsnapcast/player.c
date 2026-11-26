@@ -580,13 +580,21 @@ int start_player() {
 
   tg0_timer_init();
 
-#if CONFIG_PM_ENABLE
-  ESP_LOGI(TAG, "reset Latency buffer");
+  // Start the time filter over if Wi-Fi was in power save while idle: after
+  // a playback, idle time replies were measured 10-230 ms late (median;
+  // MIN_MODEM / MAX_MODEM), which skews the estimate by tens of ms. Without
+  // the reset playback started up to 75 ms off and needed ~15 hard resyncs.
+  // Over Ethernet (or without power save) the idle estimate stayed within
+  // 40 us, so the refill (~0.5 s) is skipped there.
+  if (wifi_idle_power_save()) {
+    ESP_LOGI(TAG, "reset Latency buffer (Wi-Fi power save while idle)");
 
-  while(reset_latency_buffer()<0) {
-    vTaskDelay(pdMS_TO_TICKS(10));
+    while (reset_latency_buffer() < 0) {
+      vTaskDelay(pdMS_TO_TICKS(10));
+    }
   }
-  
+
+#if CONFIG_PM_ENABLE
   esp_pm_lock_acquire(player_pm_lock_handle);
 #endif
   

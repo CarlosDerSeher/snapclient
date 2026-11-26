@@ -325,6 +325,11 @@ bool wifi_get_ap_record(wifi_ap_record_t *ap) {
   return wifi_associated && esp_wifi_sta_get_ap_info(ap) == ESP_OK;
 }
 
+bool wifi_idle_power_save(void) {
+  return wifi_associated && !wifi_is_suppressed() &&
+         (wifi_idle_ps_mode() != WIFI_PS_NONE);
+}
+
 bool wifi_get_ip(esp_netif_ip_info_t *ip) {
   xSemaphoreTake(connIpSemaphoreHandle, portMAX_DELAY);
 
