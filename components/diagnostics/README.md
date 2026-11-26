@@ -91,7 +91,7 @@ Example of a normal interval (FLAC 48 kHz, 20 ms chunks, 700 ms buffer, weak Wi-
 
 ```
 SYNCDIAG: server settings arrived, lag 4 ms
-SYNCDIAG: lag ms chunk 1/4/12 (n 417) settings 4/4/4 time 1/3/6, unsynced 0, gap max 49 ms
+SYNCDIAG: lag ms chunk 1/4/12 (n 417) settings 4/4/4 time 1/3/6, unsynced 0, gap max 49 ms, rx waits 0 (max 0 ms) after loss 0 (max 0 ms)
 SYNCDIAG: time sent 10 replies 10 dup 0 timeouts 0, rtt ms 5/7/10, offset 310043621195 us (moved -1039)
 SYNCDIAG: queue min 25, free waits 0 (0 ms, max 0 ms) failed 0, resync init 0 hard1 0 hard2 0 late 0, wifi -69 dBm, disconnects 0 (reason 0), fw v0.0.4-12-g1a2b3c4
 ```
@@ -101,15 +101,20 @@ The same client while the network stalled for ~0.7 s:
 ```
 PLAYER: RESYNCING HARD 2: age 91us, ...
 PLAYER: RESYNCING HARD 1: age 9533us, ...
-SYNCDIAG: lag ms chunk 2/42/663 (n 417) settings 2/4/6 time 2/7/43, unsynced 0, gap max 699 ms
+SYNCDIAG: rx stall 690 ms at 312.418 s, then 7300 B in one go (lost segment retransmitted); rtt ms@s before: 7@-0.4 6@-1.4 9@-2.4; rssi/s: -69 -70 -69 -68
+SYNCDIAG: lag ms chunk 2/42/663 (n 417) settings 2/4/6 time 2/7/43, unsynced 0, gap max 699 ms, rx waits 1 (max 690 ms) after loss 1 (max 690 ms)
 SYNCDIAG: time sent 10 replies 10 dup 0 timeouts 0, rtt ms 6/11/44, offset 310043621722 us (moved 148)
 SYNCDIAG: queue min 0, free waits 0 (0 ms, max 0 ms) failed 0, resync init 1 hard1 1 hard2 1 late 0, wifi -69 dBm, disconnects 0 (reason 0), fw v0.0.4-12-g1a2b3c4
 ```
 
 Values written as `a/b/c` are min/avg/max in ms over the interval; `-` means no samples.
 
+(The `rx stall` line in the second example is illustrative: it shows how a stall caused by a lost
+segment looks.)
+
 Where the numbers come from: `main.c` reports each received message and the time sync requests
-and replies (`sync_diag_msg()`, `sync_diag_time_*()`). The player doesn't know about this
+and replies (`sync_diag_msg()`, `sync_diag_time_*()`), `connection_handler.c` each wait for TCP
+data (`sync_diag_rx()`). The player doesn't know about this
 component; it reports resyncs and the decoder's waits for a free PCM chunk through
 `player_set_event_cb()`, which `sync_diag_init()` registers. So the dependency only goes one way:
 diagnostics → lightsnapcast.
@@ -120,6 +125,29 @@ A settings message from the server and how long it took from the server sending 
 receiving it. Large values mean the message was stuck on the way (server send queue, network, TCP
 retransmits). If the lag is small but the change is still heard late, the delay is in the client.
 `(no time sync yet)` is printed before the first time reply; the lag cannot be computed then.
+
+### `rx stall`
+
+`rx stall W ms at T s, then B B[ in one go (lost segment retransmitted)]; rtt ms@s before: R@-S ...; rssi/s: ...`
+
+Logged within a second after the client waited `W` ms (200 or more) for TCP data while it was
+ready to take it. A wait caused by the client itself (pool full, so it stopped reading) doesn't
+count. `T` is when the wait started (uptime), `B` how many bytes came with the first delivery
+after it.
+
+- **in one go**: more than one TCP segment arrived in that delivery. lwIP had them already but
+  held them back in its out-of-order queue, waiting for an earlier segment that was lost; the
+  delivery came when the server's retransmit filled the hole. Without it, nothing arrived at all
+  during the wait (the server didn't send, or everything on the way was held up).
+- **rtt before**: the round trips of up to six time replies before the wait, newest first, each
+  with how long before the wait it arrived. Round trips that climb to tens or hundreds of ms just
+  before a stall point at a growing queue on the way (bufferbloat on a congested router or
+  access point). Unchanged round trips and a sudden stall point at the radio (interference,
+  roaming) or loss.
+- **rssi/s**: the RSSI sampled once per second, from 2 s before the wait until it was logged
+  (0 when not on Wi-Fi). A drop during the stall points at the radio link.
+
+At most four stalls are queued per second; more are counted in `rx stall: N more not logged`.
 
 ### `time samples since the filter was empty`
 
@@ -142,7 +170,7 @@ wrong start.
 
 ### Line 1: message lag
 
-`lag ms chunk a/b/c (n N) settings a/b/c time a/b/c, unsynced U, gap max G ms`
+`lag ms chunk a/b/c (n N) settings a/b/c time a/b/c, unsynced U, gap max G ms, rx waits W (max X ms) after loss L (max Y ms)`
 
 - **lag**: time from the server sending a message (the `sent` stamp in every message header)
   until the client received it, converted to server time with the time sync. It includes the
@@ -157,7 +185,13 @@ wrong start.
   Normal only in the first interval after connecting.
 - **gap max**: longest time between two arriving messages of any type. While audio plays a
   chunk arrives every few ms, so a gap of several hundred ms is a stall where nothing arrived at
-  all.
+  all. It also counts gaps the client caused itself: when the PCM queue is full, the client stops
+  reading and the server's sending stalls on the full TCP window.
+- **rx waits**: how often the client waited 100 ms or more for TCP data while it was ready to
+  take it, and the longest such wait. Unlike `gap max`, this leaves out the client's own pauses.
+- **after loss**: waits of 20 ms or more that ended with several TCP segments arriving at once,
+  i.e. the wait was for the retransmit of a lost segment (see `rx stall`), and the longest of
+  them. Many of them with short waits are normal TCP recovery; long ones empty the queue.
 
 ### Line 2: time sync
 

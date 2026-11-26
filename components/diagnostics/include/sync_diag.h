@@ -29,6 +29,11 @@ void sync_diag_time_reply(int64_t rtt_us, bool duplicate);
 // until TIME_SAMPLES_LOGGED samples, then logged in one block.
 void sync_diag_time_sample(int64_t rx_local_us, int64_t rtt_us,
                            int64_t sample_us, int64_t est_us, bool full);
+// TCP data arrived after the receiving task waited wait_us for it (it was
+// ready to take data the whole time). len: bytes in this delivery; merged:
+// more than one segment, i.e. held back behind a lost segment.
+void sync_diag_rx(int64_t rx_local_us, int64_t wait_us, uint32_t len,
+                  bool merged);
 
 #else
 
@@ -41,6 +46,8 @@ static inline void sync_diag_time_reply(int64_t rtt_us, bool duplicate) {}
 static inline void sync_diag_time_sample(int64_t rx_local_us, int64_t rtt_us,
                                          int64_t sample_us, int64_t est_us,
                                          bool full) {}
+static inline void sync_diag_rx(int64_t rx_local_us, int64_t wait_us,
+                                uint32_t len, bool merged) {}
 
 #endif
 

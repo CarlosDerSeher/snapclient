@@ -11,6 +11,7 @@
 #include "net_functions.h"
 #include "network_interface.h"
 #include "settings_manager.h"
+#include "sync_diag.h"
 
 static void arrival_reset(void);
 static void netconn_event_cb(struct netconn* conn, enum netconn_evt evt, u16_t len);
@@ -434,6 +435,9 @@ static int receive_data(struct netbuf** firstNetBuf, bool isMuted,
     }
   }
 
+  // how long we wait for TCP data while ready to take it (SYNCDIAG)
+  int64_t waitStart = esp_timer_get_time();
+
   while (1) {
     before_receive_callback(before_receive_callback_data);
 
@@ -462,6 +466,16 @@ static int receive_data(struct netbuf** firstNetBuf, bool isMuted,
     }
     break;
   }
+
+#if CONFIG_SNAPCLIENT_SYNC_DIAG
+  {
+    int64_t now = esp_timer_get_time();
+    // More than one segment in one delivery after a wait: lwIP held them in
+    // the out-of-order queue until the lost one was retransmitted.
+    uint16_t len = netbuf_len(*firstNetBuf);
+    sync_diag_rx(now, now - waitStart, len, len > TCP_MSS + TCP_MSS / 2);
+  }
+#endif
 
   // Ethernet preference is handled by eth_interface.c takeover system.
   // It sets the default netif and requests reconnect when ready.
