@@ -45,11 +45,11 @@ identical or clip.
 
 ## Test signal
 
-`test/netsim/testserver.sh` has a stream `noise44`: FLAC 44.1 kHz pink noise, the right channel
-being the left one delayed by exactly 1 s. There is no silence and FLAC can't use the similarity
-of a delayed copy, so it compresses like music (~70 % of PCM; silence or the same signal on both
-channels would shrink to almost nothing and spare the client's Wi-Fi and decoder). The noise
-never repeats, so the offset is unambiguous up to `--max-ms` (20 ms).
+`test/netsim/testserver.sh` has a stream `noise44`: FLAC 44.1 kHz pink noise (`noise48` the same at
+48 kHz), the right channel being the left one delayed by exactly 1 s. There is no silence and FLAC
+can't use the similarity of a delayed copy, so it compresses like music (~70 % of PCM; silence or
+the same signal on both channels would shrink to almost nothing and spare the client's Wi-Fi and
+decoder). The noise never repeats, so the offset is unambiguous up to `--max-ms` (20 ms).
 
 To check the wiring and levels, play the tone stream `flac44` (440 Hz left, 660 Hz right) and look
 at the spectrum of a short recording: each board's tone should stand well above the 50 Hz hum and

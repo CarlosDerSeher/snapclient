@@ -9,7 +9,7 @@
 # and pink noise for test/sync/sync.py (right = left delayed by exactly 1 s, so
 # FLAC can't exploit the channels' similarity and compresses it like music, and
 # either channel of a board can be compared with either channel of another):
-#   noise44 FLAC 44.1 kHz 16 bit
+#   noise44 FLAC 44.1 kHz 16 bit     noise48 FLAC 48 kHz 16 bit
 # and a silent one: idle (a pipe nobody writes to). A client on it stops
 # playing, e.g. to trigger what the client defers until playback stops.
 #
@@ -72,10 +72,11 @@ source = process://$self?name=flac48&params=--tone=48000&sampleformat=48000:16:2
 source = process://$self?name=opus&params=--tone=48000&sampleformat=48000:16:2&codec=opus
 source = process://$self?name=pcm&params=--tone=44100&sampleformat=44100:16:2&codec=pcm
 source = process://$self?name=noise44&params=--noise=44100&sampleformat=44100:16:2&codec=flac
+source = process://$self?name=noise48&params=--noise=48000&sampleformat=48000:16:2&codec=flac
 source = pipe://$dir/idle.fifo?name=idle&mode=create&sampleformat=48000:16:2&codec=flac
 [logging]
 filter = *:info
 EOF
 
-echo "snapserver: buffer $buf ms, streams flac44 flac48 opus pcm noise44 idle, config $dir/snapserver.conf"
+echo "snapserver: buffer $buf ms, streams flac44 flac48 opus pcm noise44 noise48 idle, config $dir/snapserver.conf"
 DBUS_SYSTEM_BUS_ADDRESS=unix:path=/nonexistent exec snapserver -c "$dir/snapserver.conf"
