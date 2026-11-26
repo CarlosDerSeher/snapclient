@@ -80,6 +80,14 @@ W5500 IPv6 multicast warning), and the S3 player task had 160 B left.
   `components/network_interface/eth_interface.c`, then check boot timing and that a plugged-in cable
   still gets link and IP.
 - Hard resyncs: #117, #191, #226.
+- Time sync while idle on Wi-Fi: after a playback, with Wi-Fi power save on while idle, time replies
+  come back 10-230 ms late (median; MIN_MODEM ~10-25 ms, MAX_MODEM 17-230 ms), while pings show
+  the board asleep either way. Before the first playback they take 2 ms despite power save (the
+  station stays awake 50 ms after sending). Not light sleep (no change with a no-light-sleep lock
+  per request), not Nagle (no change with `TCP_NODELAY`), not fixed by leaving power save per
+  request. Maybe the AP's handling after a high-throughput download; needs a capture on the air.
+  Meanwhile the time filter is reset at playback start only after idle Wi-Fi power save (~0.5 s
+  refill); over Ethernet the idle estimate stays within 40 us and playback starts without it.
 - Time filter start with packet loss: checked with 2 % loss in both directions (`netem.sh`), 6
   restarts each on the ADAU1961 board (Ethernet) and a LyraT (Wi-Fi), and with proxy stalls: no
   hard resyncs. The startup resyncs seen before came from before time replies were stamped on
