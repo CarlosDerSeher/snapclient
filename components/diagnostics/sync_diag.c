@@ -11,7 +11,7 @@
  *   offset  current local -> server offset and how much it moved
  *   queue   fewest pcm chunks waiting for playback (sampled per wire chunk)
  *   free    decoder waits for a free pcm chunk: count, total time, failures
- *   resync  initial syncs, HARD 1, HARD 2
+ *   resync  initial syncs, HARD 1, HARD 2, wire chunks skipped as too late
  *   wifi    RSSI now, disconnects and the last reason
  * Every server settings message is also logged right away with its lag.
  * The first time samples after the time filter starts empty (connect,
@@ -56,7 +56,7 @@ typedef struct {
   uint32_t queueMin;
   uint32_t freeWaits, freeFails;
   int64_t freeWaitSum, freeWaitMax;
-  uint32_t resyncInit, resyncHard1, resyncHard2;
+  uint32_t resyncInit, resyncHard1, resyncHard2, lateSkips;
   uint32_t wifiDisc;
   uint8_t wifiReason;
 } sync_diag_stats_t;
@@ -158,6 +158,9 @@ static void player_event_handler(player_event_t event, int64_t value) {
       break;
     case PLAYER_EVENT_RESYNC_HARD2:
       st.resyncHard2++;
+      break;
+    case PLAYER_EVENT_LATE_SKIP:
+      st.lateSkips++;
       break;
     case PLAYER_EVENT_FREE_CHUNK_WAIT:
     case PLAYER_EVENT_FREE_CHUNK_FAIL:
@@ -290,10 +293,12 @@ static void sync_diag_task(void *arg) {
              "queue min %ld, free waits %" PRIu32 " (%" PRId64
              " ms, max %" PRId64 " ms) failed %" PRIu32
              ", resync init %" PRIu32 " hard1 %" PRIu32 " hard2 %" PRIu32
+             " late %" PRIu32
              ", wifi %d dBm, disconnects %" PRIu32 " (reason %u), fw %s",
              s.queueMin == UINT32_MAX ? -1L : (long)s.queueMin, s.freeWaits,
              s.freeWaitSum / 1000, s.freeWaitMax / 1000, s.freeFails,
-             s.resyncInit, s.resyncHard1, s.resyncHard2, rssi, s.wifiDisc,
+             s.resyncInit, s.resyncHard1, s.resyncHard2, s.lateSkips, rssi,
+             s.wifiDisc,
              (unsigned)s.wifiReason, esp_app_get_description()->version);
     lastDiff = diff;
     time_samples_log();

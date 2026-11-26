@@ -93,7 +93,7 @@ Example of a normal interval (FLAC 48 kHz, 20 ms chunks, 700 ms buffer, weak Wi-
 SYNCDIAG: server settings arrived, lag 4 ms
 SYNCDIAG: lag ms chunk 1/4/12 (n 417) settings 4/4/4 time 1/3/6, unsynced 0, gap max 49 ms
 SYNCDIAG: time sent 10 replies 10 dup 0 timeouts 0, rtt ms 5/7/10, offset 310043621195 us (moved -1039)
-SYNCDIAG: queue min 25, free waits 0 (0 ms, max 0 ms) failed 0, resync init 0 hard1 0 hard2 0, wifi -69 dBm, disconnects 0 (reason 0), fw v0.0.4-12-g1a2b3c4
+SYNCDIAG: queue min 25, free waits 0 (0 ms, max 0 ms) failed 0, resync init 0 hard1 0 hard2 0 late 0, wifi -69 dBm, disconnects 0 (reason 0), fw v0.0.4-12-g1a2b3c4
 ```
 
 The same client while the network stalled for ~0.7 s:
@@ -103,7 +103,7 @@ PLAYER: RESYNCING HARD 2: age 91us, ...
 PLAYER: RESYNCING HARD 1: age 9533us, ...
 SYNCDIAG: lag ms chunk 2/42/663 (n 417) settings 2/4/6 time 2/7/43, unsynced 0, gap max 699 ms
 SYNCDIAG: time sent 10 replies 10 dup 0 timeouts 0, rtt ms 6/11/44, offset 310043621722 us (moved 148)
-SYNCDIAG: queue min 0, free waits 0 (0 ms, max 0 ms) failed 0, resync init 1 hard1 1 hard2 1, wifi -69 dBm, disconnects 0 (reason 0), fw v0.0.4-12-g1a2b3c4
+SYNCDIAG: queue min 0, free waits 0 (0 ms, max 0 ms) failed 0, resync init 1 hard1 1 hard2 1 late 0, wifi -69 dBm, disconnects 0 (reason 0), fw v0.0.4-12-g1a2b3c4
 ```
 
 Values written as `a/b/c` are min/avg/max in ms over the interval; `-` means no samples.
@@ -179,7 +179,7 @@ wrong start.
 
 ### Line 3: playback, resyncs, Wi-Fi
 
-`queue min Q, free waits W (T ms, max X ms) failed F, resync init I hard1 H1 hard2 H2, wifi R dBm, disconnects D (reason C), fw V`
+`queue min Q, free waits W (T ms, max X ms) failed F, resync init I hard1 H1 hard2 H2 late L, wifi R dBm, disconnects D (reason C), fw V`
 
 - **queue min**: fewest decoded chunks waiting for playback, sampled whenever an audio chunk
   arrives. In steady state it is close to `buf_ms / chunk duration`. 0 means the queue ran empty:
@@ -195,19 +195,23 @@ wrong start.
     dropped and the start retried.
   - `hard2`: while playing, the queue ran empty or the audio drifted more than 2 ms from where it
     should be. Playback stops and starts again (an audible gap).
-  The `PLAYER: RESYNCING HARD 1/2` warnings are logged at the same time with more detail.
+  - `late`: wire chunks skipped without decoding because their play time had already passed.
+    They arrive like that after a stall, as the backlog drains; skipping them saves the decoding
+    and one `hard1` each.
+  The `PLAYER: RESYNCING HARD 1/2` and `late wire chunk skipped` warnings are logged at the same
+  time with more detail, at most one line per second.
 - **wifi**: signal strength of the current access point (0 on Ethernet or when not connected).
   Below about −75 dBm, retransmits and stalls become common.
 - **disconnects**: Wi-Fi disconnects in this interval and the reason code of the last one
-- **fw**: firmware version (`git describe`; the part after `-g` is the commit)
   (`wifi_err_reason_t` in ESP-IDF, e.g. 200 = beacon timeout, 201 = AP not found,
   15 = 4-way handshake timeout).
+- **fw**: firmware version (`git describe`; the part after `-g` is the commit)
 
 ### Reading the result
 
 | What you see | Likely cause |
 |---|---|
-| `gap max` and `chunk` lag peaks of hundreds of ms, then `queue min 0` and `hard2` | Network stalls longer than the buffer can bridge. Check `wifi` dBm and `disconnects`; a larger `buf_ms` or better Wi-Fi helps. |
+| `gap max` and `chunk` lag peaks of hundreds of ms, then `queue min 0`, `hard2` and `late` | Network stalls longer than the buffer can bridge. Check `wifi` dBm and `disconnects`; a larger `buf_ms` or better Wi-Fi helps. |
 | `settings` lag high while `chunk` lag is low | The settings message was held up on the server side. |
 | `settings` lag low, but the change takes effect late | Delay inside the client. |
 | `timeouts` or many `dup` | Time replies lost or arriving in bursts; the clock offset gets worse. |

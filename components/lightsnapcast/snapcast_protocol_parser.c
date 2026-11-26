@@ -69,13 +69,9 @@ parser_return_state_t parse_base_message(snapcast_protocol_parser_t* parser,
 
 
 
-parser_return_state_t parse_wire_chunk_message(snapcast_protocol_parser_t* parser,
-                                               base_message_t* base_message_rx,
-                                               codec_type_t codec,
-                                               pcm_chunk_message_t** pcmData,
-                                               wire_chunk_message_t* wire_chnk,
-                                               decoderData_t* decoderChunk) {
-
+parser_return_state_t parse_wire_chunk_header(snapcast_protocol_parser_t* parser,
+                                              base_message_t* base_message_rx,
+                                              wire_chunk_message_t* wire_chnk) {
   if (!read_timestamp(parser, &wire_chnk->timestamp)) return PARSER_RESTART_CONNECTION;
   if (!read_uint32_le(parser, (uint32_t *)&wire_chnk->size)) return PARSER_RESTART_CONNECTION;
 
@@ -85,6 +81,25 @@ parser_return_state_t parse_wire_chunk_message(snapcast_protocol_parser_t* parse
     return PARSER_RESTART_CONNECTION;
   }
 
+  return PARSER_OK;
+}
+
+parser_return_state_t parse_wire_chunk_skip(snapcast_protocol_parser_t* parser,
+                                            wire_chunk_message_t* wire_chnk) {
+  char dummy_byte;
+  for (uint32_t i = 0; i < wire_chnk->size; i++) {
+    if (!read_byte(parser, &dummy_byte)) return PARSER_RESTART_CONNECTION;
+  }
+
+  return PARSER_OK;
+}
+
+parser_return_state_t parse_wire_chunk_payload(snapcast_protocol_parser_t* parser,
+                                               base_message_t* base_message_rx,
+                                               codec_type_t codec,
+                                               pcm_chunk_message_t** pcmData,
+                                               wire_chunk_message_t* wire_chnk,
+                                               decoderData_t* decoderChunk) {
   uint32_t payloadOffset = 0;
   uint32_t tmpData = 0;
   int32_t payloadDataShift = 0;

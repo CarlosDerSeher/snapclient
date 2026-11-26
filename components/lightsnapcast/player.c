@@ -185,11 +185,14 @@ static void i2s_timing_get(uint32_t *descs, uint32_t *underruns,
 
 static int64_t resyncLogLastUs = 0;
 static uint32_t resyncLogSuppressed = 0;
+// wire chunks skipped as too late, see player_chunk_too_late()
+static uint32_t lateSkipped = 0;
 
 /**
- * True if a RESYNCING HARD line may be printed now; then *suppressed is the
- * number of lines skipped since the last one. Otherwise counts this one as
- * skipped.
+ * True if a RESYNCING HARD (or late chunk) line may be printed now; then
+ * *suppressed is the number of lines skipped since the last one. Otherwise
+ * counts this one as skipped. Called from the player and the http task; a
+ * race only shifts a line, so no lock.
  */
 static bool resync_log_due(uint32_t *suppressed) {
   int64_t now = esp_timer_get_time();
@@ -1116,9 +1119,9 @@ void player_chunk_submit(pcm_chunk_message_t *chunk) {
 
   if (!playerStarted) {
     // Drop this chunk and what is left from the last playback. Starting the
-    // player resets the latency buffer, and player_chunk_get() returns no
-    // chunks until it is full again: a chunk queued now would be followed by
-    // a gap.
+    // player may reset the latency buffer (Wi-Fi power save), and
+    // player_chunk_get() returns no chunks until it is full again: a chunk
+    // queued now would be followed by a gap.
     pcm_pool_flush();
     pcm_pool_put_free(chunk);
     if (!playerPaused) {
@@ -1136,6 +1139,51 @@ void player_chunk_submit(pcm_chunk_message_t *chunk) {
  */
 void player_chunk_discard(pcm_chunk_message_t *chunk) {
   pcm_pool_put_free(chunk);
+}
+
+/**
+ * Called by the decoder (http task) with a wire chunk's server timestamp
+ * before its payload is read. After a network stall the backlog arrives
+ * late; decoding each chunk only for the player to drop it with a HARD 1
+ * costs the time the backlog needs to drain. A chunk is too late when its
+ * play time has already passed: the same rule player_task drops it by
+ * (HARD 1). A chunk that is only a little early may still play, and
+ * skipping it would leave a gap (HARD 2). Never skips without a time sync.
+ */
+bool player_chunk_too_late(int64_t chunkStartUs) {
+  if ((scSet == NULL) || (scSet->sr <= 0) || playerPaused) {
+    return false;
+  }
+
+  bool isFull = false;
+  latency_buffer_full(&isFull);
+  if (!isFull) {
+    return false;
+  }
+
+  int64_t serverNow, diff2Server;
+  if (server_now(&serverNow, &diff2Server) < 0) {
+    return false;
+  }
+
+  // same as player_task's age: > 0 means the chunk's play time has passed
+  int64_t age = serverNow - chunkStartUs - (int64_t)scSet->buf_ms * 1000LL +
+                client_dac_latency_us(scSet);
+  if (age < 0) {
+    return false;
+  }
+
+  lateSkipped++;
+  player_event(PLAYER_EVENT_LATE_SKIP, age);
+  uint32_t suppressed;
+  if (resync_log_due(&suppressed)) {
+    ESP_LOGW(TAG,
+             "late wire chunk skipped: age %lldus, %lu skipped so far "
+             "(+%lu suppressed)",
+             age, lateSkipped, suppressed);
+  }
+
+  return true;
 }
 
 /**

@@ -173,7 +173,7 @@ static int id_counter = 0;
 static OpusDecoder *opusDecoder = NULL;
 #endif
 
-// Payload of the current wire chunk, filled by parse_wire_chunk_message()
+// Payload of the current wire chunk, filled by parse_wire_chunk_payload()
 static decoderData_t decoderChunk = {
     .type = SNAPCAST_MESSAGE_INVALID,
     .inData = NULL,
@@ -1284,7 +1284,25 @@ int process_data(snapcast_protocol_parser_t *parser,
         return 0;
       }
 
-      if (parse_wire_chunk_message(parser, &base_message_rx, *codec, pcmData, &wire_chnk, &decoderChunk) != PARSER_OK) {
+      if (parse_wire_chunk_header(parser, &base_message_rx, &wire_chnk) != PARSER_OK) {
+        return -1;
+      }
+      // After a stall the backlog arrives late: skip what can't be played
+      // in time instead of decoding it for the player to drop
+      if (player_chunk_too_late((int64_t)wire_chnk.timestamp.sec * 1000000LL +
+                                wire_chnk.timestamp.usec)) {
+        if (parse_wire_chunk_skip(parser, &wire_chnk) != PARSER_OK) {
+          return -1;
+        }
+        if ((*codec == FLAC) && (flacDecoder != NULL)) {
+          // no partial frame may stay in the bitreader, and the next frame
+          // takes its timestamp from its own wire chunk
+          FLAC__stream_decoder_flush(flacDecoder);
+          flacAnchorValid = false;
+        }
+        return 0;
+      }
+      if (parse_wire_chunk_payload(parser, &base_message_rx, *codec, pcmData, &wire_chnk, &decoderChunk) != PARSER_OK) {
         return -1;
       }
       handle_chunk_message(*codec, &(scSet->playerSetting), pcmData, &wire_chnk);

@@ -61,6 +61,11 @@ pcm_chunk_message_t *player_chunk_get(void);
 void player_chunk_submit(pcm_chunk_message_t *chunk);
 void player_chunk_discard(pcm_chunk_message_t *chunk);
 
+// true if a wire chunk with this server timestamp (µs) can't be played in
+// time any more: the decoder skips it instead of decoding it for the player
+// to drop (HARD 1). Counts and logs (rate limited) the skip.
+bool player_chunk_too_late(int64_t chunkStartUs);
+
 #if USE_TIMEFILTER
 int32_t player_latency_insert(int64_t newValue, int64_t max_error, int64_t time_added);
 #else
@@ -89,6 +94,7 @@ typedef enum {
   PLAYER_EVENT_RESYNC_HARD2,    // queue empty or drifted, playback restarted
   PLAYER_EVENT_FREE_CHUNK_WAIT, // decoder got a free pcm chunk; value: µs waited
   PLAYER_EVENT_FREE_CHUNK_FAIL, // no free pcm chunk, audio dropped; value: µs waited
+  PLAYER_EVENT_LATE_SKIP,       // wire chunk too late to play, not decoded; value: age µs
 } player_event_t;
 
 typedef void (*player_event_cb_t)(player_event_t event, int64_t value);

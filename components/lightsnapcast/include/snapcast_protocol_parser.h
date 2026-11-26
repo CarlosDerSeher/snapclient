@@ -34,12 +34,20 @@ void decoder_chunk_reserve(decoderData_t* decoderChunk, uint32_t size);
 parser_return_state_t parse_base_message(snapcast_protocol_parser_t* parser,
                                          base_message_t* base_message_rx);
 
-parser_return_state_t parse_wire_chunk_message(snapcast_protocol_parser_t* parser,
+// A wire chunk in two steps: the header (timestamp, size), then either the
+// payload or a skip, so a chunk that is already too late to play isn't read
+// into a buffer and decoded.
+parser_return_state_t parse_wire_chunk_header(snapcast_protocol_parser_t* parser,
+                                              base_message_t* base_message_rx,
+                                              wire_chunk_message_t* wire_chnk);
+parser_return_state_t parse_wire_chunk_payload(snapcast_protocol_parser_t* parser,
                                                base_message_t* base_message_rx,
                                                codec_type_t codec,
                                                pcm_chunk_message_t** pcmData,
                                                wire_chunk_message_t* wire_chnk,
                                                decoderData_t* decoderChunk);
+parser_return_state_t parse_wire_chunk_skip(snapcast_protocol_parser_t* parser,
+                                            wire_chunk_message_t* wire_chnk);
 
 parser_return_state_t parse_codec_header_message(
     snapcast_protocol_parser_t* parser,
