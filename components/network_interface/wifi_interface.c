@@ -6,6 +6,8 @@
 */
 #include "wifi_interface.h"
 
+#include <inttypes.h>
+#include <stdio.h>
 #include <string.h>  // for memcpy
 
 #include "esp_event.h"
@@ -205,6 +207,31 @@ static void event_handler(void *arg, esp_event_base_t event_base, int event_id,
              ev->channel, rssi, wifi_auth_name(ev->authmode));
   } else if (event_base == WIFI_EVENT &&
              event_id == WIFI_EVENT_STA_DISCONNECTED) {
+    wifi_event_sta_disconnected_t *ev =
+        (wifi_event_sta_disconnected_t *)event_data;
+    // Log each disconnect with its reason (esp_wifi_types.h,
+    // wifi_err_reason_t). While the AP stays out of reach, the retries fail
+    // every few seconds with the same reason: log those at most every 30 s.
+    static uint8_t lastReason = 0;
+    static int64_t lastLog = 0;
+    static uint32_t notLogged = 0;
+    int64_t now = esp_timer_get_time();
+    if (!wifi_associated && ev->reason == lastReason &&
+        now - lastLog < 30000000LL) {
+      notLogged++;
+    } else {
+      char more[32] = "";
+      if (notLogged > 0) {
+        snprintf(more, sizeof(more), " (+%" PRIu32 " not logged)", notLogged);
+      }
+      ESP_LOGW(TAG, "%s, reason %u, %d dBm%s%s",
+               wifi_associated ? "disconnected" : "connect failed",
+               ev->reason, ev->rssi,
+               wifi_suppressed_for_takeover ? ", suppressed for ETH" : "", more);
+      lastReason = ev->reason;
+      lastLog = now;
+      notLogged = 0;
+    }
     wifi_associated = false;
     xSemaphoreTake(connIpSemaphoreHandle, portMAX_DELAY);
     connected = false;
