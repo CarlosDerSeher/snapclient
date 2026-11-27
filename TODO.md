@@ -87,11 +87,11 @@ still off in `sdkconfig.defaults` (its Kconfig defaults to `y`) because the pool
     first (live duplicates keep working, a dead one draws its RST and is removed), plus TCP
     keepalive on the stream sockets. Reported as
     [snapcast/snapcast#1575](https://github.com/snapcast/snapcast/issues/1575).
-- Ethernet boards drop their first snapcast connection after boot: ~30 ms after the Hello the
-  connection is closed (RST at the server) without a log line, then the board reconnects after the
-  2 s back-off. Probably a RESTART command (`sc_restart_snapclient()` from the Ethernet takeover in
-  `eth_interface.c`) sent before the connection existed, still pending in the task notification
-  and picked up by the first `xTaskNotifyWait()` of the new connection. Costs 2 s at every boot.
+- Wi-Fi drops once right after the first got-IP on luar123's boards (#261, an S3 and an ESP32,
+  Wi-Fi only, IDF 5.5.6): 0.2–1.3 s after got-IP the station disconnects, lwIP aborts the
+  snapcast connection (`netconn err -13`) and the reconnect takes 2.5–5 s. Our code doesn't
+  disconnect there, and the LyraT on another AP doesn't show it. Every disconnect is logged with
+  its reason now; check the reason in the next log from luar123.
 - Stalls under packet loss (#261), server side. With 2 % loss (netem) the server's congestion
   window shrinks to 3–4 segments, so a lost last segment of a chunk can't be fast-retransmitted and
   waits for Linux's retransmit timeout (min 200 ms); a lost retransmit doubles it to 0.7–1 s, which
@@ -103,19 +103,15 @@ still off in `sdkconfig.defaults` (its Kconfig defaults to `y`) because the pool
   - Snapserver could set these per stream socket: `TCP_THIN_LINEAR_TIMEOUTS` (any kernel) and
     `TCP_RTO_MIN_US` (new kernels, check the version). Discuss in #261, then propose upstream
     or document the host settings in the README.
-- Time sync while idle on Wi-Fi: after a playback, with Wi-Fi power save on while idle, time replies
-  come back 10-230 ms late (median; MIN_MODEM ~10-25 ms, MAX_MODEM 17-230 ms), while pings show
-  the board asleep either way. Before the first playback they take 2 ms despite power save (the
-  station stays awake 50 ms after sending). Not light sleep (no change with a no-light-sleep lock
-  per request), not Nagle (no change with `TCP_NODELAY`), not fixed by leaving power save per
-  request. Maybe the AP's handling after a high-throughput download; needs a capture on the air.
-  Meanwhile the time filter is reset at playback start only after idle Wi-Fi power save (~0.5 s
-  refill); over Ethernet the idle estimate stays within 40 us and playback starts without it.
-- Time filter start under packet loss (optional): the filter takes its very first sample as it is,
-  and under loss a sample can be up to 690 ms off (the estimate was off for 0.4 s once; playback
-  starts only after 29 samples, by then it was always within 0.1 ms). While filling, skip samples
-  whose round trip is far above the lowest so far. `CONFIG_SNAPCLIENT_SYNC_DIAG` logs the first 48
-  samples after the filter starts empty.
+- Time filter reset at playback start after idle Wi-Fi power save (cc7fa7c): still needed? It was
+  added because idle time replies came back 10-230 ms late after a playback. Since 4116a97 (ACK
+  each read segment) they don't: LyraT, MAX_MODEM, idle after playbacks: 5-11 ms average, 26 ms
+  max (probably the server's Nagle had waited for our delayed ACK). Without the reset playback
+  would start ~0.5 s sooner, and a slow link at that moment couldn't delay the start (see
+  92f10ee). Measure the offset at playback start with and without it.
+- Switching a playing board from `flac44` to the test server's `idle` stream (a 48 kHz pipe that
+  gets no data) gives one HARD 2 at about -51 ms right after the new start. Seen on the LyraT with
+  and without 92f10ee; not checked yet whether it is the format change or the empty stream.
 - Sync between boards. Measured with `test/sync/` (branch `sync-measure`, not merged yet): two
   boards' analog outputs into the PC's Line In, offset per 0.5 s window from cross-correlating a
   pink-noise stream. LyraT 4.3 vs ADAU1961 board, 200 s each:
