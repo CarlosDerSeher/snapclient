@@ -381,6 +381,11 @@ static esp_eth_handle_t eth_init_internal(esp_eth_mac_t **mac_out,
 
   // Update PHY config based on board specific configuration
   phy_config.phy_addr = CONFIG_SNAPCLIENT_ETH_PHY_ADDR;
+  // Don't wait for auto-negotiation in esp_eth_start(): with the default
+  // (4 s) it blocks app_main until negotiation completes, ~1.5 s with a cable
+  // and the full 4 s without one, which delays the Wi-Fi start. The link
+  // timer reports the link once it is up, and the IP came no later in tests.
+  phy_config.autonego_timeout_ms = 0;
   phy_config.reset_gpio_num = CONFIG_SNAPCLIENT_ETH_PHY_RST_GPIO;
 
   // Init vendor specific MAC config to default
@@ -512,6 +517,7 @@ static esp_eth_handle_t eth_init_spi(
 
   // Update PHY config based on board specific configuration
   phy_config.phy_addr = spi_eth_module_config->phy_addr;
+  phy_config.autonego_timeout_ms = 0;  // see eth_init_internal()
   phy_config.reset_gpio_num = spi_eth_module_config->phy_reset_gpio;
 
   // Configure SPI interface for specific SPI module
