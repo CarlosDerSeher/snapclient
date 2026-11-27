@@ -74,7 +74,11 @@ W5500 IPv6 multicast warning), and the S3 player task had 160 B left.
   is plugged in (auto-negotiation timeout). Lower `autonego_timeout_ms` in
   `components/network_interface/eth_interface.c`, then check boot timing and that a plugged-in cable
   still gets link and IP.
-- Hard resyncs: #117, #191, #226.
+- Hard resyncs: #191, #226 (fixes on experimental, waiting for tests; close when merged to develop).
+- Stream change gives no audio (#111): when snapserver was started before the client, switching
+  the client's stream doesn't deliver the new codec header, the server logs a socket error, and it
+  takes several switches to get audio. Reproduce with `test/netsim/` (start `testserver.sh` first,
+  then boot the board, then `client.py stream`), check whether the codec header arrives.
 - Stalls under packet loss (#261), server side. With 2 % loss (netem) the server's congestion
   window shrinks to 3–4 segments, so a lost last segment of a chunk can't be fast-retransmitted and
   waits for Linux's retransmit timeout (min 200 ms); a lost retransmit doubles it to 0.7–1 s, which
