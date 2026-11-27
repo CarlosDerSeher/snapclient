@@ -1,12 +1,17 @@
 #include "connection_handler.h"
 
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #if CONFIG_SNAPCLIENT_USE_INTERNAL_ETHERNET || CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
 #include "eth_interface.h"
 #endif
 #include "lwip/err.h"
 #include "lwip/netdb.h"
+#include "lwip/priv/tcp_priv.h"
+#include "lwip/tcpip.h"
 #include "mdns.h"
 #include "net_functions.h"
 #include "network_interface.h"
@@ -20,6 +25,46 @@ static void netconn_event_cb(struct netconn* conn, enum netconn_evt evt, u16_t l
 extern struct netconn* lwipNetconn;
 
 static const char* TAG = "CONNECTION_HANDLER";
+
+/*
+ * On esp_restart(), reset the connection to the snapserver first.
+ *
+ * Otherwise the server keeps the old session until it writes to it, and
+ * snapserver (up to v0.35 at least) sends control messages such as a stream
+ * change's codec header to the oldest session with our client ID: the dead
+ * one. The new connection then never gets the header and stays silent (#111).
+ *
+ * Runs in the tcpip thread. The pcb is found by its callback argument, so the
+ * netconn is never dereferenced: the http task may be deleting it right now.
+ * Not reached on a reset button, a crash or power loss.
+ */
+static void abort_snapserver_pcb(void* conn) {
+  if (conn == NULL) {
+    return;
+  }
+  for (struct tcp_pcb* pcb = tcp_active_pcbs; pcb != NULL; pcb = pcb->next) {
+    if (pcb->callback_arg == conn) {
+      tcp_abort(pcb);  // sends an RST
+      return;
+    }
+  }
+}
+
+static void abort_connection_on_restart(void) {
+  if (lwipNetconn == NULL ||
+      tcpip_callback(abort_snapserver_pcb, lwipNetconn) != ERR_OK) {
+    return;
+  }
+  // Give the RST time to leave before the network drivers stop. IDF runs
+  // shutdown handlers in reverse order of registration, so the Wi-Fi
+  // driver's (registered at Wi-Fi init, before this one) runs after us.
+  // Called from the tcpip thread itself, the callback can't run; the delay
+  // just passes.
+  if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING &&
+      !xPortInIsrContext()) {
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
+}
 
 #if CONFIG_SNAPCLIENT_WEB_UI_STATUS
 static uint32_t s_last_snapserver_connect_uptime_sec = 0;
@@ -42,6 +87,15 @@ uint16_t connection_get_last_snapserver_port(void) {
 void setup_network(esp_netif_t** netif) {
   int rc1, rc2 = ERR_OK;
   uint16_t remotePort = 0;
+
+  static bool shutdown_handler_registered = false;
+  if (!shutdown_handler_registered) {
+    esp_err_t err = esp_register_shutdown_handler(abort_connection_on_restart);
+    if (err != ESP_OK) {
+      ESP_LOGW(TAG, "shutdown handler not registered: %s", esp_err_to_name(err));
+    }
+    shutdown_handler_registered = true;
+  }
 
   while (1) {
     // Reset netif to ensure clean state for each connection attempt

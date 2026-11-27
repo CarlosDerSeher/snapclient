@@ -72,10 +72,28 @@ still off in `sdkconfig.defaults` (its Kconfig defaults to `y`) because the pool
   `components/network_interface/eth_interface.c`, then check boot timing and that a plugged-in cable
   still gets link and IP.
 - Hard resyncs: #191, #226 (fixes on experimental, waiting for tests; close when merged to develop).
-- Stream change gives no audio (#111): when snapserver was started before the client, switching
-  the client's stream doesn't deliver the new codec header, the server logs a socket error, and it
-  takes several switches to get audio. Reproduce with `test/netsim/` (start `testserver.sh` first,
-  then boot the board, then `client.py stream`), check whether the codec header arrives.
+- Stream change gives no audio (#111). Cause found: a client that restarts without closing its
+  TCP connection leaves a stale session on snapserver, and `Group.SetStream` sends the codec header
+  to the first session with that client ID, the stale one (`StreamServer::getStreamSession()`,
+  unchanged up to v0.35). The board answers with an RST (the server's socket error), the live
+  session keeps the old stream; the next switch works. Reproduced on the ADAU1961 board with a
+  serial reset and with a web UI restart, and with the Linux snapclient v0.27 (a Docker container
+  cut off from the network, then a new one with the same IP and `--hostID`). Any other message to
+  the client first (e.g. `Client.SetVolume`, which `client.py stream` sends) can draw the RST and
+  remove the stale session before the switch, on a fast link.
+  - Client (done): a shutdown handler resets the snapcast connection on every `esp_restart()`
+    (`connection_handler.c`). Doesn't help for reset button, crash or power loss.
+  - Server (upstream): find out whether an older session with the same client ID is really dead
+    instead of dropping it blindly (two live clients may share an ID by mistake). On a Hello with
+    a known ID, send the old session something harmless (`ServerSettings`): a host that rebooted
+    with the same IP answers with an RST at once. Plus TCP keepalive on the stream sockets
+    (e.g. 10 s idle, 3 probes 2 s apart) for hosts that are gone. And send to the newest session
+    when several share an ID.
+- Ethernet boards drop their first snapcast connection after boot: ~30 ms after the Hello the
+  connection is closed (RST at the server) without a log line, then the board reconnects after the
+  2 s back-off. Probably a RESTART command (`sc_restart_snapclient()` from the Ethernet takeover in
+  `eth_interface.c`) sent before the connection existed, still pending in the task notification
+  and picked up by the first `xTaskNotifyWait()` of the new connection. Costs 2 s at every boot.
 - Stalls under packet loss (#261), server side. With 2 % loss (netem) the server's congestion
   window shrinks to 3–4 segments, so a lost last segment of a chunk can't be fast-retransmitted and
   waits for Linux's retransmit timeout (min 200 ms); a lost retransmit doubles it to 0.7–1 s, which
