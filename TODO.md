@@ -191,13 +191,10 @@ W5500 IPv6 multicast warning), and the S3 player task had 160 B left.
   `wifi_start()`, into one helper; clamp the stored value at boot (only the web handler clamps to
   34–80); log errors from `esp_wifi_set_max_tx_power()`; drop the double blank line after the
   `wifi_tx_power` block in `ui_http_server.c`.
-- Release tags: the firmware version is `git describe` (logged at boot and in the diagnostics),
-  but `v0.0.4` is on a master merge commit that `develop` and `experimental` don't contain, so
-  their builds still count from `v0.0.3`. Merge master back once, then tag test builds on
-  `experimental` (e.g. `v0.0.5-exp.1`) so testers' logs show a readable version.
+- Release tags: the firmware version is `git describe` (logged at boot and in the diagnostics).
+  Tag test builds on `experimental` (e.g. `v0.0.5-exp.1`) so testers' logs show a readable version.
 - Remove unused `tas5805m_settings_get_json()` and `tas5805m_settings_get_schema_json()`.
 - Put Kconfig options in better places in the tree.
 - Replace the ADF components copied into the tree with files pulled in via `CMakeLists.txt`.
 - Clean up code (unused variables etc.).
 - Fill in missing component descriptions in the README; improve documentation in general.
-- Template `sdkconfig` files are tedious to maintain (#182).
