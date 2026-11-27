@@ -56,17 +56,14 @@ relying on `sdkconfig.defaults`.
   in `sdkconfig.defaults` (see 1.8).
 - A PlatformIO env for it, and the README "Boards without PSRAM" table measured with it.
 
-### 1.8 Lighter UDP logger
-Off by default in `sdkconfig.defaults` for now (its Kconfig defaults to `y`). It costs a 32-line
-queue (32 × 258 B ≈ 8 KB), two tasks, and ~0.5 KB of stack in every task that logs: `udp_vprintf()`
-formats into a 256 B stack buffer and `queue_line()` copies it into a second 256 B `log_item_t` on
-the stack. With it on, #261 saw stack overflows in `esp_timer` (Improv shutdown) and `mdns` (the
-W5500 IPv6 multicast warning), and the S3 player task had 160 B left.
+### 1.8 UDP logger on by default?
+The stack cost is fixed (ec187dd): lines are formatted into a fixed buffer pool, so a logging task
+needs 50–140 B extra stack instead of 520–640 B, and lines are dropped when the pool is full. It is
+still off in `sdkconfig.defaults` (its Kconfig defaults to `y`) because the pool costs
+`QUEUE_DEPTH` × `MAX_LINE` = 32 × 256 B ≈ 8 KB plus two tasks.
 
-- Format straight into the queue item, or into one static buffer under a mutex: ~0 B extra stack
-  per logging task.
-- Smaller queue / line length as Kconfig options with lower defaults; drop lines when full.
-- Then consider turning it back on by default, build-checked against all envs.
+- Lower the defaults (e.g. 16 × 192 B ≈ 3 KB) in our `sdkconfig.defaults`, then decide whether to
+  turn it back on, build-checked against all envs.
 
 ## 2. Robustness and bugs
 
