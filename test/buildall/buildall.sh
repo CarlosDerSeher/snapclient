@@ -9,12 +9,13 @@
 #   <env> exit <code> warnings <n>
 # where n counts compiler warnings and errors in the project's own sources
 # (main/ and components/, not managed_components/ or the submodules' code).
-# JOBS defaults to 8; each job takes about 1 GB of RAM. A full run builds all
+# JOBS defaults to 4; each job takes about 1 GB of RAM and runs ~26 compilers
+# itself (ninja), so more jobs overload the PC. A full run builds all
 # envs from scratch; a second run with the same OUT_DIR only rebuilds changes.
 # The *-debug envs build with -Werror, so they catch warnings the others don't.
 # Environment: IDF_IMAGE (default espressif/idf:v5.5.1).
 set -u
-OUT=$(mkdir -p "$1" && cd "$1" && pwd); JOBS=${2:-8}; P=$(pwd)
+OUT=$(mkdir -p "$1" && cd "$1" && pwd); JOBS=${2:-4}; P=$(pwd)
 export OUT P IMG=${IDF_IMAGE:-espressif/idf:v5.5.1}
 one() {
   e=$1 t=$2 d=$3 B=$OUT/$1

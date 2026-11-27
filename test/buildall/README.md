@@ -6,7 +6,7 @@ build with `-Werror`. `buildall.sh` builds each env from `platformio.ini` with `
 ESP-IDF Docker image, several in parallel, without touching the root `sdkconfig` or `build/`.
 
 ```sh
-test/buildall/buildall.sh /tmp/buildall 8     # from the repository root; 8 parallel jobs
+test/buildall/buildall.sh /tmp/buildall 4     # from the repository root; 4 parallel jobs
 ```
 
 Needs Docker and the image `espressif/idf:v5.5.1` (`IDF_IMAGE` to change it). Each job needs
