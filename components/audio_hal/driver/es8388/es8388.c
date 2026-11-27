@@ -42,6 +42,7 @@
 static const char *ES_TAG = "ES8388_DRIVER";
 static i2c_bus_handle_t i2c_handle;
 static codec_dac_volume_config_t *dac_vol_handle;
+static bool dac_running = false;  // PA is only on while the DAC runs
 
 #define ES8388_DAC_VOL_CFG_DEFAULT()                            \
   {                                                             \
@@ -192,6 +193,8 @@ esp_err_t es8388_start(es_module_t mode) {
     res |= es_write_reg(ES8388_ADDR, ES8388_DACPOWER,
                         0x3c);  // power up dac and line out
     res |= es8388_set_voice_mute(false);
+    dac_running = true;
+    es8388_update_pa();
     ESP_LOGD(ES_TAG, "es8388_start default is mode:%d", mode);
   }
 
@@ -222,6 +225,8 @@ esp_err_t es8388_stop(es_module_t mode) {
     return res;
   }
   if (mode == ES_MODULE_DAC || mode == ES_MODULE_ADC_DAC) {
+    dac_running = false;
+    es8388_update_pa();  // PA off while idle to avoid noise
     res |= es_write_reg(ES8388_ADDR, ES8388_DACPOWER, 0x00);
     res |= es8388_set_voice_mute(
         true);  // res |= Es8388SetAdcDacVolume(ES_MODULE_DAC, -96, 5);      //
@@ -626,6 +631,16 @@ esp_err_t es8388_config_i2s(audio_hal_codec_mode_t mode,
   }
   res |= es8388_set_bits_per_sample(ES_MODULE_ADC_DAC, tmp);
   return res;
+}
+
+void es8388_update_pa(void) {
+  bool on = dac_running;
+#if defined(CONFIG_ESP_LYRAT_V4_3_BOARD) || \
+    defined(CONFIG_ESP_AI_THINKER_ES8388_BOARD) || \
+    defined(CONFIG_ESP_MUSE_LUXE_BOARD)
+  on = on && headphone_status_get();  // true = headphones disconnected
+#endif
+  es8388_pa_power(on);
 }
 
 esp_err_t es8388_pa_power(bool enable) {

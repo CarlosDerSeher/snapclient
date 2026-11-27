@@ -46,9 +46,7 @@ static const char *TAG = "HEADPHONE";
 static TimerHandle_t timer_headphone;
 
 static void hp_timer_cb(TimerHandle_t xTimer) {
-  int num = (int)pvTimerGetTimerID(xTimer);
-  int res = gpio_get_level(num);
-  es8388_pa_power(res);
+  es8388_update_pa();
 }
 
 static int hp_timer_init(int num) {
