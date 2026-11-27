@@ -125,6 +125,71 @@ drop counter. The proxy logs every stall and the size of each burst with a wall-
 Reference scenario used for the RAM work: FLAC 44.1 kHz, server buffer 750 ms, 60 s settle, then
 240 s of `jitter 0.1 0.7 3 1` (73 stalls), then 20 s calm.
 
+## Scripted runs
+
+`run_test.sh` does a whole run unattended: test server, optional flashing, serial log, pointing
+the board at this PC, starting the stream, and `MARK <phase>` lines in the log.
+
+```sh
+# 5 min straight to the test server; set the loss with netem.sh first (sudo)
+BOARD=<board IP> PC=<this PC's IP> TTY=/dev/serial/by-id/<board> \
+  test/netsim/run_test.sh loss run1.log
+# through the proxy: stalls of 1.0, 2.5 and 4.0 s, then 120 s of jitter 0.1 0.7 3 1
+BOARD=... PC=... TTY=... FW=build test/netsim/run_test.sh stalls run2.log
+```
+
+`FW=<IDF build dir>` flashes that build first (`flash.sh`, esptool from the IDF Docker image at
+1 Mbaud). `BUF`, `STREAM`, `DURATION` (loss run, s) and `CLIENT` change the defaults (750 ms,
+`flac44`, 300 s, the connected ESP32). Use the `/dev/serial/by-id/` path for `TTY`: `ttyUSBn`
+numbers change when boards are replugged. `serial_log.py PORT LOG` logs on its own; it keeps DTR
+and RTS off, so opening the port doesn't reset the board. The board stays pointed at this PC:
+`client.py restore BOARD` afterwards. Server output goes to `LOG.server`, the proxy's to
+`LOG.proxy`.
+
+## Analysis: client, server TCP, packets
+
+Client side, from a build with `CONFIG_SNAPCLIENT_SYNC_DIAG` (see
+[components/diagnostics](../../components/diagnostics/README.md)):
+
+```sh
+python3 test/netsim/syncdiag_summary.py run1.log [run2.log ...]
+```
+
+Per phase: resyncs (init, HARD 1, HARD 2, late chunks skipped), queue minimum, silence after each
+HARD 2, waits for TCP data and the `rx stall` lines (each wait >= 200 ms, and whether it ended with
+a retransmitted segment).
+
+Server side, on the server host during the run (no root needed):
+
+```sh
+python3 test/netsim/ss_sample.py ss1.txt 360 <board IP> &   # ss -ti every 20 ms for 360 s
+python3 test/netsim/ss_summary.py ss1.txt
+```
+
+It shows the congestion window, retransmit timeout and backoff, retransmits, and how long the
+server waited for the client's ACKs.
+
+Packets, on the server host (needs root):
+
+```sh
+sudo tcpdump -i <iface> -s 128 -w cap.pcap host <board IP> and tcp port 1704
+python3 test/netsim/pcap_tcp.py cap.pcap
+```
+
+Per connection: lost segments and their recovery time, spurious retransmits (the server's timer
+fired while it waited for an ACK), and each pause >= 150 ms in the server's sending sorted by
+cause: delayed ACK from the client, tail loss (retransmit timeout), or idle. On the server host
+sent packets are captured after netem's drop and received ones before netem's ingress drop. To
+run tcpdump in the background, start it with `sudo -v` first, and with `setsid nohup` over SSH.
+
+Findings so far with 2 % loss both ways (LyraT, FLAC 44.1, 750 ms, #261): the server's congestion
+window falls to 3-4 segments, so a lost last segment of a chunk waits for Linux's retransmit
+timeout (min 200 ms) and a lost retransmit doubles it (0.7-1 s, HARD 2). The client's delayed ACK
+(250 ms) made the server's timer fire on its own; the client now ACKs every read segment
+(`TCP_WND_UPDATE_THRESHOLD` in the top-level CMakeLists.txt): pauses 66 -> 12 per 5 min. On the
+server host, `ip route change <subnet> dev <iface> rto_min 50ms` or
+`sysctl net.ipv4.tcp_thin_linear_timeouts=1` removed the long stalls (see TODO.md).
+
 ## CI
 
 `test_netsim_proxy.py` tests the proxy itself on the host (pass-through, stall and burst, rate
