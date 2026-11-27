@@ -83,12 +83,10 @@ still off in `sdkconfig.defaults` (its Kconfig defaults to `y`) because the pool
   remove the stale session before the switch, on a fast link.
   - Client (done): a shutdown handler resets the snapcast connection on every `esp_restart()`
     (`connection_handler.c`). Doesn't help for reset button, crash or power loss.
-  - Server (upstream): find out whether an older session with the same client ID is really dead
-    instead of dropping it blindly (two live clients may share an ID by mistake). On a Hello with
-    a known ID, send the old session something harmless (`ServerSettings`): a host that rebooted
-    with the same IP answers with an RST at once. Plus TCP keepalive on the stream sockets
-    (e.g. 10 s idle, 3 probes 2 s apart) for hosts that are gone. And send to the newest session
-    when several share an ID.
+  - Server (upstream): apply per-client changes to every session with the client ID, not just the
+    first (live duplicates keep working, a dead one draws its RST and is removed), plus TCP
+    keepalive on the stream sockets. Reported as
+    [snapcast/snapcast#1575](https://github.com/snapcast/snapcast/issues/1575).
 - Ethernet boards drop their first snapcast connection after boot: ~30 ms after the Hello the
   connection is closed (RST at the server) without a log line, then the board reconnects after the
   2 s back-off. Probably a RESTART command (`sc_restart_snapclient()` from the Ethernet takeover in
