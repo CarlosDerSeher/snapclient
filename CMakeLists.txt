@@ -19,6 +19,15 @@ if(NOT PROJECT_VER OR PROJECT_VER MATCHES "NOTFOUND")
   endif()
 endif()
 
+# lwIP: acknowledge as soon as the application has read a full segment
+# (default: a quarter of the receive window, otherwise the delayed ACK timer,
+# CONFIG_LWIP_TCP_TMR_INTERVAL). Under packet loss the server's congestion
+# window shrinks to a few segments; it then waits for our ACKs, and a delayed
+# ACK (up to 250 ms) outlasts its retransmit timeout, so it resends data we
+# already have and shrinks the window further. Applies to all components;
+# lwIP's opt.h only sets the default when it is not defined yet.
+idf_build_set_property(COMPILE_OPTIONS "-DTCP_WND_UPDATE_THRESHOLD=TCP_MSS" APPEND)
+
 project(snapclient)
 
 # this is needed by udp_logger component. We don't want autostart.
