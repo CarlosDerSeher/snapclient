@@ -31,6 +31,15 @@ set(COMPONENT_SRCS
 )
 endif()
 
+if (CONFIG_ESP_MUSE_LUXE_BOARD)
+message(STATUS "Current board name is " CONFIG_ESP_MUSE_LUXE_BOARD)
+list(APPEND COMPONENT_ADD_INCLUDEDIRS ./muse_luxe)
+set(COMPONENT_SRCS
+./muse_luxe/board.c
+./muse_luxe/board_pins_config.c
+)
+endif()
+
 if (CONFIG_ESP_LYRAT_MINI_V1_1_BOARD)
 message(STATUS "Current board name is " CONFIG_ESP_LYRAT_MINI_V1_1_BOARD)
 list(APPEND COMPONENT_ADD_INCLUDEDIRS ./lyrat_mini_v1_1)
