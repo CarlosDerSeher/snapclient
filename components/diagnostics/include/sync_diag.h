@@ -25,10 +25,12 @@ void sync_diag_time_timeout(void);
 void sync_diag_time_reply(int64_t rtt_us, bool duplicate);
 // a time sample went into the time filter: its arrival (esp_timer µs), round
 // trip, the offset it measured and the filter's estimate afterwards, and
-// whether the filter counts as full. Recorded from when the filter is empty
-// until TIME_SAMPLES_LOGGED samples, then logged in one block.
+// whether the filter counts as full; stale: left out because its round trip
+// was too long. Recorded from when the filter is empty until
+// TIME_SAMPLES_LOGGED samples, then logged in one block.
 void sync_diag_time_sample(int64_t rx_local_us, int64_t rtt_us,
-                           int64_t sample_us, int64_t est_us, bool full);
+                           int64_t sample_us, int64_t est_us, bool full,
+                           bool stale);
 // TCP data arrived after the receiving task waited wait_us for it (it was
 // ready to take data the whole time). len: bytes in this delivery; merged:
 // more than one segment, i.e. held back behind a lost segment.
@@ -45,7 +47,7 @@ static inline void sync_diag_time_timeout(void) {}
 static inline void sync_diag_time_reply(int64_t rtt_us, bool duplicate) {}
 static inline void sync_diag_time_sample(int64_t rx_local_us, int64_t rtt_us,
                                          int64_t sample_us, int64_t est_us,
-                                         bool full) {}
+                                         bool full, bool stale) {}
 static inline void sync_diag_rx(int64_t rx_local_us, int64_t wait_us,
                                 uint32_t len, bool merged) {}
 

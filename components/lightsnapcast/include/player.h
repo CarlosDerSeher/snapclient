@@ -67,6 +67,7 @@ void player_chunk_discard(pcm_chunk_message_t *chunk);
 bool player_chunk_too_late(int64_t chunkStartUs);
 
 #if USE_TIMEFILTER
+// returns 1 if the sample was left out as stale (round trip too long)
 int32_t player_latency_insert(int64_t newValue, int64_t max_error, int64_t time_added);
 #else
 int32_t player_latency_insert(int64_t newValue);

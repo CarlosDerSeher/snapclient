@@ -662,7 +662,58 @@ void stop_player_task() {
 /**
  *
  */
+// Round-trip gate for time samples while the filter fills. A reply that sat
+// in a queue (bufferbloat, an AP buffering for a sleeping station) arrives
+// seconds late and measures the offset up to rtt/2 off. While the filter is
+// full the Kalman gain already weights such a sample down to nothing, but
+// while it fills, a burst of them sets the offset and drift seconds off and
+// fills it in no time (seen: 4 s and 1.6 s offset jumps, 5-11 s round
+// trips). So while filling, a sample counts only if its round trip is close
+// to the lowest one of the last 30-60 s.
+#define RTT_GATE_WINDOW_US 30000000LL
+#define RTT_GATE_FACTOR 2
+#define RTT_GATE_SLACK_US 20000LL
+
+static int64_t rttMinCur = INT64_MAX, rttMinPrev = INT64_MAX;
+static int64_t rttBucketStart = INT64_MIN / 2;
+static int64_t filterMaxRtt = 0;  // largest round trip in the filling filter
+
+// lowest round trip of the current and the previous 30 s bucket
+static int64_t rtt_window_min(int64_t rtt, int64_t now) {
+  if (now - rttBucketStart >= RTT_GATE_WINDOW_US) {
+    rttMinPrev =
+        (now - rttBucketStart < 2 * RTT_GATE_WINDOW_US) ? rttMinCur : INT64_MAX;
+    rttMinCur = INT64_MAX;
+    rttBucketStart = now;
+  }
+  if (rtt < rttMinCur) rttMinCur = rtt;
+  return (rttMinCur < rttMinPrev) ? rttMinCur : rttMinPrev;
+}
+
+/**
+ * max_error: half the round trip. Returns 1 if the sample was left out as
+ * stale, 0 if it went into the filter.
+ */
 int32_t player_latency_insert(int64_t newValue, int64_t max_error, int64_t time_added) {
+  const int64_t rtt = 2 * max_error;
+  const int64_t limit =
+      RTT_GATE_FACTOR * rtt_window_min(rtt, time_added) + RTT_GATE_SLACK_US;
+
+  if (!TIMEFILTER_isFull(&latencyTimeFilter, LATENCY_TIME_FILTER_FULL)) {
+    if (rtt > limit) {
+      return 1;
+    }
+    if (latencyTimeFilter.count_ == 0) {
+      filterMaxRtt = 0;
+    } else if (filterMaxRtt > limit) {
+      // the filter was filled while round trips were worse than now: its
+      // samples would count as stale now, so start over
+      TIMEFILTER_Reset(&latencyTimeFilter);
+      filterMaxRtt = 0;
+    }
+    if (rtt > filterMaxRtt) filterMaxRtt = rtt;
+  }
+
   TIMEFILTER_Insert(&latencyTimeFilter, newValue, max_error, time_added);
   int64_t last_update_ = latencyTimeFilter.last_update_;
   double offset_ = latencyTimeFilter.offset_;

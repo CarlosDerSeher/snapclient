@@ -343,10 +343,11 @@ void time_sync_msg_received(base_message_t *base_message_rx,
   }
 
 #if USE_TIMEFILTER
-  player_latency_insert(tmpDiffToServer, (tdif + ttx) / 2, trx);
+  int32_t stale = player_latency_insert(tmpDiffToServer, (tdif + ttx) / 2, trx);
 #else
-  player_latency_insert(tmpDiffToServer);
+  int32_t stale = player_latency_insert(tmpDiffToServer);
 #endif
+  (void)stale;  // only used by SYNC_DIAG
 
 #if CONFIG_SNAPCLIENT_SYNC_DIAG
   {
@@ -354,7 +355,8 @@ void time_sync_msg_received(base_message_t *base_message_rx,
     bool full = false;
     get_diff_to_server(&est, trx);
     latency_buffer_full(&full);
-    sync_diag_time_sample(trx, tdif + ttx, tmpDiffToServer, est, full);
+    sync_diag_time_sample(trx, tdif + ttx, tmpDiffToServer, est, full,
+                          stale > 0);
   }
 #endif
 

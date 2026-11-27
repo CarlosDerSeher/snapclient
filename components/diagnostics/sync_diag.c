@@ -79,6 +79,13 @@ static int64_t lastRx = 0;
 #define RX_STALL_US 200000
 // a wait at least this long before a merged delivery counts as loss
 #define RX_HOLE_US 20000
+// Waits count only while the stream sends audio: the wait began at most this
+// long after the last delivery of more than RX_BULK_LEN bytes. When idle the
+// server only sends time replies (34 B), and each gap between them would
+// show up as a stall.
+#define RX_ACTIVE_US 3000000
+#define RX_BULK_LEN 200
+static int64_t lastBulkRx = 0;
 
 // rx stalls waiting to be logged by the task
 #define STALLS_QUEUED 4
@@ -186,11 +193,16 @@ void sync_diag_time_reply(int64_t rtt_us, bool duplicate) {
 
 void sync_diag_rx(int64_t rx_local_us, int64_t wait_us, uint32_t len,
                   bool merged) {
-  if (wait_us < RX_HOLE_US) {
+  taskENTER_CRITICAL(&lock);
+  bool active = lastBulkRx > 0 && rx_local_us - wait_us - lastBulkRx <= RX_ACTIVE_US;
+  if (len > RX_BULK_LEN) {
+    lastBulkRx = rx_local_us;
+  }
+  if (wait_us < RX_HOLE_US || !active) {
+    taskEXIT_CRITICAL(&lock);
     return;
   }
   bool hole = merged;
-  taskENTER_CRITICAL(&lock);
   if (wait_us >= RX_WAIT_US) {
     st.rxWaits++;
     if (wait_us > st.rxWaitMax) st.rxWaitMax = wait_us;
@@ -323,7 +335,7 @@ typedef struct {
   int32_t t_ms;     // arrival, since the first sample
   int32_t rtt_us;
   int32_t sample_us, est_us;  // relative to the first sample
-  bool full;
+  bool full, stale;
 } time_sample_t;
 
 static time_sample_t tsBuf[TIME_SAMPLES_LOGGED];
@@ -332,7 +344,8 @@ static int64_t tsT0, tsRef;
 static bool tsWasFull = true;
 
 void sync_diag_time_sample(int64_t rx_local_us, int64_t rtt_us,
-                           int64_t sample_us, int64_t est_us, bool full) {
+                           int64_t sample_us, int64_t est_us, bool full,
+                           bool stale) {
   taskENTER_CRITICAL(&lock);
   if (!full && tsWasFull) {
     tsCount = 0;  // the filter was reset: record from here
@@ -347,6 +360,7 @@ void sync_diag_time_sample(int64_t rx_local_us, int64_t rtt_us,
         .sample_us = (int32_t)(sample_us - tsRef),
         .est_us = (int32_t)(est_us - tsRef),
         .full = full,
+        .stale = stale,
     };
   }
   taskEXIT_CRITICAL(&lock);
@@ -367,9 +381,9 @@ static void time_samples_log(void) {
   ESP_LOGI(TAG, "time samples since the filter was empty (us, relative to "
                 "the first sample): t ms, rtt, sample, estimate");
   for (int i = 0; i < TIME_SAMPLES_LOGGED; i++) {
-    ESP_LOGI(TAG, "ts %5" PRId32 " %7" PRId32 " %8" PRId32 " %8" PRId32 "%s",
+    ESP_LOGI(TAG, "ts %5" PRId32 " %7" PRId32 " %8" PRId32 " %8" PRId32 "%s%s",
              buf[i].t_ms, buf[i].rtt_us, buf[i].sample_us, buf[i].est_us,
-             buf[i].full ? "" : " filling");
+             buf[i].full ? "" : " filling", buf[i].stale ? " stale" : "");
   }
 }
 

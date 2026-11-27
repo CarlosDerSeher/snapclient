@@ -133,7 +133,9 @@ retransmits). If the lag is small but the change is still heard late, the delay 
 Logged within a second after the client waited `W` ms (200 or more) for TCP data while it was
 ready to take it. A wait caused by the client itself (pool full, so it stopped reading) doesn't
 count. `T` is when the wait started (uptime), `B` how many bytes came with the first delivery
-after it.
+after it. Only waits while the stream sends audio count (here and in `rx waits`): a wait that began
+more than 3 s after the last delivery of more than 200 bytes is ignored, since an idle stream only
+brings a time reply (34 B) every second or two.
 
 - **in one go**: more than one TCP segment arrived in that delivery. lwIP had them already but
   held them back in its out-of-order queue, waiting for an earlier segment that was lost; the
@@ -163,10 +165,13 @@ SYNCDIAG: ts  1543    3009      521      891
 
 Columns: arrival in ms since the first sample, round trip in µs, the offset this sample measured
 and the filter's estimate after it, both in µs relative to the first sample; `filling` until the
-filter counts as full (29 samples, taken 10 ms apart, then one per second). A sample with a long
-round trip and a large offset was held up on the way (e.g. a TCP retransmit); it should barely move
-the estimate. Playback starts once the filter is full, so a large estimate at that point means a
-wrong start.
+filter counts as full (29 samples, taken 10 ms apart, then one per second). `stale`: the sample was
+left out while the filter filled, because its round trip was more than twice the lowest one of the
+last 30-60 s plus 20 ms (it was held up in a queue on the way). If a sample with a much shorter
+round trip comes while the filter is still filling, the filter starts over (the block goes on). A
+sample with a long round trip once the filter is full was held up on the way too (e.g. a TCP
+retransmit); it should barely move the estimate. Playback starts once the filter is full, so a
+large estimate at that point means a wrong start.
 
 ### Line 1: message lag
 
