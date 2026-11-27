@@ -27,11 +27,6 @@ Goal: run a plain ESP32 without PSRAM, built with `sdkconfig.defaults`, with a s
 
 </details>
 
-Done and merged into `experimental`: boot transients and IRAM → flash (#247), web OTA instead of
-the standalone OTA server (#249), UI task removed and DSP JSON streamed (#252), task stacks trimmed
-(#254), Opus optional (#255), one wire-chunk buffer per codec (#256), fixed PCM chunk pool (#258),
-Wi-Fi / lwIP tuning (#259), 1 KB libFLAC input buffer (#257).
-
 ### 1.1 Task stacks
 - With Ethernet: `playback_monitor_task` (4 KB, permanent) and `static_ip_task` (4 KB, created at
   runtime) → event handler or `esp_timer`. `eth_on_playback_stopped()` can block for up to 2.6 s, so
@@ -80,6 +75,17 @@ W5500 IPv6 multicast warning), and the S3 player task had 160 B left.
   `components/network_interface/eth_interface.c`, then check boot timing and that a plugged-in cable
   still gets link and IP.
 - Hard resyncs: #117, #191, #226.
+- Stalls under packet loss (#261), server side. With 2 % loss (netem) the server's congestion
+  window shrinks to 3–4 segments, so a lost last segment of a chunk can't be fast-retransmitted and
+  waits for Linux's retransmit timeout (min 200 ms); a lost retransmit doubles it to 0.7–1 s, which
+  empties a 750 ms buffer (HARD 2). The client ACKs each read segment now, which removed the
+  spurious retransmits; the rest only the server can fix. Measured on the server host (LyraT,
+  5 min, loss both ways):
+  - `ip route change <LAN subnet> dev <iface> rto_min 50ms`: stalls ≥ 200 ms ~30 → 0–2, no HARD 2.
+  - `sysctl -w net.ipv4.tcp_thin_linear_timeouts=1`: short stalls stay, no doubling, no HARD 2.
+  - Snapserver could set these per stream socket: `TCP_THIN_LINEAR_TIMEOUTS` (any kernel) and
+    `TCP_RTO_MIN_US` (new kernels, check the version). Discuss in #261, then propose upstream
+    or document the host settings in the README.
 - Time sync while idle on Wi-Fi: after a playback, with Wi-Fi power save on while idle, time replies
   come back 10-230 ms late (median; MIN_MODEM ~10-25 ms, MAX_MODEM 17-230 ms), while pings show
   the board asleep either way. Before the first playback they take 2 ms despite power save (the
@@ -88,26 +94,18 @@ W5500 IPv6 multicast warning), and the S3 player task had 160 B left.
   request. Maybe the AP's handling after a high-throughput download; needs a capture on the air.
   Meanwhile the time filter is reset at playback start only after idle Wi-Fi power save (~0.5 s
   refill); over Ethernet the idle estimate stays within 40 us and playback starts without it.
-- Time filter start with packet loss: checked with 2 % loss in both directions (`netem.sh`), 6
-  restarts each on the ADAU1961 board (Ethernet) and a LyraT (Wi-Fi), and with proxy stalls: no
-  hard resyncs. The startup resyncs seen before came from before time replies were stamped on
-  arrival. Under loss single samples are up to 690 ms off (round trip up to 4.6 s); the filter
-  weights samples by their round trip, so they hardly move the estimate, except the very first
-  sample, which is taken as it is (the estimate was 690 ms off for 0.4 s once). Playback starts
-  only after 29 samples, by then the estimate was within 0.1 ms every time. Cheap insurance: while
-  filling, skip samples whose round trip is far above the lowest so far, so the first sample
-  can't be a bad one. `CONFIG_SNAPCLIENT_SYNC_DIAG` logs the first 48 samples after the filter
-  starts empty.
+- Time filter start under packet loss (optional): the filter takes its very first sample as it is,
+  and under loss a sample can be up to 690 ms off (the estimate was off for 0.4 s once; playback
+  starts only after 29 samples, by then it was always within 0.1 ms). While filling, skip samples
+  whose round trip is far above the lowest so far. `CONFIG_SNAPCLIENT_SYNC_DIAG` logs the first 48
+  samples after the filter starts empty.
 - Sync between boards. Measured with `test/sync/` (branch `sync-measure`, not merged yet): two
   boards' analog outputs into the PC's Line In, offset per 0.5 s window from cross-correlating a
   pink-noise stream. LyraT 4.3 vs ADAU1961 board, 200 s each:
-  - A constant ~400 µs offset (ADAU1961 later), probably the codecs' different output
-    latency. The client latency setting only takes whole milliseconds. Now compensated per DAC
-    with `CONFIG_DAC_GROUP_DELAY_FRAMES` (frames, converted with the current sample rate), but only
-    the ADAU1961 has a value so far (25, datasheet); see "DAC group delays" below.
+  - A constant ~400 µs offset (ADAU1961 later) from the codecs' output latency, compensated per
+    DAC with `CONFIG_DAC_GROUP_DELAY_FRAMES`; values missing, see "DAC group delays" below.
   - The control loop corrects only when the median error passes ±128 µs (`SHORT_OFFSET`),
     then inserts or drops one sample per chunk, which shows up as ~230 µs steps between boards.
-    Smaller now that the time base is clean.
   - The time filter's drift estimate stays 0, while the board crystals drift 3.7–5.8 ppm
     against the server; the offset is only followed, never predicted.
   - The LyraT's time round trip is ~5 ms (minimum 1.7 ms) even with arrival stamps, so its
@@ -156,10 +154,6 @@ W5500 IPv6 multicast warning), and the S3 player task had 160 B left.
   these). If it shows, resample the corrected chunk from N to N∓1 frames with linear
   interpolation instead (a 0.09 % pitch change for one chunk, no step; 32-bit access only, chunks
   may be in IRAM).
-- Many hard resyncs after a late stretch: when audio arrives seconds late but without a long gap
-  (Wi-Fi retries at a weak signal, seen in #261: up to 4 s late, gaps only 0.4–0.6 s), every late
-  chunk is dropped with its own "HARD 1" resync, 50–110 per episode. Drop all chunks that
-  are already too late in one go and resync once.
 - Update libFLAC: the submodule is at 1.3.3+85 (July 2021, already has the 1.3.4 CVE fix), upstream
   is at 1.5.0. Upstream has oss-fuzz fixes for malformed frames. The most important one is a heap
   overflow when a frame's predictor order is larger than its blocksize (`2f209573`); others are
@@ -191,7 +185,8 @@ W5500 IPv6 multicast warning), and the S3 player task had 160 B left.
 
 - Wi-Fi TX power (#232) follow-ups: fold the boot-time TX power block, which appears twice in
   `wifi_start()`, into one helper; clamp the stored value at boot (only the web handler clamps to
-  34–80); log errors from `esp_wifi_set_max_tx_power()`.
+  34–80); log errors from `esp_wifi_set_max_tx_power()`; drop the double blank line after the
+  `wifi_tx_power` block in `ui_http_server.c`.
 - Release tags: the firmware version is `git describe` (logged at boot and in the diagnostics),
   but `v0.0.4` is on a master merge commit that `develop` and `experimental` don't contain, so
   their builds still count from `v0.0.3`. Merge master back once, then tag test builds on
