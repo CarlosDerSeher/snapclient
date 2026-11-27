@@ -37,7 +37,8 @@
 #include "freertos/timers.h"
 
 #if defined(CONFIG_ESP_LYRAT_V4_3_BOARD) || \
-    defined(CONFIG_ESP_AI_THINKER_ES8388_BOARD)
+    defined(CONFIG_ESP_AI_THINKER_ES8388_BOARD) || \
+    defined(CONFIG_ESP_MUSE_LUXE_BOARD)
 
 #define HP_DELAY_TIME_MS 1000
 
@@ -45,9 +46,7 @@ static const char *TAG = "HEADPHONE";
 static TimerHandle_t timer_headphone;
 
 static void hp_timer_cb(TimerHandle_t xTimer) {
-  int num = (int)pvTimerGetTimerID(xTimer);
-  int res = gpio_get_level(num);
-  es8388_pa_power(res);
+  es8388_update_pa();
 }
 
 static int hp_timer_init(int num) {
@@ -94,4 +93,5 @@ void headphone_detect_init(int num) {
   gpio_isr_handler_add(num, headphone_gpio_intr_handler, (void *)num);
 }
 #endif /* defined(CONFIG_ESP_LYRAT_V4_3_BOARD) || \
-          defined(CONFIG_ESP_AI_THINKER_ES8388_BOARD) */
+          defined(CONFIG_ESP_AI_THINKER_ES8388_BOARD) || \
+          defined(CONFIG_ESP_MUSE_LUXE_BOARD) */

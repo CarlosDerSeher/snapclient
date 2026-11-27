@@ -312,6 +312,12 @@ esp_err_t es8388_ctrl_state(audio_hal_codec_mode_t mode,
  */
 esp_err_t es8388_pa_power(bool enable);
 
+/**
+ * @brief Switch the PA on while the DAC runs and no headphones are plugged in,
+ *        off otherwise
+ */
+void es8388_update_pa(void);
+
 #ifdef __cplusplus
 }
 #endif
