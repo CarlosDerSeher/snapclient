@@ -18,6 +18,9 @@
 #include "settings_manager.h"
 #include "sync_diag.h"
 
+// main.c: drop a restart request sent before the interface was picked
+extern void sc_drop_pending_restart(void);
+
 static void arrival_reset(void);
 static void netconn_event_cb(struct netconn* conn, enum netconn_evt evt, u16_t len);
 
@@ -205,6 +208,7 @@ void setup_network(esp_netif_t** netif) {
     CONFIG_SNAPCLIENT_USE_SPI_ETHERNET
     eth_wait_count = 4;  // grace period used up, see above
 #endif
+    sc_drop_pending_restart();
 
     /* Decide at runtime whether to use mDNS or static server config.
      * The settings_manager holds the mdns flag and optional server host/port.

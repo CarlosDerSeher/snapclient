@@ -594,6 +594,28 @@ void sc_restart_snapclient() {
   sc_send_command(RESTART);
 }
 
+/**
+ * Called by the http task (from setup_network()) when it has picked the
+ * network interface for a new connection. A RESTART still pending from
+ * before, e.g. from the Ethernet takeover while the task waited for an IP,
+ * is already taken care of: the connection uses the current default
+ * interface. Left pending, it closed the new connection right after the
+ * Hello and cost a 2 s back-off at every boot with Ethernet. Other commands
+ * stay pending.
+ */
+void sc_drop_pending_restart(void) {
+  uint32_t command;
+  if (xTaskNotifyWait(0, 0, &command, 0) != pdTRUE) {
+    return;
+  }
+  if (command == RESTART) {
+    ESP_LOGI(TAG, "dropped a restart request from before this connection");
+    return;
+  }
+  // not a restart: put it back, unless a newer command arrived meanwhile
+  xTaskNotify(xTaskGetCurrentTaskHandle(), command, eSetValueWithoutOverwrite);
+}
+
 void sc_stop_snapclient() {
   sc_send_command(STOP);
 }
