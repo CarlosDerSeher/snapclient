@@ -153,6 +153,7 @@ Choose configuration options to match your setup
     - KORVO DU1906
     - ESP32-S2 Kaluga (1.2)
     - ESP-AI-Thinker-ES8388 (2.2)
+    - RaspiAudio Muse Luxe (v2)
     - Or a custom board
   - <b>Custom Audio Board :</b> Configure your DAC and GPIO
     - DAC Chip :

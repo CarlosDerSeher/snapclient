@@ -34,7 +34,8 @@
 #include "i2c_bus.h"
 
 #if defined(CONFIG_ESP_LYRAT_V4_3_BOARD) || \
-    defined(CONFIG_ESP_AI_THINKER_ES8388_BOARD)
+    defined(CONFIG_ESP_AI_THINKER_ES8388_BOARD) || \
+    defined(CONFIG_ESP_MUSE_LUXE_BOARD)
 #include "headphone_detect.h"
 #endif
 
@@ -272,7 +273,8 @@ esp_err_t es8388_deinit(void) {
                      0xFF);  // reset and stop es8388
   i2c_bus_delete(i2c_handle);
 #if defined(CONFIG_ESP_LYRAT_V4_3_BOARD) || \
-    defined(CONFIG_ESP_AI_THINKER_ES8388_BOARD)
+    defined(CONFIG_ESP_AI_THINKER_ES8388_BOARD) || \
+    defined(CONFIG_ESP_MUSE_LUXE_BOARD)
   headphone_detect_deinit();
   res = es_write_reg(ES8388_ADDR, ES8388_CHIPPOWER,
                      0xFF);  // reset and stop es8388
@@ -292,7 +294,8 @@ esp_err_t es8388_init(audio_hal_codec_config_t *cfg) {
   int res = 0;
 
 #if defined(CONFIG_ESP_LYRAT_V4_3_BOARD) || \
-    defined(CONFIG_ESP_AI_THINKER_ES8388_BOARD)
+    defined(CONFIG_ESP_AI_THINKER_ES8388_BOARD) || \
+    defined(CONFIG_ESP_MUSE_LUXE_BOARD)
   headphone_detect_init(get_headphone_detect_gpio());
 #endif
 
@@ -341,7 +344,8 @@ esp_err_t es8388_init(audio_hal_codec_config_t *cfg) {
       ES8388_ADDR, ES8388_DACCONTROL24,
       0x1E);  // Set L1 R1 L2 R2 volume. 0x00: -30dB, 0x1E: 0dB, 0x21: 3dB
   res |= es_write_reg(ES8388_ADDR, ES8388_DACCONTROL25, 0x1E);
-#if defined(CONFIG_ESP_AI_THINKER_ES8388_BOARD)
+#if defined(CONFIG_ESP_AI_THINKER_ES8388_BOARD) || \
+    defined(CONFIG_ESP_MUSE_LUXE_BOARD)
   res |= es_write_reg(ES8388_ADDR, ES8388_DACCONTROL26, 0x1E);
   res |= es_write_reg(ES8388_ADDR, ES8388_DACCONTROL27, 0x1E);
 #else
