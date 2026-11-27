@@ -129,6 +129,20 @@ esp_err_t dsp_settings_set_flow_params(dspFlows_t flow,
  */
 esp_err_t dsp_settings_switch_active_flow(dspFlows_t flow);
 
+/**
+ * Save volume curve dB range to NVS
+ * @param db_range dB range value (0-90)
+ * @return ESP_OK on success
+ */
+esp_err_t dsp_settings_save_volume_curve_db_range(float db_range);
+
+/**
+ * Load volume curve dB range from NVS
+ * @param db_range Pointer to store the loaded value
+ * @return ESP_OK on success, ESP_ERR_NVS_NOT_FOUND if not set
+ */
+esp_err_t dsp_settings_load_volume_curve_db_range(float *db_range);
+
 #ifdef __cplusplus
 }
 #endif

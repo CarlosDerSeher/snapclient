@@ -1,5 +1,6 @@
 
 
+#include <math.h>
 #include <stdint.h>
 #include <string.h>
 #include <sys/time.h>
@@ -48,6 +49,30 @@ static dsp_all_params_t all_params;
 static ptype_t *filter = NULL;
 
 static double dynamic_vol = 1.0;
+static double last_slider_position = 1.0;
+
+// Exponential volume curve: y = 10^(dB_range * (x - 1) / 20), i.e. -dB_range dB
+// at x = 0 up to 0 dB at x = 1. db_range == 0 bypasses the curve (linear).
+// Below VOLUME_CURVE_ROLLOFF_THRESHOLD a linear ramp guarantees silence at 0.
+#ifndef CONFIG_SNAPCLIENT_VOLUME_CURVE_DB_RANGE
+#define CONFIG_SNAPCLIENT_VOLUME_CURVE_DB_RANGE 0
+#endif
+#define VOLUME_CURVE_ROLLOFF_THRESHOLD 0.1
+
+static float volume_curve_db_range = (float)CONFIG_SNAPCLIENT_VOLUME_CURVE_DB_RANGE;
+
+static double curve_gain(double x) {
+  return pow(10.0, volume_curve_db_range * (x - 1.0) / 20.0);
+}
+
+static double apply_volume_curve(double x) {
+  if (volume_curve_db_range == 0.0f)
+    return x;
+  if (x <= VOLUME_CURVE_ROLLOFF_THRESHOLD)
+    return x / VOLUME_CURVE_ROLLOFF_THRESHOLD *
+           curve_gain(VOLUME_CURVE_ROLLOFF_THRESHOLD);
+  return curve_gain(x);
+}
 
 static bool init = false;
 
@@ -778,10 +803,33 @@ int dsp_processor_worker(char *pcmChnk, uint16_t len, uint32_t samplerate, int c
 void dsp_processor_set_volome(double volume) {
   ESP_LOGD(TAG, "%s: volume=%f", __func__, volume);
   if (volume >= 0 && volume <= 1.0) {
-    ESP_LOGI(TAG, "Set volume to %f", volume);
-    dynamic_vol = volume;
+    last_slider_position = volume;
+    double curve = apply_volume_curve(volume);
+    ESP_LOGI(TAG, "Set volume to %f (raw %f, range=%.0f dB)", curve, volume,
+             volume_curve_db_range);
+    dynamic_vol = curve;
   }
 }
+
+float dsp_processor_get_volume_curve_db_range(void) {
+  return volume_curve_db_range;
+}
+
+void dsp_processor_set_volume_curve_db_range(float db_range) {
+  if (db_range < 0.0f || db_range > 90.0f) {
+    ESP_LOGW(TAG, "%s: db_range %f out of range (0-90), clamping", __func__, db_range);
+    db_range = fminf(fmaxf(db_range, 0.0f), 90.0f);
+  }
+  if (db_range != volume_curve_db_range) {
+    float old_db_range = volume_curve_db_range;
+    volume_curve_db_range = db_range;
+    double new_curve = apply_volume_curve(last_slider_position);
+    ESP_LOGI(TAG, "Volume curve updated: %.0f->%.0f dB, dynamic_vol: %f->%f",
+             old_db_range, volume_curve_db_range, dynamic_vol, new_curve);
+    dynamic_vol = new_curve;
+  }
+}
+
 /**
  * Set parameters for a specific flow (without switching to it)
  */

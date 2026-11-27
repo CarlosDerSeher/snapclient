@@ -21,6 +21,19 @@ menu "ESP32 DSP processor config"
         help
             Use software volume mixer instead of hardware mixer (when your DAC does not support hardware volume control).
 
+    config SNAPCLIENT_VOLUME_CURVE_DB_RANGE
+        int "Volume curve range in dB (0=linear, 90=max)"
+        default 0
+        depends on SNAPCLIENT_USE_SOFT_VOL
+        range 0 90
+        help
+            Controls the shape of the software volume curve.
+            0 = linear passthrough (y = x, no shaping).
+            >0 = exponential curve y = 10^(dB * (x - 1) / 20), mapping
+            slider [0,1] to amplitude [10^(-dB/20), 1.0] for perceptually
+            linear loudness. 40-60 dB is a good range to try; it can also be
+            changed at runtime on the DSP settings page.
+
     config USE_DSP_SOFT_CLIP
         bool "Use cubic soft clipping"
         default false
