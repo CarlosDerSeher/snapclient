@@ -67,10 +67,6 @@ still off in `sdkconfig.defaults` (its Kconfig defaults to `y`) because the pool
 
 ## 2. Robustness and bugs
 
-- Ethernet boot delay: `esp_eth_start()` blocks `app_main` for 4 s in ~1 of 3 resets when no cable
-  is plugged in (auto-negotiation timeout). Lower `autonego_timeout_ms` in
-  `components/network_interface/eth_interface.c`, then check boot timing and that a plugged-in cable
-  still gets link and IP.
 - Hard resyncs: #191, #226 (fixes on experimental, waiting for tests; close when merged to develop).
 - Stream change gives no audio (#111). Cause found: a client that restarts without closing its
   TCP connection leaves a stale session on snapserver, and `Group.SetStream` sends the codec header
@@ -92,6 +88,12 @@ still off in `sdkconfig.defaults` (its Kconfig defaults to `y`) because the pool
   snapcast connection (`netconn err -13`) and the reconnect takes 2.5–5 s. Our code doesn't
   disconnect there, and the LyraT on another AP doesn't show it. Every disconnect is logged with
   its reason now; check the reason in the next log from luar123.
+- Wi-Fi roaming: the station picks the strongest AP of the network only when it connects
+  (`WIFI_CONNECT_AP_BY_SIGNAL`). After the LyraT's AP was rebooted it moved to another AP of the
+  same network at -67 dBm and stayed there after the first one (-46 dBm) was back. Options: enable
+  802.11k/v (`rm_enabled`, `btm_enabled`) so APs that support it can steer the station, or rescan
+  when the RSSI stays low for a while (`esp_wifi_set_rssi_threshold()`,
+  `WIFI_EVENT_STA_BSS_RSSI_LOW`) and reconnect to a stronger AP while idle, not during playback.
 - Stalls under packet loss (#261), server side. With 2 % loss (netem) the server's congestion
   window shrinks to 3–4 segments, so a lost last segment of a chunk can't be fast-retransmitted and
   waits for Linux's retransmit timeout (min 200 ms); a lost retransmit doubles it to 0.7–1 s, which
