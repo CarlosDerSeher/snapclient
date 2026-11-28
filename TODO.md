@@ -112,9 +112,11 @@ and schemas. Needs a TAS5805M board to test.
   esp_timer runs ~1500–2200 ppm off the server with the RC as RTC clock and still ~1150 ppm with
   the ADAU1961 board's 32 kHz crystal; min_freq 80 MHz is worse (~3200–3500 ppm), tickless off
   much worse (~1.8 %). So it is PM/esp_timer, not the oscillator. The reset at playback start
-  (cc7fa7c) handles it (0 HARD 2 vs. 4–11 without). For 180 s after boot Improv's PM lock blocks
-  light sleep, so the clock stays accurate there. `RTC_CLK_SRC_INT_8MD256` boot-loops the LyraT
-  (RTC watchdog reset ~6 s after Wi-Fi connect).
+  (cc7fa7c) handles it (0 HARD 2 vs. 4–11 without) and stays needed: IDF 5.5.5 drifts the same
+  (LyraT, ~1500–2000 ppm; the 5.5.1 idle reply delay it fixed was the smaller part). For 180 s
+  after boot Improv's PM lock blocks light sleep, so the clock stays accurate there.
+  `RTC_CLK_SRC_INT_8MD256` boot-looped the LyraT on IDF 5.5.1 (RTC watchdog reset ~6 s after
+  Wi-Fi connect); IDF 5.5.2 fixed a wakeup failure with it (`752e4e89`), retest on 5.5.5.
 - Time sync on Wi-Fi: correct each request's c2s by its own driver wait,
   c2s − (TX done − sent), from `esp_wifi_set_tx_done_cb()` (private API; the callback has to
   parse every TX frame, and `data_len` is shorter than the frame). During playback the wait is
