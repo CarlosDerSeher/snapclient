@@ -45,7 +45,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.x"
+          python-version: "3.12"  # IDF 5.5.3 Python deps (pydantic-core) have no wheels for 3.15
 
       # Cache the PlatformIO home directory (toolchains, platform packages)
       # and the per-env build output so incremental builds are faster.
