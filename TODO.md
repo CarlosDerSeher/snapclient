@@ -52,10 +52,6 @@ and schemas. Needs a TAS5805M board to test.
 - POST: one parameter per request, or a small parser instead of `cJSON_Parse()` on the whole body.
 - Fault task (polling) → periodic job without its own stack.
 
-### 1.5 Optional: buffer compressed FLAC
-Only if the above is not enough. Saves ~40–60 KB at 750 ms, but only with a fixed ring buffer and a
-small PCM look-ahead decoded just in time.
-
 ## 2. Robustness and bugs
 
 ### 2.1 Network
@@ -86,10 +82,6 @@ small PCM look-ahead decoded just in time.
 ### 2.2 Sync and playback
 
 - Hard resyncs: #191, #226 (fixes on experimental, waiting for tests; close when merged to develop).
-- Time filter reset at playback start after idle Wi-Fi power save (cc7fa7c): still needed? It was
-  added because idle time replies came back 10–230 ms late; since 4116a97 they take 5–11 ms
-  (LyraT, MAX_MODEM, 26 ms max). Without the reset playback would start ~0.5 s sooner. Measure the
-  offset at playback start with and without it.
 - Switching a playing board from `flac44` to the test server's `idle` stream (a 48 kHz pipe without
   data) gives one HARD 2 at about -51 ms right after the new start, with and without 92f10ee. Find
   out whether it is the format change or the empty stream.
@@ -116,6 +108,25 @@ small PCM look-ahead decoded just in time.
     DU1906, Kaluga): no datasheet value. PT8211 has no oversampling filter, so probably ~0.
   - ADAU1961 at 88.2/96 kHz: the driver runs the chip with 96 kHz as its base rate (R17 CONVSR at
     default); the datasheet's 11/fS is for a 48 kHz base. Check that this is in spec and measure.
+- Idle clock with PM: while idle on Wi-Fi (no player PM lock: min 40 MHz plus light sleep),
+  esp_timer runs ~1500–2200 ppm off the server with the RC as RTC clock and still ~1150 ppm with
+  the ADAU1961 board's 32 kHz crystal; min_freq 80 MHz is worse (~3200–3500 ppm), tickless off
+  much worse (~1.8 %). So it is PM/esp_timer, not the oscillator. The reset at playback start
+  (cc7fa7c) handles it (0 HARD 2 vs. 4–11 without). For 180 s after boot Improv's PM lock blocks
+  light sleep, so the clock stays accurate there. `RTC_CLK_SRC_INT_8MD256` boot-loops the LyraT
+  (RTC watchdog reset ~6 s after Wi-Fi connect).
+- Idle RTT after a playback on Wi-Fi (IDF 5.5.1): after a playback stops, time requests wait in
+  the closed Wi-Fi driver before their first transmission, 23–72 ms median (max 360 ms) instead
+  of ~1 ms, until the next playback. Found with the driver's TX-done callback
+  (`esp_wifi_set_tx_done_cb()`); lwIP, the server, AMPDU, IRAM options and light sleep are ruled
+  out, Wi-Fi power save only makes it worse. A 1 s player start/stop is enough to trigger it.
+  Gone with IDF 5.5.5 (two runs, 4 idle phases, median 1.3 ms); see the IDF update in 2.4.
+  Harmless for playback (the filter restarts at playback start).
+- Time sync on Wi-Fi: correct each request's c2s by its own driver wait,
+  c2s − (TX done − sent), from `esp_wifi_set_tx_done_cb()` (private API; the callback has to
+  parse every TX frame, and `data_len` is shorter than the frame). During playback the wait is
+  1.2–1.8 ms median, p90 ~5 ms, so this could remove part of the round-trip noise noted below.
+  Measure the time filter's noise during playback with and without it.
 - Sync drift fix (play time from the I2S DMA callbacks): no drift in 11 h at 44.1 kHz. Check 48 kHz.
 - Smoother sample insertion: a sync correction drops or repeats one frame (22.7 µs at 44.1 kHz), a
   step in the waveform; in steady state one every 4–5 s, more after a start or resync. Measure
@@ -135,6 +146,11 @@ small PCM look-ahead decoded just in time.
 
 ### 2.4 Dependencies
 
+- Update ESP-IDF 5.5.1 → 5.5.5. Fixes the idle uplink delay after a playback (measured on the
+  LyraT with the same image built on both; the changelogs don't name it, candidates are the
+  keep-alive changes `6935edf4` and `fb93ff74`) and the `RTC_CLK_SRC_INT_8MD256` wakeup failure
+  (`752e4e89`, esp-idf#16243). Build-check all PlatformIO envs (IRAM on the PSRAM boards), compare
+  `idf.py size`, and update the Docker image in `test/buildall`, `platformio.ini` and the README.
 - Update libFLAC: the submodule is at 1.3.3+85 (has the 1.3.4 CVE fix), upstream at 1.5.0 with
   oss-fuzz fixes for malformed frames; most important a heap overflow when a frame's predictor
   order is larger than its blocksize (`2f209573`), also `79e462fb`, `1bec35e3`, `0e1535cc`,

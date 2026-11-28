@@ -583,12 +583,15 @@ int start_player() {
 
   tg0_timer_init();
 
-  // Start the time filter over if Wi-Fi was in power save while idle: after
-  // a playback, idle time replies were measured 10-230 ms late (median;
-  // MIN_MODEM / MAX_MODEM), which skews the estimate by tens of ms. Without
-  // the reset playback started up to 75 ms off and needed ~15 hard resyncs.
-  // Over Ethernet (or without power save) the idle estimate stayed within
-  // 40 us, so the refill (~0.5 s) is skipped there.
+  // Start the time filter over if Wi-Fi was in power save while idle. With
+  // the player's PM lock released the CPU drops to min_freq and light-sleeps,
+  // and esp_timer then runs 1100-2200 ppm off the server (measured on ESP32
+  // with the RC and the 32 kHz crystal as RTC clock). The filter has no drift
+  // term, so it trails that ramp by tens of ms; idle time replies are also
+  // 10-230 ms late after a playback. Without the reset playback started up to
+  // 75 ms off and needed 4-15 hard resyncs. Over Ethernet (or without power
+  // save) the idle estimate stayed within 40 us, so the refill (~0.5 s) is
+  // skipped there.
   if (wifi_idle_power_save()) {
     ESP_LOGI(TAG, "reset Latency buffer (Wi-Fi power save while idle)");
 
