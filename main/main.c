@@ -278,7 +278,7 @@ void time_sync_msg_cb(void *args) {
   }
 
   rc1 = netconn_write(lwipNetconn, p_pkt, BASE_MESSAGE_SIZE + TIME_MESSAGE_SIZE,
-                      NETCONN_NOCOPY);
+                      NETCONN_COPY);
   
   if (rc1 != ERR_OK) {
     ESP_LOGW(TAG, "error writing timesync msg");
@@ -1626,9 +1626,9 @@ static void http_get_task(void *pvParameters) {
     }
 
     rc1 = netconn_write(lwipNetconn, base_message_serialized, BASE_MESSAGE_SIZE,
-                        NETCONN_NOCOPY);
+                        NETCONN_COPY);
     rc1 |= netconn_write(lwipNetconn, hello_message_serialized,
-                        base_message_rx.size, NETCONN_NOCOPY);
+                        base_message_rx.size, NETCONN_COPY);
     if (rc1 != ERR_OK) {
       ESP_LOGE(TAG, "netconn failed to send hello message");
 
