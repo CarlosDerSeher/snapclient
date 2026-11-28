@@ -13,10 +13,10 @@
 # itself (ninja), so more jobs overload the PC. A full run builds all
 # envs from scratch; a second run with the same OUT_DIR only rebuilds changes.
 # The *-debug envs build with -Werror, so they catch warnings the others don't.
-# Environment: IDF_IMAGE (default espressif/idf:v5.5.1).
+# Environment: IDF_IMAGE (default espressif/idf:v5.5.5).
 set -u
 OUT=$(mkdir -p "$1" && cd "$1" && pwd); JOBS=${2:-4}; P=$(pwd)
-export OUT P IMG=${IDF_IMAGE:-espressif/idf:v5.5.1}
+export OUT P IMG=${IDF_IMAGE:-espressif/idf:v5.5.5}
 one() {
   e=$1 t=$2 d=$3 B=$OUT/$1
   mkdir -p "$B"

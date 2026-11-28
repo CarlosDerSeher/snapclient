@@ -6,13 +6,13 @@
         {
             "label": "Start Docker Container for Build",
             "type": "shell",
-            "command": "docker run --rm -it --user $(id -u):$(id -g) -e HOME=/tmp -v ${workspaceFolder}:${workspaceFolder} -w ${workspaceFolder} espressif/idf:v5.5.1",
+            "command": "docker run --rm -it --user $(id -u):$(id -g) -e HOME=/tmp -v ${workspaceFolder}:${workspaceFolder} -w ${workspaceFolder} espressif/idf:v5.5.5",
             "problemMatcher": []
         },
         {
             "label": "Build, Flash and Monitor (Docker)",
             "type": "shell",
-            "command": "docker run --rm -it --user $(id -u):$(id -g) --group-add $(stat -c %g /dev/ttyUSB0) --device /dev/ttyUSB0 -e HOME=/tmp -v ${workspaceFolder}:${workspaceFolder} -w ${workspaceFolder} espressif/idf:v5.5.1 /bin/bash -c '. $IDF_PATH/export.sh && idf.py -b 1000000 build flash monitor'",
+            "command": "docker run --rm -it --user $(id -u):$(id -g) --group-add $(stat -c %g /dev/ttyUSB0) --device /dev/ttyUSB0 -e HOME=/tmp -v ${workspaceFolder}:${workspaceFolder} -w ${workspaceFolder} espressif/idf:v5.5.5 /bin/bash -c '. $IDF_PATH/export.sh && idf.py -b 1000000 build flash monitor'",
             "group": {
                 "kind": "build",
                 "isDefault": true

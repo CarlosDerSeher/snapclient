@@ -115,13 +115,6 @@ and schemas. Needs a TAS5805M board to test.
   (cc7fa7c) handles it (0 HARD 2 vs. 4–11 without). For 180 s after boot Improv's PM lock blocks
   light sleep, so the clock stays accurate there. `RTC_CLK_SRC_INT_8MD256` boot-loops the LyraT
   (RTC watchdog reset ~6 s after Wi-Fi connect).
-- Idle RTT after a playback on Wi-Fi (IDF 5.5.1): after a playback stops, time requests wait in
-  the closed Wi-Fi driver before their first transmission, 23–72 ms median (max 360 ms) instead
-  of ~1 ms, until the next playback. Found with the driver's TX-done callback
-  (`esp_wifi_set_tx_done_cb()`); lwIP, the server, AMPDU, IRAM options and light sleep are ruled
-  out, Wi-Fi power save only makes it worse. A 1 s player start/stop is enough to trigger it.
-  Gone with IDF 5.5.5 (two runs, 4 idle phases, median 1.3 ms); see the IDF update in 2.4.
-  Harmless for playback (the filter restarts at playback start).
 - Time sync on Wi-Fi: correct each request's c2s by its own driver wait,
   c2s − (TX done − sent), from `esp_wifi_set_tx_done_cb()` (private API; the callback has to
   parse every TX frame, and `data_len` is shorter than the frame). During playback the wait is
@@ -146,11 +139,11 @@ and schemas. Needs a TAS5805M board to test.
 
 ### 2.4 Dependencies
 
-- Update ESP-IDF 5.5.1 → 5.5.5. Fixes the idle uplink delay after a playback (measured on the
-  LyraT with the same image built on both; the changelogs don't name it, candidates are the
-  keep-alive changes `6935edf4` and `fb93ff74`) and the `RTC_CLK_SRC_INT_8MD256` wakeup failure
-  (`752e4e89`, esp-idf#16243). Build-check all PlatformIO envs (IRAM on the PSRAM boards), compare
-  `idf.py size`, and update the Docker image in `test/buildall`, `platformio.ini` and the README.
+- PlatformIO still uses `platformio/espressif32 @ 6.12.0` (IDF 5.5.0); everything else builds with
+  IDF 5.5.5. No official PlatformIO release has 5.5.5: 6.13.0 has IDF 5.5.3, 7.x/8.x IDF 6.0/6.1.
+  IDF 5.5.1 holds time requests in the Wi-Fi driver after a playback (23–72 ms median instead of
+  ~1 ms; found with `esp_wifi_set_tx_done_cb()`); 5.5.3 and 5.5.5 don't (measured on the LyraT).
+  Options: official 6.13.0, or the pioarduino platform (55.03.312 is based on IDF 5.5.5).
 - Update libFLAC: the submodule is at 1.3.3+85 (has the 1.3.4 CVE fix), upstream at 1.5.0 with
   oss-fuzz fixes for malformed frames; most important a heap overflow when a frame's predictor
   order is larger than its blocksize (`2f209573`), also `79e462fb`, `1bec35e3`, `0e1535cc`,

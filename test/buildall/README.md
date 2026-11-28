@@ -9,7 +9,7 @@ ESP-IDF Docker image, several in parallel, without touching the root `sdkconfig`
 test/buildall/buildall.sh /tmp/buildall 4     # from the repository root; 4 parallel jobs
 ```
 
-Needs Docker and the image `espressif/idf:v5.5.1` (`IDF_IMAGE` to change it). Each job needs
+Needs Docker and the image `espressif/idf:v5.5.5` (`IDF_IMAGE` to change it). Each job needs
 about 1 GB of RAM. The first run builds everything from scratch; a later run with the same
 directory only rebuilds what changed.
 

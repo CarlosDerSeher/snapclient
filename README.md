@@ -27,7 +27,7 @@ which made it impossible to get good results for multiroom syncing.
 
 ### Codebase
 
-The codebase is split into components and build on <b>ESP-IDF v5.5.1</b> (tested with v5.1.5 and v5.5.1, but any v5.x should work). I still
+The codebase is split into components and build on <b>ESP-IDF v5.5.5</b> (tested with v5.5.5; older v5.5 releases have a Wi-Fi driver bug that delays time sync requests after a playback). I still
 have some refactoring on the todo list as the concept has started to settle and
 allow for new features can be added in a structured manner. In the code you
 will find parts that are only partly related features and still not on the task
@@ -150,7 +150,7 @@ copy sdkconfig_lyrat_v4.3 sdkconfig
 ```
 
 ### ESP-IDF environment setup (required for configuration, compiling and flashing)
-- <b>If you're on Windows :</b> Install [ESP-IDF v5.5.1](https://github.com/espressif/esp-idf/releases/tag/v5.5.1) locally ([More info](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/windows-setup-update.html)).
+- <b>If you're on Windows :</b> Install [ESP-IDF v5.5.5](https://github.com/espressif/esp-idf/releases/tag/v5.5.5) locally ([More info](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/windows-setup-update.html)).
 - <b>If you're on Linux (docker) :</b> Use the image for ESP-IDF by following [docker build](doc/docker_build.md) doc (you won't need any of the remaining commands/steps below up until the <b>Test</b> section then) 
 - <b>If you're on Linux :</b> follow [official Espressif](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/linux-macos-setup.html) instructions
 
@@ -159,7 +159,7 @@ copy sdkconfig_lyrat_v4.3 sdkconfig
   sudo apt-get install git wget flex bison gperf python3 python3-pip python3-venv cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0
   mkdir -p ~/esp
   cd ~/esp
-  git clone -b v5.5.1 --recursive https://github.com/espressif/esp-idf.git
+  git clone -b v5.5.5 --recursive https://github.com/espressif/esp-idf.git
   cd ~/esp/esp-idf
   ./install.sh esp32
   . ./export.sh
