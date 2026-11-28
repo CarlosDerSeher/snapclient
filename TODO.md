@@ -139,11 +139,6 @@ and schemas. Needs a TAS5805M board to test.
 
 ### 2.4 Dependencies
 
-- PlatformIO still uses `platformio/espressif32 @ 6.12.0` (IDF 5.5.0); everything else builds with
-  IDF 5.5.5. No official PlatformIO release has 5.5.5: 6.13.0 has IDF 5.5.3, 7.x/8.x IDF 6.0/6.1.
-  IDF 5.5.1 holds time requests in the Wi-Fi driver after a playback (23–72 ms median instead of
-  ~1 ms; found with `esp_wifi_set_tx_done_cb()`); 5.5.3 and 5.5.5 don't (measured on the LyraT).
-  Options: official 6.13.0, or the pioarduino platform (55.03.312 is based on IDF 5.5.5).
 - Update libFLAC: the submodule is at 1.3.3+85 (has the 1.3.4 CVE fix), upstream at 1.5.0 with
   oss-fuzz fixes for malformed frames; most important a heap overflow when a frame's predictor
   order is larger than its blocksize (`2f209573`), also `79e462fb`, `1bec35e3`, `0e1535cc`,
